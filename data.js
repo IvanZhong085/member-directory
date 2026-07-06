@@ -180,6 +180,19 @@ const GROUPS = [
         "business_items": "",
         "id": "g3_m8",
         "dataIssue": false
+      },
+      {
+        "id": "g3_m_mr98vc8713ze",
+        "number": "",
+        "name": "測試員甲",
+        "title": "",
+        "services": [],
+        "targets": [],
+        "tagline": [],
+        "image": "",
+        "company": "",
+        "business_items": "",
+        "dataIssue": false
       }
     ],
     "id": "g3"
