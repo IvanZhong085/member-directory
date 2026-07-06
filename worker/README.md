@@ -10,11 +10,10 @@
 - 你原本已經建立的 GitHub 權杖（fine-grained token，Contents: Read and write，只授權
   `member-directory` 這個 repo）。
 - 一組你想設定的**管理密碼**（給所有操作者日常登入用，跟 GitHub 權杖不同東西）。
-- 下面這組**隨機亂碼**（貼給 Worker 當簽章用的密鑰，不用背，複製貼上即可）：
-
-  ```
-  sQCxDyjXUTH7WoWAmBdpXcCZL8E5ypCLvOBXvEH8e9fyMhoLadKEW2g4HBgXdtoF
-  ```
+- 一組**自己產生的隨機亂碼**（給 Worker 當簽章密鑰用，設定完就不用再記得它）：
+  隨手在鍵盤上亂打 **40 個以上**的英文數字混合字元即可，例如打一長串不重複的亂碼。
+  ⚠️ 這組亂碼**不可以**抄自任何公開的地方（包括本說明檔的舊版本）、不可以跟別人共用、
+  也不要存在任何會被推上 GitHub 的檔案裡——它只該存在 Cloudflare 的 Secret 欄位中。
 
 ## 步驟
 
@@ -40,7 +39,7 @@
 | 名稱 | 值 |
 |---|---|
 | `ADMIN_PASSWORD` | 你要設定的管理密碼（跟 GitHub 權杖是兩回事） |
-| `SESSION_SECRET` | 上面準備的那組亂碼，直接貼上 |
+| `SESSION_SECRET` | 你自己亂打的那組 40+ 字元亂碼（不可抄公開範例） |
 | `GH_TOKEN` | 你的 GitHub fine-grained 權杖（`github_pat_...` 開頭） |
 
 **一般變數（Plaintext 即可）：**

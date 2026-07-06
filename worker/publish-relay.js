@@ -241,9 +241,18 @@ export default {
   async fetch(request, env){
     // 沒設定 ALLOWED_ORIGIN 就直接回報錯誤，而不是悄悄用空字串「剛好」擋掉跨網域請求——
     // 避免未來改動不小心讓這個隱性行為失效卻沒人發現。
+    // 錯誤回應（含 OPTIONS 預檢）刻意用 "*"，任何來源的瀏覽器都能讀到錯誤碼（內容無機密）：
+    // 部署的管理員才能在編輯頁上直接看到「服務尚未設定完成」，而不是一個看不懂的網路錯誤。
+    // 此狀態下所有實際請求一律回 500，不會執行登入/發布，故放寬 CORS 不影響安全。
     if(!env.ALLOWED_ORIGIN){
+      const openCors = {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+      };
+      if(request.method === "OPTIONS") return new Response(null, { status:204, headers: openCors });
       return new Response(JSON.stringify({ ok:false, error:"misconfigured_missing_allowed_origin" }), {
-        status: 500, headers: { "Content-Type":"application/json" },
+        status: 500, headers: Object.assign({ "Content-Type":"application/json" }, openCors),
       });
     }
     if(request.method === "OPTIONS") return new Response(null, { status:204, headers: corsHeaders(env) });

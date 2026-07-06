@@ -27,7 +27,7 @@
   function esc(s){
     return (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   }
-  function joinLines(arr){ return (arr||[]).join("\n"); }
+  function joinLines(arr){ return (arr||[]).join("\n").replace(/\u000B/g, "\n"); }
   function safeDecode(s){ try { return decodeURIComponent(s); } catch(_){ return s; } }
   function isSearchHash(h){ return (h||"").startsWith("#/search/"); }
   function scrollTop(){ window.scrollTo({top:0, left:0, behavior:"instant"}); }
@@ -84,9 +84,20 @@
   let prevHash = "#/";
   let searchTimer = null;
 
+  /* 記住每個頁面離開時的捲動位置：按上一頁/下一頁回來時還原原位，
+     點站內連結前進則清掉目的地的紀錄、從頁首開始。 */
+  const scrollMem = new Map();
+  let curHash = location.hash || "#/";
+  window.addEventListener("scroll", () => { scrollMem.set(curHash, window.scrollY); }, {passive:true});
+  document.addEventListener("click", e => {
+    const a = e.target.closest && e.target.closest('a[href^="#/"]');
+    if(a) scrollMem.delete(a.getAttribute("href"));
+  });
+
   function render(){
     const hash = location.hash || "#/";
-    if(isSearchHash(hash)){
+    curHash = hash;
+    if(isSearchHash(hash) && safeDecode(hash.slice(9)).trim()){
       const q = safeDecode(hash.slice(9));
       if(searchInput.value.trim() !== q.trim()) searchInput.value = q;
       searchClear.hidden = !q;
@@ -101,7 +112,9 @@
       syncSearchCleared();
       renderHome();
     }
-    scrollTop();
+    const saved = scrollMem.get(hash);
+    if(saved !== undefined) window.scrollTo({top:saved, left:0, behavior:"instant"});
+    else scrollTop();
   }
 
   function syncSearchCleared(){

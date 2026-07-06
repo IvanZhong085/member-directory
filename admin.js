@@ -24,6 +24,7 @@
   let selected = DATA.length ? DATA[0].id : null;
   let saveTimer = null;
   let hasDraft = false;
+  let dirty = false;   // 只有真的改過東西才需要在關閉前搶救草稿
 
   function uid(prefix){
     return prefix + "_" + Date.now().toString(36) + Math.floor(Math.random()*1e5).toString(36);
@@ -36,11 +37,12 @@
       localStorage.setItem(DRAFT_KEY, JSON.stringify({ savedAt: Date.now(), data: DATA }));
       saveState.textContent = "已自動儲存 " + new Date().toLocaleTimeString("zh-Hant",{hour:"2-digit",minute:"2-digit"});
       showDraftBanner(true);
+      dirty = false;
     }catch(e){
-      saveState.textContent = "⚠ 草稿無法儲存（照片可能過多，請先下載備份）";
+      saveState.textContent = "⚠ 無法自動儲存草稿（瀏覽器儲存空間不足或被封鎖）— 發布前請勿關閉此分頁，並建議先「下載備份」";
     }
   }
-  function scheduleSave(){ clearTimeout(saveTimer); saveTimer = setTimeout(saveDraft, 400); }
+  function scheduleSave(){ dirty = true; clearTimeout(saveTimer); saveTimer = setTimeout(saveDraft, 400); }
 
   // Silently continue from any saved draft (no scary modal); a banner shows there are unpublished changes.
   function tryLoadDraft(){
@@ -55,6 +57,7 @@
   function discardDraft(){
     if(!confirm("捨棄尚未發布的變更，改回目前公開網站的內容？")) return;
     clearTimeout(saveTimer);
+    dirty = false;
     try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
     DATA = clone(typeof GROUPS !== "undefined" ? GROUPS : []);
     selected = DATA.length ? DATA[0].id : null;
@@ -89,7 +92,7 @@
   const groupById = id => DATA.find(g => g.id === id);
   function esc(s){ return (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
   function imgSrc(image){ return /^data:/.test(image) ? image : "images/" + encodeURIComponent(image); }
-  function linesToArr(v){ const a = v.split("\n"); while(a.length && a[a.length-1].trim()==="") a.pop(); return a; }
+  function linesToArr(v){ const a = v.replace(/\u000B/g, "\n").split("\n"); while(a.length && a[a.length-1].trim()==="") a.pop(); return a; }
 
   /* ---------- validation ---------- */
   function validate(){
@@ -408,24 +411,36 @@
   // 部署好 Worker 後，把網址貼進這裡即可讓所有裝置都不用再設定一次（此網址不是機密）。
   const WORKER_URL_DEFAULT = "";
 
+  // 瀏覽器封鎖儲存（例如 iOS 無痕模式）時，退回記憶體變數：同一個分頁內一切照常，
+  // 只是重新整理後需要重新輸入設定與密碼——不會出現「登入成功卻永遠發布不了」的死循環。
+  let memWorkerUrl = "";
+  let memSession = null;
+
   function loadWorkerUrl(){
     let saved = ""; try{ saved = localStorage.getItem(WORKER_URL_KEY) || ""; }catch(e){}
-    return (saved || WORKER_URL_DEFAULT || "").trim().replace(/\/+$/, "");
+    return (saved || memWorkerUrl || WORKER_URL_DEFAULT || "").trim().replace(/\/+$/, "");
   }
   function saveWorkerUrl(url){
+    memWorkerUrl = url;
     try{ localStorage.setItem(WORKER_URL_KEY, url); }catch(e){}
   }
   function loadSession(){
-    let raw; try{ raw = sessionStorage.getItem(SESSION_KEY); }catch(e){ return null; }
-    if(!raw) return null;
-    let s; try{ s = JSON.parse(raw); }catch(e){ return null; }
-    if(!s || !s.token || !s.exp || Date.now() >= s.exp) return null;
-    return s.token;
+    let raw = null; try{ raw = sessionStorage.getItem(SESSION_KEY); }catch(e){}
+    if(raw){
+      let s; try{ s = JSON.parse(raw); }catch(e){ s = null; }
+      if(s && s.token && s.exp && Date.now() < s.exp) return s.token;
+    }
+    if(memSession && memSession.token && Date.now() < memSession.exp) return memSession.token;
+    return null;
   }
   function saveSession(token, expiresInSeconds){
-    try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token, exp: Date.now() + expiresInSeconds*1000 })); }catch(e){}
+    memSession = { token, exp: Date.now() + expiresInSeconds*1000 };
+    try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify(memSession)); }catch(e){}
   }
-  function clearSession(){ try{ sessionStorage.removeItem(SESSION_KEY); }catch(e){} }
+  function clearSession(){
+    memSession = null;
+    try{ sessionStorage.removeItem(SESSION_KEY); }catch(e){}
+  }
 
   async function workerFetch(path, payload, urlOverride){
     const url = urlOverride || loadWorkerUrl();
@@ -467,7 +482,12 @@
 
   async function tryUnlock(){
     const pass = byId("lock-pass").value;
-    if(!pass) return;
+    if(!pass){
+      byId("lock-error").hidden = false;
+      byId("lock-error").textContent = "請先輸入密碼。";
+      byId("lock-pass").focus();
+      return;
+    }
     if(!loadWorkerUrl()){ openSettings(); return; }
     const btn = byId("lock-enter");
     btn.disabled = true; btn.textContent = "確認中…";
@@ -525,8 +545,15 @@
   function saveSettings(){
     const url = byId("s-worker-url").value.trim().replace(/\/+$/, "");
     if(url && !/^https:\/\//.test(url)){ toast("網址需以 https:// 開頭", {warn:true}); return; }
+    const changed = url !== loadWorkerUrl();
     saveWorkerUrl(url);
     closeSettings();
+    if(loadSession() && !changed){
+      // 已登入且網址沒變（例如只是打開看看就按儲存）→ 不需要把人踢回登入畫面
+      toast("設定已儲存");
+      return;
+    }
+    if(changed) clearSession();   // 換了後端服務，舊 session 對新服務無效
     showLock();
     toast(url ? "設定已儲存，請輸入密碼登入" : "已清空設定");
   }
@@ -558,6 +585,7 @@
       const res = await workerFetch("/publish", { session, content: serialize() });
       if(res.ok){
         clearTimeout(saveTimer);
+        dirty = false;
         try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
         showDraftBanner(false);
         hidePermBanner();
@@ -566,6 +594,9 @@
         clearSession();
         toast("登入逾時，請重新輸入密碼再發布一次（草稿都還在，沒有遺失）", {warn:true, duration:6000});
         showLock();
+        // 鎖定畫面蓋住畫面時，toast 可能被忽略——把說明直接寫在登入卡片上
+        byId("lock-error").hidden = false;
+        byId("lock-error").textContent = "登入逾時（超過 30 分鐘）。剛才的修改都還在，重新輸入密碼後再按一次「發布到網站」即可。";
       } else if(res.error === "token_forbidden"){
         toast("發布服務目前無法寫入 GitHub，這次修改「沒有」上線（草稿都還在）。", {warn:true, duration:7000});
         showPermBanner("Worker 上設定的 GitHub 權杖沒有寫入權限或已失效，請管理員到 Cloudflare 檢查 Worker 的 GH_TOKEN 設定（需要 Contents: Read and write）。");
@@ -621,10 +652,11 @@
   byId("s-test").onclick = testConnection;
   byId("lock-enter").onclick = tryUnlock;
   byId("lock-pass").addEventListener("keydown", e => { if(e.key === "Enter") tryUnlock(); });
+  byId("s-worker-url").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); saveSettings(); } });
   byId("lock-setup").onclick = () => { openSettings(); };
   byId("perm-recheck").onclick = () => { hidePermBanner(); toast("已隱藏提醒，發布時若還有問題會再顯示"); };
   byId("settings-modal").addEventListener("click", e => { if(e.target.id === "settings-modal") closeSettings(); });
   document.addEventListener("keydown", e => { if(e.key === "Escape" && !byId("settings-modal").hidden) closeSettings(); });
 
-  window.addEventListener("beforeunload", saveDraft);
+  window.addEventListener("beforeunload", () => { if(dirty) saveDraft(); });
 })();
