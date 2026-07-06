@@ -408,8 +408,8 @@
      關掉分頁就消失）。密碼與 GitHub 權杖從頭到尾都不會出現在瀏覽器裡。 */
   const WORKER_URL_KEY = "member-directory-worker-url-v1";
   const SESSION_KEY = "member-directory-session-v1";   // sessionStorage only
-  // 部署好 Worker 後，把網址貼進這裡即可讓所有裝置都不用再設定一次（此網址不是機密）。
-  const WORKER_URL_DEFAULT = "";
+  // 部署好 Worker 後，把網址寫在這裡，所有裝置都不用再手動設定，只要輸入密碼即可（此網址不是機密）。
+  const WORKER_URL_DEFAULT = "https://member-directory-relay.retetrhjj123.workers.dev";
 
   // 瀏覽器封鎖儲存（例如 iOS 無痕模式）時，退回記憶體變數：同一個分頁內一切照常，
   // 只是重新整理後需要重新輸入設定與密碼——不會出現「登入成功卻永遠發布不了」的死循環。
