@@ -403,8 +403,12 @@
   /* ---------- GitHub publish (one-click update to the live site) ---------- */
   const GH_SETTINGS_KEY = "member-directory-gh-settings-v1";
   const GH_TOKEN_KEY = "member-directory-gh-token-v1";
+  // pre-filled for this deployment so the operator only needs to paste a token
+  const GH_DEFAULTS = { owner: "IvanZhong085", repo: "member-directory", branch: "main", path: "data.js" };
   function loadGhSettings(){
-    try{ return JSON.parse(localStorage.getItem(GH_SETTINGS_KEY)) || {}; }catch(e){ return {}; }
+    let saved = {};
+    try{ saved = JSON.parse(localStorage.getItem(GH_SETTINGS_KEY)) || {}; }catch(e){}
+    return Object.assign({}, GH_DEFAULTS, saved);
   }
   function loadGhToken(){ try{ return localStorage.getItem(GH_TOKEN_KEY) || ""; }catch(e){ return ""; } }
   function base64Utf8(str){
