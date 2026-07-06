@@ -2148,7 +2148,7 @@ const GROUPS = [
         "dataIssue": false
       },
       {
-        "number": "128",
+        "number": "129",
         "name": "張凱聖",
         "title": "職醫職護特約服務",
         "services": [
@@ -2218,7 +2218,7 @@ const GROUPS = [
         "dataIssue": false
       },
       {
-        "number": "170",
+        "number": "169",
         "name": "吳雨軒",
         "title": "物流倉儲系統規劃",
         "services": [
