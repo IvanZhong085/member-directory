@@ -114,11 +114,11 @@
     let html = `
       <section class="hero">
         <svg class="hero-deco" viewBox="0 0 300 300" fill="none" aria-hidden="true">
-          <circle cx="190" cy="110" r="100" stroke="#FAE4E8" stroke-width="2"/>
-          <circle cx="190" cy="110" r="70" stroke="#F3C4CD" stroke-width="2"/>
-          <circle cx="190" cy="110" r="40" stroke="#FAE4E8" stroke-width="2"/>
-          <circle cx="260" cy="60" r="8" fill="#C8102E"/>
-          <circle cx="120" cy="180" r="5" fill="#F3C4CD"/>
+          <circle cx="190" cy="110" r="100" stroke="var(--red-100)" stroke-width="2"/>
+          <circle cx="190" cy="110" r="70" stroke="var(--red-200)" stroke-width="2"/>
+          <circle cx="190" cy="110" r="40" stroke="var(--red-100)" stroke-width="2"/>
+          <circle cx="260" cy="60" r="8" fill="var(--red)"/>
+          <circle cx="120" cy="180" r="5" fill="var(--red-200)"/>
         </svg>
         <div class="hero-eyebrow anim" style="--i:0">Member Directory</div>
         <h1 class="anim" style="--i:1">會員<span class="accent">名錄</span></h1>
