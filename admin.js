@@ -450,6 +450,41 @@
     }catch(e){ return null; }   // wrong password → AES-GCM auth fails
   }
 
+  /* ---------- token write-permission check ---------- */
+  const FIX_HINT = "修正方式：到 GitHub → Settings → Developer settings → Fine-grained tokens → 點你的權杖進去編輯：「Repository access」選 Only select repositories 並勾選 member-directory；「Permissions → Contents」設為 Read and write → Save。改完不用換權杖，回來按「我修好了，重新檢查」即可。";
+  async function checkWriteAccess(token){
+    const s = loadGhSettings();
+    try{
+      const r = await fetch(`https://api.github.com/repos/${encodeURIComponent(s.owner)}/${encodeURIComponent(s.repo)}`, {
+        headers:{ "Authorization":"Bearer "+token, "Accept":"application/vnd.github+json", "X-GitHub-Api-Version":"2022-11-28" }
+      });
+      if(r.status === 401) return {state:"invalid"};
+      if(!r.ok) return {state:"norepo", status:r.status};
+      const d = await r.json();
+      return { state: (d.permissions && d.permissions.push) ? "ok" : "readonly" };
+    }catch(e){ return {state:"network"}; }
+  }
+  function showPermBanner(msgHtmlSafe){
+    byId("perm-banner-text").textContent = msgHtmlSafe;
+    byId("perm-banner").hidden = false;
+  }
+  function hidePermBanner(){ byId("perm-banner").hidden = true; }
+  async function runAccessCheck(silentOk){
+    if(!memToken) return;
+    const res = await checkWriteAccess(memToken);
+    if(res.state === "ok"){
+      hidePermBanner();
+      if(!silentOk) toast("權杖檢查通過，可以正常發布 ✔");
+    } else if(res.state === "readonly"){
+      showPermBanner("你的權杖「只能讀、不能寫」，按發布會出現權限不足、修改不會真的上線。" + FIX_HINT);
+    } else if(res.state === "invalid"){
+      showPermBanner("權杖無效或已過期／被撤銷。請重新建立權杖後，用「初次設定／重設」重新貼上。");
+    } else if(res.state === "norepo"){
+      showPermBanner("權杖看不到這個 repo（HTTP " + res.status + "）。請確認設定裡的帳號與 repo 名稱，以及權杖的 Repository access 有勾選 member-directory。" + FIX_HINT);
+    }
+    /* network error → 不打擾，發布時自然會再報 */
+  }
+
   /* ---------- lock screen ---------- */
   function showLock(){
     const setUp = hasEncToken();
@@ -475,6 +510,7 @@
       byId("lock-pass").value = "";
       hideLock();
       toast("已進入編輯模式");
+      runAccessCheck(true);   // 登入後立即檢查權杖能否寫入，有問題馬上顯示橫幅
     } else {
       byId("lock-error").hidden = false;
       byId("lock-pass").select();
@@ -516,6 +552,7 @@
       hideLock();
       closeSettings();
       toast("設定完成！之後輸入密碼即可進入編輯模式");
+      runAccessCheck(true);   // 設定完立即驗證權杖權限
       return;
     }
     closeSettings();
@@ -564,9 +601,12 @@
       const putRes = await fetch(base, { method: "PUT", headers, body: JSON.stringify(body) });
       if(!putRes.ok){
         let msg = "發布失敗（" + putRes.status + "）";
-        if(putRes.status === 401 || putRes.status === 403) msg = "權杖無效或權限不足，請檢查設定";
-        if(putRes.status === 404) msg = "找不到 repo 或路徑，請檢查設定";
-        if(putRes.status === 409) msg = "版本衝突，請重新整理後再發布";
+        if(putRes.status === 401 || putRes.status === 403){
+          msg = "權杖沒有寫入權限，這次修改「沒有」上線（放心，草稿都還在）。";
+          showPermBanner("你的權杖「只能讀、不能寫」，剛才的發布沒有成功。" + FIX_HINT);
+        }
+        if(putRes.status === 404) msg = "找不到 repo 或路徑，請檢查設定裡的帳號與 repo 名稱";
+        if(putRes.status === 409) msg = "版本衝突，請重新整理頁面後再發布一次";
         throw new Error(msg);
       }
       // published — the live draft now equals what's on GitHub
@@ -606,6 +646,19 @@
   byId("s-save").onclick = saveSettings;
   byId("s-cancel").onclick = closeSettings;
   byId("s-clear").onclick = clearToken;
+  byId("s-test").onclick = async () => {
+    const tok = byId("s-token").value.trim() || memToken;
+    if(!tok){ toast("請先貼上權杖（或先用密碼解鎖）", {warn:true}); return; }
+    const b = byId("s-test"); b.disabled = true; b.textContent = "檢查中…";
+    const res = await checkWriteAccess(tok);
+    b.disabled = false; b.textContent = "測試權限";
+    if(res.state === "ok"){ hidePermBanner(); toast("✔ 權杖可以寫入，發布沒問題"); }
+    else if(res.state === "readonly"){ toast("✘ 權杖只能讀、不能寫 — 請照設定視窗下方說明修正", {warn:true, duration:8000}); }
+    else if(res.state === "invalid"){ toast("✘ 權杖無效或已過期", {warn:true, duration:6000}); }
+    else if(res.state === "norepo"){ toast("✘ 權杖看不到這個 repo（檢查帳號/repo 名稱與 Repository access）", {warn:true, duration:8000}); }
+    else { toast("網路問題，稍後再試", {warn:true}); }
+  };
+  byId("perm-recheck").onclick = () => runAccessCheck(false);
   byId("lock-enter").onclick = tryUnlock;
   byId("lock-pass").addEventListener("keydown", e => { if(e.key === "Enter") tryUnlock(); });
   byId("lock-setup").onclick = () => { openSettings(); };
