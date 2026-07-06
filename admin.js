@@ -304,7 +304,7 @@
       try{
         toast("處理照片中…");
         m.image = await fileToResizedDataURL(file, 900, 0.82);
-        renderMembers(g); saveDraft(); toast("照片已更新，記得最後下載 data.js");
+        renderMembers(g); saveDraft(); toast("照片已更新，記得最後按「發布到網站」");
       }catch(e){ toast("照片讀取失敗", {warn:true}); }
       fileInput.value = "";
     };
@@ -400,184 +400,153 @@
     toast("已下載備份 data.js");
   }
 
-  /* ---------- GitHub publish (one-click update to the live site) ---------- */
-  const GH_SETTINGS_KEY = "member-directory-gh-settings-v1";
-  const GH_TOKEN_ENC_KEY = "member-directory-gh-token-enc-v1";
-  const GH_TOKEN_LEGACY_KEY = "member-directory-gh-token-v1";   // old plaintext storage — always removed
-  // pre-filled for this deployment so the operator only needs to paste a token once
-  const GH_DEFAULTS = { owner: "IvanZhong085", repo: "member-directory", branch: "main", path: "data.js" };
-  let memToken = "";   // decrypted token, memory only — gone on reload until password re-entered
+  /* ---------- publish relay (Cloudflare Worker holds the real GitHub token) ----------
+     瀏覽器只保管「Worker 網址」（不是機密）與一次登入用的 session（存在 sessionStorage，
+     關掉分頁就消失）。密碼與 GitHub 權杖從頭到尾都不會出現在瀏覽器裡。 */
+  const WORKER_URL_KEY = "member-directory-worker-url-v1";
+  const SESSION_KEY = "member-directory-session-v1";   // sessionStorage only
+  // 部署好 Worker 後，把網址貼進這裡即可讓所有裝置都不用再設定一次（此網址不是機密）。
+  const WORKER_URL_DEFAULT = "";
 
-  function loadGhSettings(){
-    let saved = {};
-    try{ saved = JSON.parse(localStorage.getItem(GH_SETTINGS_KEY)) || {}; }catch(e){}
-    return Object.assign({}, GH_DEFAULTS, saved);
+  function loadWorkerUrl(){
+    let saved = ""; try{ saved = localStorage.getItem(WORKER_URL_KEY) || ""; }catch(e){}
+    return (saved || WORKER_URL_DEFAULT || "").trim().replace(/\/+$/, "");
   }
-  function hasEncToken(){ try{ return !!localStorage.getItem(GH_TOKEN_ENC_KEY); }catch(e){ return false; } }
-  function base64Utf8(str){
-    const bytes = new TextEncoder().encode(str);
-    let bin = ""; for(const b of bytes) bin += String.fromCharCode(b);
-    return btoa(bin);
+  function saveWorkerUrl(url){
+    try{ localStorage.setItem(WORKER_URL_KEY, url); }catch(e){}
   }
-  const b64 = {
-    enc: buf => btoa(String.fromCharCode(...new Uint8Array(buf))),
-    dec: s => Uint8Array.from(atob(s), c => c.charCodeAt(0)),
-  };
-
-  /* password ⇆ token encryption: PBKDF2(SHA-256, 310k) → AES-256-GCM */
-  async function deriveKey(password, salt){
-    const raw = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
-    return crypto.subtle.deriveKey(
-      { name:"PBKDF2", salt, iterations:310000, hash:"SHA-256" },
-      raw, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]
-    );
-  }
-  async function encryptToken(token, password){
-    const salt = crypto.getRandomValues(new Uint8Array(16));
-    const iv = crypto.getRandomValues(new Uint8Array(12));
-    const key = await deriveKey(password, salt);
-    const ct = await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, new TextEncoder().encode(token));
-    localStorage.setItem(GH_TOKEN_ENC_KEY, JSON.stringify({v:1, salt:b64.enc(salt), iv:b64.enc(iv), ct:b64.enc(ct)}));
-  }
-  async function decryptToken(password){
-    const raw = localStorage.getItem(GH_TOKEN_ENC_KEY);
+  function loadSession(){
+    let raw; try{ raw = sessionStorage.getItem(SESSION_KEY); }catch(e){ return null; }
     if(!raw) return null;
-    let blob; try{ blob = JSON.parse(raw); }catch(e){ return null; }
+    let s; try{ s = JSON.parse(raw); }catch(e){ return null; }
+    if(!s || !s.token || !s.exp || Date.now() >= s.exp) return null;
+    return s.token;
+  }
+  function saveSession(token, expiresInSeconds){
+    try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify({ token, exp: Date.now() + expiresInSeconds*1000 })); }catch(e){}
+  }
+  function clearSession(){ try{ sessionStorage.removeItem(SESSION_KEY); }catch(e){} }
+
+  async function workerFetch(path, payload, urlOverride){
+    const url = urlOverride || loadWorkerUrl();
+    if(!url) return { ok:false, error:"no_worker_url" };
     try{
-      const key = await deriveKey(password, b64.dec(blob.salt));
-      const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv:b64.dec(blob.iv)}, key, b64.dec(blob.ct));
-      return new TextDecoder().decode(pt);
-    }catch(e){ return null; }   // wrong password → AES-GCM auth fails
+      const r = await fetch(url + path, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify(payload || {}),
+      });
+      let data = {};
+      try{ data = await r.json(); }catch(e){}
+      if(r.status === 429) return { ok:false, error:"too_many_attempts", retryAfter: data.retryAfter };
+      return Object.assign({ httpStatus:r.status }, data);
+    }catch(e){
+      return { ok:false, error:"network" };
+    }
   }
 
-  /* ---------- token write-permission check ---------- */
-  const FIX_HINT = "修正方式：到 GitHub → Settings → Developer settings → Fine-grained tokens → 點你的權杖進去編輯：「Repository access」選 Only select repositories 並勾選 member-directory；「Permissions → Contents」設為 Read and write → Save。改完不用換權杖，回來按「我修好了，重新檢查」即可。";
-  async function checkWriteAccess(token){
-    const s = loadGhSettings();
-    try{
-      const r = await fetch(`https://api.github.com/repos/${encodeURIComponent(s.owner)}/${encodeURIComponent(s.repo)}`, {
-        headers:{ "Authorization":"Bearer "+token, "Accept":"application/vnd.github+json", "X-GitHub-Api-Version":"2022-11-28" }
-      });
-      if(r.status === 401) return {state:"invalid"};
-      if(!r.ok) return {state:"norepo", status:r.status};
-      const d = await r.json();
-      return { state: (d.permissions && d.permissions.push) ? "ok" : "readonly" };
-    }catch(e){ return {state:"network"}; }
-  }
   function showPermBanner(msgHtmlSafe){
     byId("perm-banner-text").textContent = msgHtmlSafe;
     byId("perm-banner").hidden = false;
   }
   function hidePermBanner(){ byId("perm-banner").hidden = true; }
-  async function runAccessCheck(silentOk){
-    if(!memToken) return;
-    const res = await checkWriteAccess(memToken);
-    if(res.state === "ok"){
-      hidePermBanner();
-      if(!silentOk) toast("權杖檢查通過，可以正常發布 ✔");
-    } else if(res.state === "readonly"){
-      showPermBanner("你的權杖「只能讀、不能寫」，按發布會出現權限不足、修改不會真的上線。" + FIX_HINT);
-    } else if(res.state === "invalid"){
-      showPermBanner("權杖無效或已過期／被撤銷。請重新建立權杖後，用「初次設定／重設」重新貼上。");
-    } else if(res.state === "norepo"){
-      showPermBanner("權杖看不到這個 repo（HTTP " + res.status + "）。請確認設定裡的帳號與 repo 名稱，以及權杖的 Repository access 有勾選 member-directory。" + FIX_HINT);
-    }
-    /* network error → 不打擾，發布時自然會再報 */
-  }
 
   /* ---------- lock screen ---------- */
   function showLock(){
-    const setUp = hasEncToken();
-    byId("lock-lead").textContent = setUp
+    const configured = !!loadWorkerUrl();
+    byId("lock-lead").textContent = configured
       ? "輸入管理密碼進入編輯模式。"
-      : "此裝置尚未設定管理權限。請管理員按「初次設定」貼上 GitHub 權杖並設定密碼。";
-    byId("lock-pass-field").style.display = setUp ? "" : "none";
-    byId("lock-enter").style.display = setUp ? "" : "none";
+      : "尚未設定發布服務。請按下方「連線設定」貼上 Worker 網址。";
+    byId("lock-pass-field").style.display = configured ? "" : "none";
+    byId("lock-enter").style.display = configured ? "" : "none";
     byId("lock-error").hidden = true;
     byId("lock-overlay").hidden = false;
-    if(setUp) byId("lock-pass").focus();
+    if(configured) byId("lock-pass").focus();
   }
   function hideLock(){ byId("lock-overlay").hidden = true; }
+
   async function tryUnlock(){
     const pass = byId("lock-pass").value;
     if(!pass) return;
+    if(!loadWorkerUrl()){ openSettings(); return; }
     const btn = byId("lock-enter");
     btn.disabled = true; btn.textContent = "確認中…";
-    const tok = await decryptToken(pass);
+    const res = await workerFetch("/login", { password: pass });
     btn.disabled = false; btn.textContent = "進入編輯模式";
-    if(tok){
-      memToken = tok;
+    if(res.ok && res.session){
+      saveSession(res.session, res.expiresInSeconds || 1800);
       byId("lock-pass").value = "";
       hideLock();
+      hidePermBanner();
       toast("已進入編輯模式");
-      runAccessCheck(true);   // 登入後立即檢查權杖能否寫入，有問題馬上顯示橫幅
+      checkHealth(res.session);   // 登入後順便確認伺服器上的 GitHub 權杖還能不能寫入
+    } else if(res.error === "too_many_attempts"){
+      byId("lock-error").hidden = false;
+      byId("lock-error").textContent = "密碼錯誤次數過多，請等約 " + Math.ceil((res.retryAfter||60)/60) + " 分鐘後再試。";
+    } else if(res.error === "no_worker_url" || res.error === "network"){
+      byId("lock-error").hidden = false;
+      byId("lock-error").textContent = "連不到發布服務，請檢查「連線設定」裡的網址是否正確。";
+    } else if(res.error === "rate_limit_unavailable" || res.error === "misconfigured_missing_allowed_origin"){
+      byId("lock-error").hidden = false;
+      byId("lock-error").textContent = "發布服務尚未設定完成，請管理員檢查 Cloudflare Worker 的設定（見 worker/README.md）。";
     } else {
       byId("lock-error").hidden = false;
+      byId("lock-error").textContent = "密碼不正確，請再試一次。";
       byId("lock-pass").select();
     }
   }
 
-  /* ---------- settings ---------- */
+  function logout(){
+    clearSession();
+    showLock();
+    toast("已登出");
+  }
+
+  async function checkHealth(session){
+    const res = await workerFetch("/health", { session });
+    if(!res.ok) return;   // 網路問題等，不打擾，發布時自然會再報
+    if(res.github === "read_only"){
+      showPermBanner("Worker 上設定的 GitHub 權杖「只能讀、不能寫」，按發布會失敗。請管理員到 Cloudflare 該 Worker 的 GH_TOKEN 設定檢查（GitHub 那支權杖的 Contents 需為 Read and write）。");
+    } else if(res.github === "invalid_token"){
+      showPermBanner("Worker 上設定的 GitHub 權杖無效或已過期／被撤銷。請管理員重新建立權杖並更新 Worker 的 GH_TOKEN 設定。");
+    } else if(res.github === "repo_not_found"){
+      showPermBanner("Worker 找不到設定的 GitHub repo，請管理員檢查 Worker 的 GH_OWNER / GH_REPO 設定。");
+    }
+    /* "writable" 或 "network_error" → 不顯示提醒 */
+  }
+
+  /* ---------- settings（只有 Worker 網址，不是機密） ---------- */
   function openSettings(){
-    const s = loadGhSettings();
-    byId("s-owner").value = s.owner || "";
-    byId("s-repo").value = s.repo || "";
-    byId("s-branch").value = s.branch || "";
-    byId("s-path").value = s.path || "";
-    byId("s-token").value = "";
-    byId("s-pass").value = "";
-    byId("s-pass2").value = "";
+    byId("s-worker-url").value = loadWorkerUrl();
     byId("settings-modal").hidden = false;
-    byId("s-owner").focus();
+    byId("s-worker-url").focus();
   }
   function closeSettings(){ byId("settings-modal").hidden = true; }
-  async function saveSettings(){
-    const s = {
-      owner: byId("s-owner").value.trim(),
-      repo: byId("s-repo").value.trim(),
-      branch: byId("s-branch").value.trim() || "main",
-      path: byId("s-path").value.trim() || "data.js"
-    };
-    localStorage.setItem(GH_SETTINGS_KEY, JSON.stringify(s));
-    const tok = byId("s-token").value.trim();
-    const p1 = byId("s-pass").value;
-    const p2 = byId("s-pass2").value;
-    const tokenForEncrypt = tok || memToken;   // allow changing password while unlocked without re-pasting token
-    if(tok || p1 || p2){
-      if(!tokenForEncrypt){ toast("請貼上權杖（或先用密碼解鎖後再改密碼）", {warn:true, duration:5000}); return; }
-      if(p1.length < 4){ toast("密碼至少 4 個字", {warn:true}); return; }
-      if(p1 !== p2){ toast("兩次密碼不一致", {warn:true}); return; }
-      await encryptToken(tokenForEncrypt, p1);
-      memToken = tokenForEncrypt;
-      hideLock();
-      closeSettings();
-      toast("設定完成！之後輸入密碼即可進入編輯模式");
-      runAccessCheck(true);   // 設定完立即驗證權杖權限
-      return;
-    }
+  function saveSettings(){
+    const url = byId("s-worker-url").value.trim().replace(/\/+$/, "");
+    if(url && !/^https:\/\//.test(url)){ toast("網址需以 https:// 開頭", {warn:true}); return; }
+    saveWorkerUrl(url);
     closeSettings();
-    toast("設定已儲存");
+    showLock();
+    toast(url ? "設定已儲存，請輸入密碼登入" : "已清空設定");
   }
-  function clearToken(){
-    try{ localStorage.removeItem(GH_TOKEN_ENC_KEY); }catch(e){}
-    memToken = "";
-    byId("s-token").value = ""; byId("s-pass").value = ""; byId("s-pass2").value = "";
-    toast("已清除權杖與密碼（登出）");
+  async function testConnection(){
+    const url = byId("s-worker-url").value.trim().replace(/\/+$/, "");
+    if(!url){ toast("請先填入 Worker 網址", {warn:true}); return; }
+    const b = byId("s-test"); b.disabled = true; b.textContent = "測試中…";
+    const res = await workerFetch("/ping", {}, url);   // 直接測輸入框裡的網址，不動 localStorage，不會跟真正登入互相干擾
+    b.disabled = false; b.textContent = "測試連線";
+    if(res.ok){ toast("✔ 服務有回應，網址設定正確"); }
+    else { toast("✘ 連不到這個網址，請確認 Worker 是否已部署、網址是否正確", {warn:true, duration:6000}); }
   }
 
   let publishing = false;
   async function publish(){
     if(publishing) return;
-    const s = loadGhSettings();
-    if(!memToken){
-      if(hasEncToken()){ showLock(); toast("請先輸入管理密碼", {warn:true}); }
-      else { openSettings(); toast("請先完成初次設定（貼上權杖並設定密碼）", {warn:true, duration:5000}); }
-      return;
-    }
-    const token = memToken;
-    if(!s.owner || !s.repo){
-      openSettings();
-      toast("請先填寫 GitHub 帳號與 repo", {warn:true, duration:4000});
+    let session = loadSession();
+    if(!session){
+      showLock();
+      toast("請先輸入管理密碼", {warn:true});
       return;
     }
     validate();
@@ -585,38 +554,36 @@
     const btn = byId("btn-publish");
     const orig = btn.innerHTML;
     btn.disabled = true; btn.textContent = "發布中…";
-    const branch = s.branch || "main";
-    const path = (s.path || "data.js").replace(/^\/+/, "");
-    const base = `https://api.github.com/repos/${encodeURIComponent(s.owner)}/${encodeURIComponent(s.repo)}/contents/` +
-      path.split("/").map(encodeURIComponent).join("/");
-    const headers = { "Authorization": "Bearer " + token, "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28" };
     try{
-      let sha;
-      const getRes = await fetch(base + "?ref=" + encodeURIComponent(branch), {headers});
-      if(getRes.ok){ sha = (await getRes.json()).sha; }
-      else if(getRes.status === 401 || getRes.status === 403){ throw new Error("權杖無效或權限不足，請檢查設定"); }
-      else if(getRes.status !== 404){ throw new Error("讀取失敗（" + getRes.status + "）"); }
-      const body = { message: "更新會員名錄", content: base64Utf8(serialize()), branch };
-      if(sha) body.sha = sha;
-      const putRes = await fetch(base, { method: "PUT", headers, body: JSON.stringify(body) });
-      if(!putRes.ok){
-        let msg = "發布失敗（" + putRes.status + "）";
-        if(putRes.status === 401 || putRes.status === 403){
-          msg = "權杖沒有寫入權限，這次修改「沒有」上線（放心，草稿都還在）。";
-          showPermBanner("你的權杖「只能讀、不能寫」，剛才的發布沒有成功。" + FIX_HINT);
-        }
-        if(putRes.status === 404) msg = "找不到 repo 或路徑，請檢查設定裡的帳號與 repo 名稱";
-        if(putRes.status === 409) msg = "版本衝突，請重新整理頁面後再發布一次";
-        throw new Error(msg);
+      const res = await workerFetch("/publish", { session, content: serialize() });
+      if(res.ok){
+        clearTimeout(saveTimer);
+        try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
+        showDraftBanner(false);
+        hidePermBanner();
+        toast("已發布！約 1 分鐘後公開網站就會更新 ✔", {duration:6000});
+      } else if(res.error === "session_expired" || res.httpStatus === 401){
+        clearSession();
+        toast("登入逾時，請重新輸入密碼再發布一次（草稿都還在，沒有遺失）", {warn:true, duration:6000});
+        showLock();
+      } else if(res.error === "token_forbidden"){
+        toast("發布服務目前無法寫入 GitHub，這次修改「沒有」上線（草稿都還在）。", {warn:true, duration:7000});
+        showPermBanner("Worker 上設定的 GitHub 權杖沒有寫入權限或已失效，請管理員到 Cloudflare 檢查 Worker 的 GH_TOKEN 設定（需要 Contents: Read and write）。");
+      } else if(res.error === "conflict"){
+        toast("版本衝突，請重新整理頁面後再發布一次", {warn:true, duration:6000});
+      } else if(res.error === "no_worker_url"){
+        toast("尚未設定發布服務網址，請到「設定」填入", {warn:true, duration:6000});
+        openSettings();
+      } else if(res.error === "network"){
+        toast("連不到發布服務，請檢查網路連線或稍後再試", {warn:true, duration:6000});
+      } else if(res.error === "github_timeout" || res.error === "github_unreachable"){
+        toast("連不到 GitHub，這次修改「沒有」上線（草稿都還在），請稍後再發布一次", {warn:true, duration:6000});
+      } else if(res.error === "misconfigured_missing_allowed_origin"){
+        toast("發布服務尚未設定完成，請管理員檢查 Worker 設定", {warn:true, duration:6000});
+      } else {
+        toast("發布失敗，草稿都還在，可以稍後再試一次", {warn:true, duration:6000});
       }
-      // published — the live draft now equals what's on GitHub
-      clearTimeout(saveTimer);
-      try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
-      showDraftBanner(false);
-      toast("已發布！約 1 分鐘後公開網站就會更新 ✔", {duration:6000});
-    }catch(err){
-      toast("發布失敗：" + (err && err.message || err), {warn:true, duration:7000});
-    }finally{
+    } finally {
       publishing = false; btn.disabled = false; btn.innerHTML = orig;
     }
   }
@@ -630,38 +597,32 @@
   function renderAll(){ renderSidebar(); renderMain(); }
 
   /* ---------- boot ---------- */
-  try{ localStorage.removeItem(GH_TOKEN_LEGACY_KEY); }catch(e){}   // never keep plaintext tokens
+  // 清掉舊版（權杖存本機加密）留下的機密，遷移到新架構後這些不該再存在
+  try{
+    localStorage.removeItem("member-directory-gh-token-v1");
+    localStorage.removeItem("member-directory-gh-token-enc-v1");
+    localStorage.removeItem("member-directory-gh-settings-v1");
+  }catch(e){}
   tryLoadDraft();
   renderAll();
   validate();
   showDraftBanner(hasDraft);
   saveState.textContent = "就緒";
-  showLock();   // password gate: unlock (or first-time setup) before editing
+  showLock();   // 密碼閘門：解鎖（或先設定 Worker 網址）才能編輯
 
   byId("btn-add-group").onclick = addGroup;
   byId("btn-export").onclick = download;
   byId("btn-publish").onclick = publish;
   byId("btn-settings").onclick = openSettings;
   byId("btn-discard").onclick = discardDraft;
+  byId("btn-logout").onclick = logout;
   byId("s-save").onclick = saveSettings;
   byId("s-cancel").onclick = closeSettings;
-  byId("s-clear").onclick = clearToken;
-  byId("s-test").onclick = async () => {
-    const tok = byId("s-token").value.trim() || memToken;
-    if(!tok){ toast("請先貼上權杖（或先用密碼解鎖）", {warn:true}); return; }
-    const b = byId("s-test"); b.disabled = true; b.textContent = "檢查中…";
-    const res = await checkWriteAccess(tok);
-    b.disabled = false; b.textContent = "測試權限";
-    if(res.state === "ok"){ hidePermBanner(); toast("✔ 權杖可以寫入，發布沒問題"); }
-    else if(res.state === "readonly"){ toast("✘ 權杖只能讀、不能寫 — 請照設定視窗下方說明修正", {warn:true, duration:8000}); }
-    else if(res.state === "invalid"){ toast("✘ 權杖無效或已過期", {warn:true, duration:6000}); }
-    else if(res.state === "norepo"){ toast("✘ 權杖看不到這個 repo（檢查帳號/repo 名稱與 Repository access）", {warn:true, duration:8000}); }
-    else { toast("網路問題，稍後再試", {warn:true}); }
-  };
-  byId("perm-recheck").onclick = () => runAccessCheck(false);
+  byId("s-test").onclick = testConnection;
   byId("lock-enter").onclick = tryUnlock;
   byId("lock-pass").addEventListener("keydown", e => { if(e.key === "Enter") tryUnlock(); });
   byId("lock-setup").onclick = () => { openSettings(); };
+  byId("perm-recheck").onclick = () => { hidePermBanner(); toast("已隱藏提醒，發布時若還有問題會再顯示"); };
   byId("settings-modal").addEventListener("click", e => { if(e.target.id === "settings-modal") closeSettings(); });
   document.addEventListener("keydown", e => { if(e.key === "Escape" && !byId("settings-modal").hidden) closeSettings(); });
 

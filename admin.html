@@ -168,10 +168,11 @@
     <div class="adm-actions">
       <span class="adm-save-state" id="save-state">—</span>
       <a class="btn btn-ghost" href="index.html" target="_blank" rel="noopener">預覽前台</a>
-      <button class="btn" id="btn-settings" type="button" title="發布設定">
+      <button class="btn" id="btn-settings" type="button" title="連線設定">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:15px;height:15px;" aria-hidden="true"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/></svg>
         設定
       </button>
+      <button class="btn" id="btn-logout" type="button" title="登出">登出</button>
       <button class="btn" id="btn-export" type="button" title="下載一份備份檔">下載備份</button>
       <button class="btn btn-primary btn-publish" id="btn-publish" type="button">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 7 4-4 4 4"/><path d="M5 21h14"/></svg>
@@ -197,7 +198,7 @@
     <button class="btn btn-primary" id="lock-enter" type="button" style="justify-content:center;">進入編輯模式</button>
     <div class="lock-links">
       <a href="index.html">← 回名錄</a>
-      <button class="linklike" id="lock-setup" type="button">初次設定／重設</button>
+      <button class="linklike" id="lock-setup" type="button">連線設定</button>
     </div>
   </div>
 </div>
@@ -209,31 +210,20 @@
 
 <div class="perm-banner" id="perm-banner" hidden>
   <span id="perm-banner-text"></span>
-  <button class="btn btn-sm" id="perm-recheck" type="button">我修好了，重新檢查</button>
+  <button class="btn btn-sm" id="perm-recheck" type="button">知道了，先關閉提醒</button>
 </div>
 
 <div class="validation" id="validation"></div>
 
-<!-- 一次性發布設定 -->
+<!-- 連線設定：只有「後端服務網址」這一項，不是密碼，設定一次就好 -->
 <div class="modal-overlay" id="settings-modal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-    <h3 id="settings-title">發布設定（設定一次就好）</h3>
-    <p class="modal-lead">填好之後，之後只要按「發布到網站」就會自動更新公開網站，不用碰檔案或 Git。</p>
-    <div class="field"><label>GitHub 帳號</label><input id="s-owner" placeholder="例如 wang123" autocomplete="off"></div>
-    <div class="field"><label>儲存庫名稱（repo）</label><input id="s-repo" placeholder="例如 member-directory" autocomplete="off"></div>
-    <div class="row2">
-      <div class="field"><label>分支</label><input id="s-branch" placeholder="main" autocomplete="off"></div>
-      <div class="field"><label>資料檔路徑</label><input id="s-path" placeholder="data.js" autocomplete="off"></div>
-    </div>
-    <div class="field"><label>存取權杖（GitHub Token）</label><input id="s-token" type="password" placeholder="貼上你的權杖" autocomplete="off"></div>
-    <div class="row2">
-      <div class="field"><label>管理密碼（日常登入用）</label><input id="s-pass" type="password" placeholder="設定一組好記的密碼" autocomplete="new-password"></div>
-      <div class="field"><label>再輸入一次密碼</label><input id="s-pass2" type="password" placeholder="再輸入一次" autocomplete="new-password"></div>
-    </div>
-    <p class="modal-hint">權杖請到 GitHub → Settings → Developer settings → <b>Fine-grained tokens</b> 建立，只授權「這一個 repo」的 <b>Contents：Read and write</b>。<br>權杖會用你設定的<b>管理密碼加密</b>後才存在這台電腦的瀏覽器——之後日常編輯只要輸入密碼，不必再碰權杖；沒有密碼的人打不開、也發布不了。權杖若外流，到 GitHub 撤銷（Revoke）即可作廢。</p>
+    <h3 id="settings-title">連線設定</h3>
+    <p class="modal-lead">這裡填的是「發布服務的網址」，不是密碼、也不是權杖——這台電腦的瀏覽器完全不會保管任何機密。真正的 GitHub 權杖只放在你自己架設的 Cloudflare Worker 裡，瀏覽器只會送密碼過去驗證。</p>
+    <div class="field"><label>後端服務網址（Cloudflare Worker）</label><input id="s-worker-url" placeholder="https://xxxx.workers.dev" autocomplete="off"></div>
+    <p class="modal-hint">還沒建立 Worker？見 <code>member-site/worker/README.md</code> 的教學（Cloudflare 網站上點一點，不需要安裝任何軟體）。網址設定好、儲存後，回到登入畫面輸入管理密碼即可。</p>
     <div class="modal-actions">
-      <button class="btn btn-danger btn-sm" id="s-clear" type="button">清除權杖（登出）</button>
-      <button class="btn btn-sm" id="s-test" type="button">測試權限</button>
+      <button class="btn btn-sm" id="s-test" type="button">測試連線</button>
       <span style="flex:1"></span>
       <button class="btn btn-sm" id="s-cancel" type="button">取消</button>
       <button class="btn btn-primary btn-sm" id="s-save" type="button">儲存設定</button>
@@ -254,16 +244,16 @@
 </div>
 
 <div class="help adm-wrap" style="display:block; max-width:1240px;">
-  <b>資料安全說明：</b>這個頁面的編輯只會暫存在<b>你自己的瀏覽器</b>裡，不會影響公開網站；公開資料只有持「管理權杖」的管理員按下「發布到網站」才會更新，其他人無法篡改。
+  <b>資料安全說明：</b>這個頁面的編輯只會暫存在<b>你自己的瀏覽器</b>裡，不會影響公開網站。真正能改到公開網站的，只有輸入正確<b>管理密碼</b>的人；密碼登入後由伺服器（Cloudflare Worker）代為發布，瀏覽器本身永遠不會拿到、也不會存放 GitHub 的權杖。密碼錯太多次會被暫時鎖住，防止有人亂猜。
   <br><br>
-  <b>如何更新網站？</b> 在這裡改好後，按右上角紅色「<b>發布到網站</b>」即可（首次需在「設定」貼上管理權杖）。「下載備份」可另存一份 <code>data.js</code> 備用。
+  <b>如何更新網站？</b> 輸入管理密碼進入編輯模式，改好後按右上角紅色「<b>發布到網站</b>」即可。「下載備份」可另存一份 <code>data.js</code> 備用。
   <ol>
     <li><b>快速新增成員</b>：在成員列表上方輸入姓名，按 <code>Enter</code> 就新增一位（可連續輸入連續加）；也可用「+ 新增成員」加空白的再慢慢填。</li>
     <li><b>刪除成員／分組</b>：成員卡右上的刪除鈕、左側分組滑過出現的 <code>✕</code>。刪除後右下角會跳出「<b>復原</b>」按鈕，按錯可立即救回，不會跳確認框卡你。</li>
     <li><b>複製成員</b>：卡片右上的複製鈕，會複製一份接在後面（適合資料相似的人）。</li>
     <li><b>換照片</b>：在成員卡片點「更換照片」選圖檔即可（會自動縮圖，直接內嵌，不必另外處理圖片檔）。</li>
     <li><b>新增分組</b>：左側「+ 新增組」或分組列表最下方的虛線「＋ 新增分組」。</li>
-    <li>草稿會自動存在瀏覽器，關掉再開仍在；改完務必「下載 data.js」覆蓋原檔才會真正更新到網站。</li>
+    <li>草稿會自動存在瀏覽器，關掉再開仍在；改完務必按「<b>發布到網站</b>」才會真正更新到公開網站，光改草稿不會。</li>
   </ol>
 </div>
 
