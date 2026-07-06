@@ -1350,30 +1350,6 @@ const GROUPS = [
         "dataIssue": false
       },
       {
-        "number": "006",
-        "name": "林宥彤",
-        "title": "彩妝造型",
-        "services": [
-          "商業形象照梳化、廣告節目梳化",
-          "宴會造型",
-          "素人精緻彩妝開班教學"
-        ],
-        "targets": [
-          "出席各大活動的 企業貴婦",
-          "需拍攝形象照的 商務人士",
-          "想學精緻彩妝的 素人女孩"
-        ],
-        "tagline": [
-          "妝髮造型找宥彤",
-          "讓你好看的與眾不同"
-        ],
-        "image": "g2_m2_x.jpg",
-        "company": "",
-        "business_items": "",
-        "id": "g2_m2",
-        "dataIssue": false
-      },
-      {
         "number": "116",
         "name": "陳建伯",
         "title": "時尚配鏡驗光業",
@@ -1609,30 +1585,6 @@ const GROUPS = [
         "business_items": "",
         "id": "g4_m6",
         "dataIssue": false
-      },
-      {
-        "number": "000",
-        "name": "蕭淑芬",
-        "title": "梨山茶生產批發",
-        "services": [
-          "客製化風味巧克力",
-          "可可茶",
-          "食農教育、巧克力風味講座"
-        ],
-        "targets": [
-          "食品電商通路",
-          "高單價 甜點店、咖啡廳",
-          "禮盒、甜點 開發需求"
-        ],
-        "tagline": [
-          "巧克力風味職人",
-          "開啟對味蕾的想像"
-        ],
-        "image": "g4_m7_x.jpg",
-        "company": "",
-        "business_items": "",
-        "id": "g4_m7",
-        "dataIssue": true
       }
     ],
     "id": "g4"
