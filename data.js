@@ -751,27 +751,6 @@ const GROUPS = [
         "business_items": "",
         "id": "g7_m9",
         "dataIssue": false
-      },
-      {
-        "number": "223",
-        "name": "吳嘉豪",
-        "title": "辛香調味料製造加工",
-        "services": [
-          "調味料生產批發"
-        ],
-        "targets": [
-          "食品工廠",
-          "各地食品盤商"
-        ],
-        "tagline": [
-          "鍠嘉調香",
-          "讓你越吃越香"
-        ],
-        "image": "g7_m10_x.jpg",
-        "company": "",
-        "business_items": "",
-        "id": "g7_m10",
-        "dataIssue": false
       }
     ],
     "id": "g7"
@@ -806,7 +785,7 @@ const GROUPS = [
       {
         "number": "075",
         "name": "陳政佑",
-        "title": "褐藻糖膠營養輔助食品批發",
+        "title": "保健食品開發代工",
         "services": [
           "褐藻醣膠批發",
           "營養輔助食品批發、開發",
