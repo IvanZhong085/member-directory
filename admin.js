@@ -402,32 +402,100 @@
 
   /* ---------- GitHub publish (one-click update to the live site) ---------- */
   const GH_SETTINGS_KEY = "member-directory-gh-settings-v1";
-  const GH_TOKEN_KEY = "member-directory-gh-token-v1";
-  // pre-filled for this deployment so the operator only needs to paste a token
+  const GH_TOKEN_ENC_KEY = "member-directory-gh-token-enc-v1";
+  const GH_TOKEN_LEGACY_KEY = "member-directory-gh-token-v1";   // old plaintext storage — always removed
+  // pre-filled for this deployment so the operator only needs to paste a token once
   const GH_DEFAULTS = { owner: "IvanZhong085", repo: "member-directory", branch: "main", path: "data.js" };
+  let memToken = "";   // decrypted token, memory only — gone on reload until password re-entered
+
   function loadGhSettings(){
     let saved = {};
     try{ saved = JSON.parse(localStorage.getItem(GH_SETTINGS_KEY)) || {}; }catch(e){}
     return Object.assign({}, GH_DEFAULTS, saved);
   }
-  function loadGhToken(){ try{ return localStorage.getItem(GH_TOKEN_KEY) || ""; }catch(e){ return ""; } }
+  function hasEncToken(){ try{ return !!localStorage.getItem(GH_TOKEN_ENC_KEY); }catch(e){ return false; } }
   function base64Utf8(str){
     const bytes = new TextEncoder().encode(str);
     let bin = ""; for(const b of bytes) bin += String.fromCharCode(b);
     return btoa(bin);
   }
+  const b64 = {
+    enc: buf => btoa(String.fromCharCode(...new Uint8Array(buf))),
+    dec: s => Uint8Array.from(atob(s), c => c.charCodeAt(0)),
+  };
+
+  /* password ⇆ token encryption: PBKDF2(SHA-256, 310k) → AES-256-GCM */
+  async function deriveKey(password, salt){
+    const raw = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), "PBKDF2", false, ["deriveKey"]);
+    return crypto.subtle.deriveKey(
+      { name:"PBKDF2", salt, iterations:310000, hash:"SHA-256" },
+      raw, { name:"AES-GCM", length:256 }, false, ["encrypt","decrypt"]
+    );
+  }
+  async function encryptToken(token, password){
+    const salt = crypto.getRandomValues(new Uint8Array(16));
+    const iv = crypto.getRandomValues(new Uint8Array(12));
+    const key = await deriveKey(password, salt);
+    const ct = await crypto.subtle.encrypt({name:"AES-GCM", iv}, key, new TextEncoder().encode(token));
+    localStorage.setItem(GH_TOKEN_ENC_KEY, JSON.stringify({v:1, salt:b64.enc(salt), iv:b64.enc(iv), ct:b64.enc(ct)}));
+  }
+  async function decryptToken(password){
+    const raw = localStorage.getItem(GH_TOKEN_ENC_KEY);
+    if(!raw) return null;
+    let blob; try{ blob = JSON.parse(raw); }catch(e){ return null; }
+    try{
+      const key = await deriveKey(password, b64.dec(blob.salt));
+      const pt = await crypto.subtle.decrypt({name:"AES-GCM", iv:b64.dec(blob.iv)}, key, b64.dec(blob.ct));
+      return new TextDecoder().decode(pt);
+    }catch(e){ return null; }   // wrong password → AES-GCM auth fails
+  }
+
+  /* ---------- lock screen ---------- */
+  function showLock(){
+    const setUp = hasEncToken();
+    byId("lock-lead").textContent = setUp
+      ? "輸入管理密碼進入編輯模式。"
+      : "此裝置尚未設定管理權限。請管理員按「初次設定」貼上 GitHub 權杖並設定密碼。";
+    byId("lock-pass-field").style.display = setUp ? "" : "none";
+    byId("lock-enter").style.display = setUp ? "" : "none";
+    byId("lock-error").hidden = true;
+    byId("lock-overlay").hidden = false;
+    if(setUp) byId("lock-pass").focus();
+  }
+  function hideLock(){ byId("lock-overlay").hidden = true; }
+  async function tryUnlock(){
+    const pass = byId("lock-pass").value;
+    if(!pass) return;
+    const btn = byId("lock-enter");
+    btn.disabled = true; btn.textContent = "確認中…";
+    const tok = await decryptToken(pass);
+    btn.disabled = false; btn.textContent = "進入編輯模式";
+    if(tok){
+      memToken = tok;
+      byId("lock-pass").value = "";
+      hideLock();
+      toast("已進入編輯模式");
+    } else {
+      byId("lock-error").hidden = false;
+      byId("lock-pass").select();
+    }
+  }
+
+  /* ---------- settings ---------- */
   function openSettings(){
     const s = loadGhSettings();
     byId("s-owner").value = s.owner || "";
     byId("s-repo").value = s.repo || "";
     byId("s-branch").value = s.branch || "";
     byId("s-path").value = s.path || "";
-    byId("s-token").value = loadGhToken();
+    byId("s-token").value = "";
+    byId("s-pass").value = "";
+    byId("s-pass2").value = "";
     byId("settings-modal").hidden = false;
     byId("s-owner").focus();
   }
   function closeSettings(){ byId("settings-modal").hidden = true; }
-  function saveSettings(){
+  async function saveSettings(){
     const s = {
       owner: byId("s-owner").value.trim(),
       repo: byId("s-repo").value.trim(),
@@ -436,24 +504,43 @@
     };
     localStorage.setItem(GH_SETTINGS_KEY, JSON.stringify(s));
     const tok = byId("s-token").value.trim();
-    if(tok) localStorage.setItem(GH_TOKEN_KEY, tok);
+    const p1 = byId("s-pass").value;
+    const p2 = byId("s-pass2").value;
+    const tokenForEncrypt = tok || memToken;   // allow changing password while unlocked without re-pasting token
+    if(tok || p1 || p2){
+      if(!tokenForEncrypt){ toast("請貼上權杖（或先用密碼解鎖後再改密碼）", {warn:true, duration:5000}); return; }
+      if(p1.length < 4){ toast("密碼至少 4 個字", {warn:true}); return; }
+      if(p1 !== p2){ toast("兩次密碼不一致", {warn:true}); return; }
+      await encryptToken(tokenForEncrypt, p1);
+      memToken = tokenForEncrypt;
+      hideLock();
+      closeSettings();
+      toast("設定完成！之後輸入密碼即可進入編輯模式");
+      return;
+    }
     closeSettings();
     toast("設定已儲存");
   }
   function clearToken(){
-    try{ localStorage.removeItem(GH_TOKEN_KEY); }catch(e){}
-    byId("s-token").value = "";
-    toast("已清除權杖（登出）");
+    try{ localStorage.removeItem(GH_TOKEN_ENC_KEY); }catch(e){}
+    memToken = "";
+    byId("s-token").value = ""; byId("s-pass").value = ""; byId("s-pass2").value = "";
+    toast("已清除權杖與密碼（登出）");
   }
 
   let publishing = false;
   async function publish(){
     if(publishing) return;
     const s = loadGhSettings();
-    const token = loadGhToken();
-    if(!s.owner || !s.repo || !token){
+    if(!memToken){
+      if(hasEncToken()){ showLock(); toast("請先輸入管理密碼", {warn:true}); }
+      else { openSettings(); toast("請先完成初次設定（貼上權杖並設定密碼）", {warn:true, duration:5000}); }
+      return;
+    }
+    const token = memToken;
+    if(!s.owner || !s.repo){
       openSettings();
-      toast("請先填寫發布設定（GitHub 帳號、repo 與權杖）", {warn:true, duration:4000});
+      toast("請先填寫 GitHub 帳號與 repo", {warn:true, duration:4000});
       return;
     }
     validate();
@@ -503,11 +590,13 @@
   function renderAll(){ renderSidebar(); renderMain(); }
 
   /* ---------- boot ---------- */
+  try{ localStorage.removeItem(GH_TOKEN_LEGACY_KEY); }catch(e){}   // never keep plaintext tokens
   tryLoadDraft();
   renderAll();
   validate();
   showDraftBanner(hasDraft);
   saveState.textContent = "就緒";
+  showLock();   // password gate: unlock (or first-time setup) before editing
 
   byId("btn-add-group").onclick = addGroup;
   byId("btn-export").onclick = download;
@@ -517,6 +606,9 @@
   byId("s-save").onclick = saveSettings;
   byId("s-cancel").onclick = closeSettings;
   byId("s-clear").onclick = clearToken;
+  byId("lock-enter").onclick = tryUnlock;
+  byId("lock-pass").addEventListener("keydown", e => { if(e.key === "Enter") tryUnlock(); });
+  byId("lock-setup").onclick = () => { openSettings(); };
   byId("settings-modal").addEventListener("click", e => { if(e.target.id === "settings-modal") closeSettings(); });
   document.addEventListener("keydown", e => { if(e.key === "Escape" && !byId("settings-modal").hidden) closeSettings(); });
 

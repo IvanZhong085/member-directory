@@ -111,6 +111,24 @@
   .draft-banner b{color:var(--red);}
   .draft-banner .btn{margin-left:auto; flex:none;}
 
+  /* lock screen (password gate) */
+  .lock-overlay{position:fixed; inset:0; z-index:150; background:#fff; display:flex; align-items:center; justify-content:center; padding:20px;}
+  .lock-overlay::before{content:""; position:absolute; inset:0; background:radial-gradient(circle at 85% 15%, var(--red-50) 0%, transparent 45%); pointer-events:none;}
+  .lock-overlay[hidden]{display:none;}
+  .lock-card{position:relative; width:min(400px,100%); background:#fff; border:1px solid var(--border); border-radius:20px; padding:32px 30px 26px; box-shadow:var(--shadow-md); display:flex; flex-direction:column; gap:14px; text-align:center;}
+  .lock-card .brand-mark{margin:0 auto; width:52px; height:52px; border-radius:15px;}
+  .lock-card .brand-mark svg{width:25px; height:25px;}
+  .lock-card h2{margin:2px 0 0; font-size:20px; font-weight:800;}
+  .lock-lead{margin:0; font-size:13.5px; color:var(--muted); line-height:1.7;}
+  .lock-card .field{text-align:left;}
+  .lock-error{font-size:12.5px; color:var(--red); font-weight:700;}
+  .lock-error[hidden]{display:none;}
+  .lock-links{display:flex; justify-content:center; gap:18px; font-size:12.5px; color:var(--muted); margin-top:2px;}
+  .lock-links a{color:var(--muted);}
+  .lock-links a:hover{color:var(--red);}
+  .linklike{background:none; border:none; padding:0; font:inherit; font-size:12.5px; color:var(--muted); cursor:pointer;}
+  .linklike:hover{color:var(--red); text-decoration:underline;}
+
   /* settings modal */
   .modal-overlay{position:fixed; inset:0; z-index:200; background:rgba(20,20,26,.5); display:flex; align-items:center; justify-content:center; padding:20px;}
   .modal-overlay[hidden]{display:none;}
@@ -157,6 +175,27 @@
   </div>
 </header>
 
+<!-- 密碼鎖定畫面：解鎖後才能編輯與發布 -->
+<div class="lock-overlay" id="lock-overlay" hidden>
+  <div class="lock-card">
+    <span class="brand-mark" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+    </span>
+    <h2>管理員登入</h2>
+    <p class="lock-lead" id="lock-lead">輸入管理密碼進入編輯模式。</p>
+    <div class="field" id="lock-pass-field">
+      <label for="lock-pass">管理密碼</label>
+      <input id="lock-pass" type="password" autocomplete="current-password" placeholder="請輸入密碼">
+    </div>
+    <div class="lock-error" id="lock-error" hidden>密碼不正確，請再試一次。</div>
+    <button class="btn btn-primary" id="lock-enter" type="button" style="justify-content:center;">進入編輯模式</button>
+    <div class="lock-links">
+      <a href="index.html">← 回名錄</a>
+      <button class="linklike" id="lock-setup" type="button">初次設定／重設</button>
+    </div>
+  </div>
+</div>
+
 <div class="draft-banner" id="draft-banner">
   <span>目前顯示的是<b>尚未發布</b>的變更 —— 改好後按右上角「發布到網站」才會更新到公開網站。</span>
   <button class="btn btn-sm" id="btn-discard" type="button">捨棄變更</button>
@@ -176,7 +215,11 @@
       <div class="field"><label>資料檔路徑</label><input id="s-path" placeholder="data.js" autocomplete="off"></div>
     </div>
     <div class="field"><label>存取權杖（GitHub Token）</label><input id="s-token" type="password" placeholder="貼上你的權杖" autocomplete="off"></div>
-    <p class="modal-hint">權杖請到 GitHub → Settings → Developer settings → <b>Fine-grained tokens</b> 建立，只授權「這一個 repo」的 <b>Contents：Read and write</b>。權杖只會存在你這台電腦的瀏覽器，<b>不要分享給別人</b>；在共用電腦使用完，請按下方「清除權杖（登出）」。權杖若外流，到 GitHub 撤銷（Revoke）即可作廢。</p>
+    <div class="row2">
+      <div class="field"><label>管理密碼（日常登入用）</label><input id="s-pass" type="password" placeholder="設定一組好記的密碼" autocomplete="new-password"></div>
+      <div class="field"><label>再輸入一次密碼</label><input id="s-pass2" type="password" placeholder="再輸入一次" autocomplete="new-password"></div>
+    </div>
+    <p class="modal-hint">權杖請到 GitHub → Settings → Developer settings → <b>Fine-grained tokens</b> 建立，只授權「這一個 repo」的 <b>Contents：Read and write</b>。<br>權杖會用你設定的<b>管理密碼加密</b>後才存在這台電腦的瀏覽器——之後日常編輯只要輸入密碼，不必再碰權杖；沒有密碼的人打不開、也發布不了。權杖若外流，到 GitHub 撤銷（Revoke）即可作廢。</p>
     <div class="modal-actions">
       <button class="btn btn-danger btn-sm" id="s-clear" type="button">清除權杖（登出）</button>
       <span style="flex:1"></span>
