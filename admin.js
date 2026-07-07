@@ -30,6 +30,39 @@
     return prefix + "_" + Date.now().toString(36) + Math.floor(Math.random()*1e5).toString(36);
   }
 
+  /* ---------- undo / redo（最多往前 10 步） ---------- */
+  const HISTORY_LIMIT = 10;
+  let undoStack = [];
+  let redoStack = [];
+  let pendingSnap = null;   // 文字編輯：進欄位時先拍照，第一次輸入才真正入堆疊 → 一次編輯＝一步
+  function updateHistoryButtons(){
+    const u = byId("btn-undo"), r = byId("btn-redo");
+    if(u){ u.disabled = undoStack.length === 0; u.title = "上一步" + (undoStack.length ? "（剩 " + undoStack.length + " 步）" : "（已到最初）"); }
+    if(r){ r.disabled = redoStack.length === 0; }
+  }
+  function pushUndo(){
+    undoStack.push(clone(DATA));
+    if(undoStack.length > HISTORY_LIMIT) undoStack.shift();
+    redoStack = [];
+    pendingSnap = null;
+    updateHistoryButtons();
+  }
+  function fixSelected(){ if(!DATA.some(g => g.id === selected)) selected = DATA.length ? DATA[0].id : null; }
+  function undo(){
+    if(!undoStack.length) return;
+    redoStack.push(clone(DATA));
+    DATA = undoStack.pop();
+    fixSelected(); renderAll(); validate(); saveDraft(); updateHistoryButtons();
+    toast("已回上一步");
+  }
+  function redo(){
+    if(!redoStack.length) return;
+    undoStack.push(clone(DATA));
+    DATA = redoStack.pop();
+    fixSelected(); renderAll(); validate(); saveDraft(); updateHistoryButtons();
+    toast("已重做");
+  }
+
   /* ---------- draft persistence ---------- */
   function showDraftBanner(on){ draftBanner.classList.toggle("show", !!on); }
   function saveDraft(){
@@ -43,6 +76,11 @@
     }
   }
   function scheduleSave(){ dirty = true; clearTimeout(saveTimer); saveTimer = setTimeout(saveDraft, 400); }
+  function manualSave(){
+    clearTimeout(saveTimer);
+    saveDraft();   // 立即寫入瀏覽器草稿
+    toast("已暫存到這台裝置（尚未發布到網站）");
+  }
 
   // Silently continue from any saved draft (no scary modal); a banner shows there are unpublished changes.
   function tryLoadDraft(){
@@ -121,50 +159,118 @@
     }
   }
 
-  /* ---------- image resize ---------- */
-  function fileToResizedDataURL(file, maxW, quality){
+  /* ---------- image crop + resize（裁成與前台卡片相同比例 4:4.6，輸出寬 900） ---------- */
+  const CROP_VW = 300, CROP_VH = 345;              // 裁剪視窗（比例 4:4.6）
+  const CROP_OUT_W = 900, CROP_OUT_H = Math.round(900 * CROP_VH / CROP_VW);
+
+  function cropAndResize(file){
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
+      reader.onerror = reject;
       reader.onload = () => {
         const img = new Image();
-        img.onload = () => {
-          let {width:w, height:h} = img;
-          if(w > maxW){ h = Math.round(h * maxW / w); w = maxW; }
-          const canvas = document.createElement("canvas");
-          canvas.width = w; canvas.height = h;
-          const ctx = canvas.getContext("2d");
-          ctx.drawImage(img, 0, 0, w, h);
-          try{ resolve(canvas.toDataURL("image/jpeg", quality)); }
-          catch(e){ resolve(reader.result); }
-        };
         img.onerror = reject;
+        img.onload = () => openCropper(img, resolve);
         img.src = reader.result;
       };
-      reader.onerror = reject;
       reader.readAsDataURL(file);
     });
+  }
+
+  function openCropper(img, done){
+    const modal = byId("crop-modal");
+    const canvas = byId("crop-canvas");
+    const zoom = byId("crop-zoom");
+    canvas.width = CROP_VW; canvas.height = CROP_VH;
+    const ctx = canvas.getContext("2d");
+    const natW = img.naturalWidth, natH = img.naturalHeight;
+    const minScale = Math.max(CROP_VW / natW, CROP_VH / natH);
+    const maxScale = minScale * 5;
+    let scale = minScale;
+    let offX = (CROP_VW - natW * scale) / 2;
+    let offY = (CROP_VH - natH * scale) / 2;
+
+    function clamp(){
+      offX = Math.min(0, Math.max(CROP_VW - natW * scale, offX));
+      offY = Math.min(0, Math.max(CROP_VH - natH * scale, offY));
+    }
+    function draw(){
+      ctx.clearRect(0, 0, CROP_VW, CROP_VH);
+      ctx.drawImage(img, offX, offY, natW * scale, natH * scale);
+    }
+    function setScale(newScale){
+      newScale = Math.min(maxScale, Math.max(minScale, newScale));
+      // 以視窗中心為軸縮放
+      const cxImg = (CROP_VW / 2 - offX) / scale;
+      const cyImg = (CROP_VH / 2 - offY) / scale;
+      scale = newScale;
+      offX = CROP_VW / 2 - cxImg * scale;
+      offY = CROP_VH / 2 - cyImg * scale;
+      clamp(); draw();
+    }
+    clamp(); draw();
+    zoom.value = "0";
+
+    // pointer 拖曳平移
+    let dragging = false, startX = 0, startY = 0, startOX = 0, startOY = 0;
+    function pd(e){ dragging = true; startX = e.clientX; startY = e.clientY; startOX = offX; startOY = offY; canvas.setPointerCapture && canvas.setPointerCapture(e.pointerId); }
+    function pm(e){ if(!dragging) return; const r = canvas.getBoundingClientRect(); const sx = CROP_VW / r.width, sy = CROP_VH / r.height; offX = startOX + (e.clientX - startX) * sx; offY = startOY + (e.clientY - startY) * sy; clamp(); draw(); }
+    function pu(){ dragging = false; }
+    function onZoom(){ setScale(minScale + (maxScale - minScale) * (parseFloat(zoom.value) / 100)); }
+    function onWheel(e){ e.preventDefault(); const step = (maxScale - minScale) / 12 * (e.deltaY < 0 ? 1 : -1); setScale(scale + step); zoom.value = String(Math.round((scale - minScale) / (maxScale - minScale) * 100)); }
+
+    canvas.addEventListener("pointerdown", pd);
+    canvas.addEventListener("pointermove", pm);
+    canvas.addEventListener("pointerup", pu);
+    canvas.addEventListener("pointercancel", pu);
+    canvas.addEventListener("wheel", onWheel, {passive:false});
+    zoom.addEventListener("input", onZoom);
+
+    function cleanup(){
+      canvas.removeEventListener("pointerdown", pd);
+      canvas.removeEventListener("pointermove", pm);
+      canvas.removeEventListener("pointerup", pu);
+      canvas.removeEventListener("pointercancel", pu);
+      canvas.removeEventListener("wheel", onWheel);
+      zoom.removeEventListener("input", onZoom);
+      byId("crop-ok").onclick = null;
+      byId("crop-cancel").onclick = null;
+      modal.onclick = null;
+      modal.hidden = true;
+    }
+    function confirm(){
+      const out = document.createElement("canvas");
+      out.width = CROP_OUT_W; out.height = CROP_OUT_H;
+      const octx = out.getContext("2d");
+      const sx = -offX / scale, sy = -offY / scale, sW = CROP_VW / scale, sH = CROP_VH / scale;
+      octx.drawImage(img, sx, sy, sW, sH, 0, 0, CROP_OUT_W, CROP_OUT_H);
+      let url; try{ url = out.toDataURL("image/jpeg", 0.85); }catch(e){ url = null; }
+      cleanup(); done(url);
+    }
+    byId("crop-ok").onclick = confirm;
+    byId("crop-cancel").onclick = () => { cleanup(); done(null); };
+    modal.onclick = e => { if(e.target === modal){ cleanup(); done(null); } };
+    modal.hidden = false;
   }
 
   /* ---------- render: sidebar ---------- */
   function renderSidebar(){
     glist.innerHTML = DATA.map(g => `
-      <div class="gitem ${g.id===selected?"active":""}" data-gid="${esc(g.id)}">
+      <div class="gitem ${g.id===selected?"active":""}" data-gid="${esc(g.id)}" title="${esc(g.code||"?")}・${esc(g.name||"（未命名）")}">
         <span class="gitem-code">${esc(g.code||"?")}</span>
         <span class="gitem-name">${esc(g.name||"（未命名）")}</span>
         <span class="gitem-count">${g.members.length}</span>
-        <button class="gitem-del" data-del title="刪除此組" aria-label="刪除 ${esc(g.name||g.code)}">✕</button>
       </div>`).join("") +
       `<button class="gadd-tile" id="gadd-tile" type="button">＋ 新增分組</button>`;
     glist.querySelectorAll(".gitem").forEach(el => {
-      el.addEventListener("click", e => {
-        if(e.target.closest("[data-del]")) return;
+      el.addEventListener("click", () => {
         selected = el.dataset.gid; renderAll();
+        closeDrawerIfMobile();
       });
-      const del = el.querySelector("[data-del]");
-      del.addEventListener("click", e => { e.stopPropagation(); deleteGroup(groupById(el.dataset.gid)); });
     });
-    byId("gadd-tile").onclick = addGroup;
+    byId("gadd-tile").onclick = () => { addGroup(); closeDrawerIfMobile(); };
   }
+  function closeDrawerIfMobile(){ document.body.classList.remove("drawer-open"); }
 
   /* ---------- render: main ---------- */
   function renderMain(){
@@ -188,9 +294,8 @@
             <input id="g-leader" value="${esc(g.leader||"")}" placeholder="組長姓名">
           </div>
           <div style="display:flex; gap:6px; align-self:flex-end; padding-bottom:1px;">
-            <button class="icon-btn" id="g-up" title="上移" ${gi===0?"disabled":""}>${ICON.up}</button>
-            <button class="icon-btn" id="g-down" title="下移" ${gi===DATA.length-1?"disabled":""}>${ICON.down}</button>
-            <button class="btn btn-danger btn-sm" id="g-del">${ICON.trash} 刪除整組</button>
+            <button class="icon-btn" id="g-up" title="分組上移" ${gi===0?"disabled":""}>${ICON.up}</button>
+            <button class="icon-btn" id="g-down" title="分組下移" ${gi===DATA.length-1?"disabled":""}>${ICON.down}</button>
           </div>
         </div>
       </div>
@@ -208,13 +313,12 @@
         <button class="btn btn-primary" id="add-mem" type="button">+ 新增成員到「${esc(g.name||g.code)}」</button>
       </div>`;
 
-    // group field bindings
-    bindInput("g-code", v => { g.code = v; renderSidebar(); scheduleSaveAndValidate(); });
-    bindInput("g-name", v => { g.name = v; renderSidebar(); scheduleSaveAndValidate(); });
-    bindInput("g-leader", v => { g.leader = v; scheduleSaveAndValidate(); });
+    // group field bindings（focus 先拍照、第一次輸入才計為一步）
+    bindTextField("g-code", v => { g.code = v; renderSidebar(); scheduleSaveAndValidate(); });
+    bindTextField("g-name", v => { g.name = v; renderSidebar(); scheduleSaveAndValidate(); });
+    bindTextField("g-leader", v => { g.leader = v; scheduleSaveAndValidate(); });
     byId("g-up").onclick = () => moveGroup(gi, -1);
     byId("g-down").onclick = () => moveGroup(gi, 1);
-    byId("g-del").onclick = () => deleteGroup(g);
     byId("add-mem").onclick = () => addMember(g);
 
     // quick add by name (Enter or button) — stays focused for rapid entry
@@ -287,17 +391,14 @@
   function bindMember(g, m, i){
     const card = main.querySelector('.mem-card[data-mid="'+cssq(m.id)+'"]');
     if(!card) return;
-    const textFields = ["number","name","title","company","business_items"];
-    textFields.forEach(f => {
-      const el = card.querySelector('[data-f="'+f+'"]');
-      el.addEventListener("input", () => { m[f] = el.value; scheduleSaveAndValidate(); });
+    ["number","name","title","company","business_items"].forEach(f => {
+      wireTextInput(card.querySelector('[data-f="'+f+'"]'), v => { m[f] = v; scheduleSaveAndValidate(); });
     });
     ["services","targets","tagline"].forEach(f => {
-      const el = card.querySelector('[data-f="'+f+'"]');
-      el.addEventListener("input", () => { m[f] = linesToArr(el.value); scheduleSave(); });
+      wireTextInput(card.querySelector('[data-f="'+f+'"]'), v => { m[f] = linesToArr(v); scheduleSave(); });
     });
     const chk = card.querySelector('[data-f="dataIssue"]');
-    chk.addEventListener("change", () => { m.dataIssue = chk.checked; scheduleSave(); });
+    chk.addEventListener("change", () => { pushUndo(); m.dataIssue = chk.checked; scheduleSave(); });
 
     const fileInput = card.querySelector('[data-act="file"]');
     card.querySelector('[data-act="photo"]').onclick = () => fileInput.click();
@@ -305,14 +406,18 @@
       const file = fileInput.files && fileInput.files[0];
       if(!file) return;
       try{
-        toast("處理照片中…");
-        m.image = await fileToResizedDataURL(file, 900, 0.82);
-        renderMembers(g); saveDraft(); toast("照片已更新，記得最後按「發布到網站」");
+        const dataUrl = await cropAndResize(file);   // 開啟裁剪視窗；取消回傳 null
+        if(dataUrl){
+          pushUndo();
+          m.image = dataUrl;
+          renderMembers(g); saveDraft(); toast("照片已更新，記得最後按「發布到網站」");
+        }
       }catch(e){ toast("照片讀取失敗", {warn:true}); }
       fileInput.value = "";
     };
     card.querySelector('[data-act="rmphoto"]').onclick = () => {
       if(!m.image) return;
+      pushUndo();
       m.image = ""; renderMembers(g); saveDraft();
     };
     card.querySelector('[data-act="up"]').onclick = () => moveMember(g, i, -1);
@@ -321,26 +426,15 @@
     card.querySelector('[data-act="del"]').onclick = () => deleteMember(g, i);
   }
 
-  /* ---------- mutations ---------- */
+  /* ---------- mutations（每個結構性動作先 pushUndo() 記錄一步） ---------- */
   function moveGroup(i, dir){
     const j = i + dir; if(j<0||j>=DATA.length) return;
+    pushUndo();
     [DATA[i], DATA[j]] = [DATA[j], DATA[i]];
     renderAll(); scheduleSave();
   }
-  function deleteGroup(g){
-    const idx = DATA.indexOf(g);
-    if(idx < 0) return;
-    DATA.splice(idx,1);
-    if(selected === g.id) selected = DATA.length ? DATA[Math.max(0,idx-1)].id : null;
-    renderAll(); scheduleSaveAndValidate();
-    toast("已刪除整組「" + (g.name||g.code) + "」（含 " + g.members.length + " 人）", {
-      actionLabel:"復原", duration:7000, onAction:() => {
-        DATA.splice(Math.min(idx, DATA.length), 0, g);
-        selected = g.id; renderAll(); scheduleSaveAndValidate();
-      }
-    });
-  }
   function addGroup(){
+    pushUndo();
     const g = { id: uid("g"), code:"新", name:"新分組", leader:"", room:"", members:[] };
     DATA.push(g); selected = g.id; renderAll(); scheduleSave();
     byId("g-code") && byId("g-code").focus();
@@ -348,6 +442,7 @@
   }
   function addMember(g, name, opts){
     opts = opts || {};
+    pushUndo();
     const m = { id: uid(g.id+"_m"), number:"", name:name||"", title:"", services:[], targets:[], tagline:[], image:"", company:"", business_items:"", dataIssue:false };
     g.members.push(m); renderSidebar(); renderMembers(g); scheduleSaveAndValidate();
     if(opts.quick){
@@ -358,6 +453,7 @@
     }
   }
   function duplicateMember(g, i){
+    pushUndo();
     const src = g.members[i];
     const copy = JSON.parse(JSON.stringify(src));
     copy.id = uid(g.id+"_m");
@@ -369,18 +465,16 @@
     toast("已複製成員");
   }
   function deleteMember(g, i){
+    pushUndo();
     const removed = g.members[i];
     g.members.splice(i,1);
     renderSidebar(); renderMembers(g); scheduleSaveAndValidate();
-    toast("已刪除「" + (removed.name || "未命名") + "」", {
-      actionLabel:"復原", duration:6000, onAction:() => {
-        g.members.splice(Math.min(i, g.members.length), 0, removed);
-        renderSidebar(); renderMembers(g); scheduleSaveAndValidate();
-      }
-    });
+    // 立即復原鈕＝退回這一步（等同上一步）
+    toast("已刪除「" + (removed.name || "未命名") + "」", { actionLabel:"復原", duration:6000, onAction: undo });
   }
   function moveMember(g, i, dir){
     const j = i + dir; if(j<0||j>=g.members.length) return;
+    pushUndo();
     [g.members[i], g.members[j]] = [g.members[j], g.members[i]];
     renderMembers(g); scheduleSave();
   }
@@ -622,7 +716,21 @@
   /* ---------- small utils ---------- */
   function byId(id){ return document.getElementById(id); }
   function cssq(s){ return String(s).replace(/["\\]/g, "\\$&"); }
-  function bindInput(id, cb){ const el = byId(id); if(el) el.addEventListener("input", () => cb(el.value)); }
+  function commitPendingSnap(){
+    if(!pendingSnap) return;
+    undoStack.push(pendingSnap);
+    if(undoStack.length > HISTORY_LIMIT) undoStack.shift();
+    redoStack = []; pendingSnap = null;
+    updateHistoryButtons();
+  }
+  /* 文字欄位：focus 時先拍一張，第一次輸入才把那張存進復原堆疊 → 一整段編輯只算「一步」 */
+  function wireTextInput(el, onInput){
+    if(!el) return;
+    el.addEventListener("focus", () => { pendingSnap = clone(DATA); });
+    el.addEventListener("blur", () => { pendingSnap = null; });
+    el.addEventListener("input", () => { commitPendingSnap(); onInput(el.value); });
+  }
+  function bindTextField(id, cb){ wireTextInput(byId(id), cb); }
   function scheduleSaveAndValidate(){ scheduleSave(); validate(); }
 
   function renderAll(){ renderSidebar(); renderMain(); }
@@ -638,15 +746,19 @@
   renderAll();
   validate();
   showDraftBanner(hasDraft);
+  updateHistoryButtons();
   saveState.textContent = "就緒";
   showLock();   // 密碼閘門：解鎖（或先設定 Worker 網址）才能編輯
 
-  byId("btn-add-group").onclick = addGroup;
+  byId("btn-add-group").onclick = () => { addGroup(); closeDrawerIfMobile(); };
   byId("btn-export").onclick = download;
   byId("btn-publish").onclick = publish;
   byId("btn-settings").onclick = openSettings;
   byId("btn-discard").onclick = discardDraft;
   byId("btn-logout").onclick = logout;
+  byId("btn-save").onclick = manualSave;
+  byId("btn-undo").onclick = undo;
+  byId("btn-redo").onclick = redo;
   byId("s-save").onclick = saveSettings;
   byId("s-cancel").onclick = closeSettings;
   byId("s-test").onclick = testConnection;
@@ -656,7 +768,25 @@
   byId("lock-setup").onclick = () => { openSettings(); };
   byId("perm-recheck").onclick = () => { hidePermBanner(); toast("已隱藏提醒，發布時若還有問題會再顯示"); };
   byId("settings-modal").addEventListener("click", e => { if(e.target.id === "settings-modal") closeSettings(); });
-  document.addEventListener("keydown", e => { if(e.key === "Escape" && !byId("settings-modal").hidden) closeSettings(); });
+
+  // 側邊分組：桌機收合 / 手機抽屜
+  byId("btn-collapse").onclick = () => document.body.classList.toggle("side-collapsed");
+  byId("btn-drawer").onclick = () => document.body.classList.toggle("drawer-open");
+  byId("drawer-backdrop").onclick = closeDrawerIfMobile;
+
+  document.addEventListener("keydown", e => {
+    if(e.key === "Escape"){
+      if(!byId("crop-modal").hidden){ byId("crop-cancel").click(); return; }
+      if(!byId("settings-modal").hidden){ closeSettings(); return; }
+      if(document.body.classList.contains("drawer-open")){ closeDrawerIfMobile(); return; }
+    }
+    // 只有在編輯中（非鎖定、非彈窗）才吃 Ctrl+Z / Ctrl+Y
+    const editing = byId("lock-overlay").hidden && byId("settings-modal").hidden && byId("crop-modal").hidden;
+    if(editing && (e.ctrlKey || e.metaKey)){
+      if(e.key === "z" && !e.shiftKey){ e.preventDefault(); undo(); }
+      else if((e.key === "z" && e.shiftKey) || e.key === "y"){ e.preventDefault(); redo(); }
+    }
+  });
 
   window.addEventListener("beforeunload", () => { if(dirty) saveDraft(); });
 })();

@@ -5,6 +5,11 @@
   const searchInput = document.getElementById("search-input");
   const searchClear = document.getElementById("search-clear");
   const liveRegion = document.getElementById("live-region");
+  const dirNav = document.getElementById("dir-nav");
+  const dirToggle = document.getElementById("dir-toggle");
+  const dirCollapse = document.getElementById("dir-collapse");
+  const dirClose = document.getElementById("dir-close");
+  const dirBackdrop = document.getElementById("dir-backdrop");
 
   /* ---------- data indexes ---------- */
   const byId = new Map();
@@ -51,6 +56,7 @@
     search: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>',
     camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>',
     crown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.562 3.266a.5.5 0 0 1 .876 0L15.39 8.87a1 1 0 0 0 1.516.294L21.183 5.5a.5.5 0 0 1 .798.519l-2.834 10.246a1 1 0 0 1-.956.735H5.81a1 1 0 0 1-.957-.735L2.02 6.02a.5.5 0 0 1 .798-.519l4.276 3.664a1 1 0 0 0 1.516-.294z"/></svg>',
+    grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>',
   };
 
   function photoCard(m){
@@ -78,6 +84,48 @@
       </a>`;
   }
 
+  /* ---------- directory sidebar (persistent group nav) ---------- */
+  function buildSidebar(){
+    if(!dirNav) return;
+    let html = `<a class="dir-item dir-item-home" href="#/" data-gid="">
+        <span class="dir-code dir-code-home">${I.grid}</span>
+        <span class="dir-label"><span class="dir-name">總覽首頁</span></span>
+      </a>`;
+    GROUPS.forEach(g => {
+      html += `<a class="dir-item" href="#/group/${encodeURIComponent(g.id)}" data-gid="${esc(g.id)}" title="${esc(g.code)}・${esc(g.name)}">
+        <span class="dir-code">${esc(g.code)}</span>
+        <span class="dir-label"><span class="dir-name">${esc(g.name)}</span></span>
+        <span class="dir-count">${g.members.length}</span>
+      </a>`;
+    });
+    dirNav.innerHTML = html;
+  }
+  function setActiveGroup(gid){
+    if(!dirNav) return;
+    let activeEl = null;
+    dirNav.querySelectorAll(".dir-item").forEach(el => {
+      const on = el.getAttribute("data-gid") === gid;
+      el.classList.toggle("active", on);
+      if(on){ el.setAttribute("aria-current", "true"); activeEl = el; }
+      else el.removeAttribute("aria-current");
+    });
+    return activeEl;
+  }
+
+  /* ---------- drawer / collapse controls ---------- */
+  const COLLAPSE_KEY = "memberdir_dir_collapsed";
+  function openDrawer(){
+    document.body.classList.add("dir-open");
+    if(dirBackdrop) dirBackdrop.hidden = false;
+    if(dirToggle) dirToggle.setAttribute("aria-expanded", "true");
+  }
+  function closeDrawer(){
+    if(!document.body.classList.contains("dir-open")) return;
+    document.body.classList.remove("dir-open");
+    if(dirBackdrop) dirBackdrop.hidden = true;
+    if(dirToggle) dirToggle.setAttribute("aria-expanded", "false");
+  }
+
   /* ---------- router ----------
      Search is a real route (#/search/關鍵字) written with history.replaceState,
      so the browser Back button can return to (or leave) search results cleanly. */
@@ -102,15 +150,22 @@
       if(searchInput.value.trim() !== q.trim()) searchInput.value = q;
       searchClear.hidden = !q;
       renderSearch(q);
+      setActiveGroup(null);
     } else if(hash.startsWith("#/group/")){
       syncSearchCleared();
-      renderGroup(safeDecode(hash.slice(8)));
+      const gid = safeDecode(hash.slice(8));
+      renderGroup(gid);
+      setActiveGroup(byId.has(gid) ? gid : null);
     } else if(hash.startsWith("#/member/")){
       syncSearchCleared();
-      renderMember(safeDecode(hash.slice(9)));
+      const mid = safeDecode(hash.slice(9));
+      renderMember(mid);
+      const mm = memberIndex.find(x => x.id === mid);
+      setActiveGroup(mm ? mm._group.id : null);
     } else {
       syncSearchCleared();
       renderHome();
+      setActiveGroup("");
     }
     const saved = scrollMem.get(hash);
     if(saved !== undefined) window.scrollTo({top:saved, left:0, behavior:"instant"});
@@ -343,6 +398,7 @@
     clearTimeout(searchTimer);
     const hash = location.hash || "#/";
     if(!isSearchHash(hash)) prevHash = hash;
+    closeDrawer();
     render();
     app.focus({preventScroll:true});   // move focus to fresh content for keyboard/SR users
   });
@@ -351,6 +407,31 @@
   if(skipLink){
     skipLink.addEventListener("click", e => { e.preventDefault(); app.focus(); });
   }
+
+  /* ---------- sidebar / drawer wiring ---------- */
+  buildSidebar();
+
+  try { if(localStorage.getItem(COLLAPSE_KEY) === "1") document.body.classList.add("dir-collapsed"); } catch(_){}
+
+  if(dirToggle) dirToggle.addEventListener("click", () => {
+    document.body.classList.contains("dir-open") ? closeDrawer() : openDrawer();
+  });
+  if(dirBackdrop) dirBackdrop.addEventListener("click", closeDrawer);
+  if(dirClose) dirClose.addEventListener("click", closeDrawer);
+  if(dirNav) dirNav.addEventListener("click", e => {
+    if(e.target.closest(".dir-item")) closeDrawer();   // picking a group closes the mobile drawer
+  });
+  if(dirCollapse) dirCollapse.addEventListener("click", () => {
+    const c = document.body.classList.toggle("dir-collapsed");
+    try { localStorage.setItem(COLLAPSE_KEY, c ? "1" : "0"); } catch(_){}
+    dirCollapse.setAttribute("aria-label", c ? "展開分組列" : "縮小分組列");
+    dirCollapse.setAttribute("title", c ? "展開分組列" : "縮小分組列");
+  });
+  document.addEventListener("keydown", e => { if(e.key === "Escape") closeDrawer(); });
+  // leaving mobile widths must dismiss the drawer so its backdrop never lingers on desktop
+  const mqDesktop = window.matchMedia("(min-width:901px)");
+  (mqDesktop.addEventListener ? mqDesktop.addEventListener.bind(mqDesktop, "change")
+    : mqDesktop.addListener.bind(mqDesktop))(e => { if(e.matches) closeDrawer(); });
 
   if(!isSearchHash(location.hash)) prevHash = location.hash || "#/";
   render();
