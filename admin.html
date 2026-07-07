@@ -21,6 +21,8 @@
   .btn-primary{background:var(--red); color:#fff; border-color:var(--red);}
   .btn-primary:hover{background:var(--red-dark); border-color:var(--red-dark);}
   .btn-ghost{border-color:transparent; background:var(--bg-soft);}
+  .adm-back{gap:6px;}
+  .adm-back svg{width:16px; height:16px;}
   .btn-danger{color:var(--red); border-color:var(--red-100);}
   .btn-danger:hover{background:var(--red-50);}
   .btn-sm{padding:6px 11px; font-size:12.5px; border-radius:8px;}
@@ -213,6 +215,10 @@
       </span>
       會員名錄 <span class="adm-badge">後台編輯</span>
     </div>
+    <a class="btn btn-ghost adm-back" id="btn-back-site" href="index.html" title="回到公開會員名錄">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+      回名錄
+    </a>
     <div class="adm-actions">
       <span class="adm-save-state" id="save-state">—</span>
       <span class="adm-history">
@@ -288,6 +294,20 @@
   </div>
 </div>
 
+<!-- 離開編輯頁前的提醒：有尚未發布的變更時才會跳出 -->
+<div class="modal-overlay" id="leave-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="leave-title">
+    <h3 id="leave-title">還有尚未發布的變更</h3>
+    <p class="modal-lead">你的修改已<b>暫存在這台裝置</b>，不會遺失；但公開的會員名錄現在顯示的還是<b>上一次發布</b>的版本。要先發布再回名錄嗎？</p>
+    <div class="modal-actions">
+      <button class="btn btn-sm" id="leave-stay" type="button">留在這裡繼續改</button>
+      <span style="flex:1"></span>
+      <button class="btn btn-sm" id="leave-anyway" type="button">先不發布，直接回</button>
+      <button class="btn btn-primary btn-sm" id="leave-publish" type="button">發布後回名錄</button>
+    </div>
+  </div>
+</div>
+
 <div class="drawer-backdrop" id="drawer-backdrop"></div>
 
 <div class="adm-wrap">
@@ -338,6 +358,6 @@
 <div class="toast" id="toast"></div>
 
 <script src="data.js"></script>
-<script src="admin.js?v=2"></script>
+<script src="admin.js?v=3"></script>
 </body>
 </html>

@@ -663,15 +663,16 @@
 
   let publishing = false;
   async function publish(){
-    if(publishing) return;
+    if(publishing) return false;
     let session = loadSession();
     if(!session){
       showLock();
       toast("請先輸入管理密碼", {warn:true});
-      return;
+      return false;
     }
     validate();
     publishing = true;
+    let ok = false;
     const btn = byId("btn-publish");
     const orig = btn.innerHTML;
     btn.disabled = true; btn.textContent = "發布中…";
@@ -683,6 +684,7 @@
         try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
         showDraftBanner(false);
         hidePermBanner();
+        ok = true;
         toast("已發布！約 1 分鐘後公開網站就會更新 ✔", {duration:6000});
       } else if(res.error === "session_expired" || res.httpStatus === 401){
         clearSession();
@@ -710,6 +712,23 @@
       }
     } finally {
       publishing = false; btn.disabled = false; btn.innerHTML = orig;
+    }
+    return ok;
+  }
+
+  /* ---------- leave-to-site guard ---------- */
+  // 有「尚未發布」的變更＝草稿橫幅正顯示，或剛改完還沒自動存進草稿
+  function hasUnpublishedChanges(){
+    return dirty || byId("draft-banner").classList.contains("show");
+  }
+  function leaveToSite(){ window.location.href = "index.html"; }
+  function closeLeaveModal(){ byId("leave-modal").hidden = true; }
+  function requestLeave(){
+    // 未登入（鎖定中）根本改不了東西，直接離開；否則有未發布變更才提醒
+    if(hasUnpublishedChanges() && byId("lock-overlay").hidden){
+      byId("leave-modal").hidden = false;
+    } else {
+      leaveToSite();
     }
   }
 
@@ -774,14 +793,29 @@
   byId("btn-drawer").onclick = () => document.body.classList.toggle("drawer-open");
   byId("drawer-backdrop").onclick = closeDrawerIfMobile;
 
+  // 回名錄：離開前若有未發布變更就提醒
+  byId("btn-back-site").addEventListener("click", e => { e.preventDefault(); requestLeave(); });
+  byId("leave-stay").onclick = closeLeaveModal;
+  byId("leave-anyway").onclick = () => { closeLeaveModal(); leaveToSite(); };
+  byId("leave-publish").onclick = async () => {
+    const b = byId("leave-publish"), orig = b.textContent;
+    b.disabled = true; byId("leave-anyway").disabled = true; b.textContent = "發布中…";
+    const ok = await publish();
+    b.disabled = false; byId("leave-anyway").disabled = false; b.textContent = orig;
+    closeLeaveModal();
+    if(ok) leaveToSite();   // 發布失敗就留在編輯頁，publish() 已用 toast 說明原因
+  };
+  byId("leave-modal").addEventListener("click", e => { if(e.target.id === "leave-modal") closeLeaveModal(); });
+
   document.addEventListener("keydown", e => {
     if(e.key === "Escape"){
       if(!byId("crop-modal").hidden){ byId("crop-cancel").click(); return; }
+      if(!byId("leave-modal").hidden){ closeLeaveModal(); return; }
       if(!byId("settings-modal").hidden){ closeSettings(); return; }
       if(document.body.classList.contains("drawer-open")){ closeDrawerIfMobile(); return; }
     }
     // 只有在編輯中（非鎖定、非彈窗）才吃 Ctrl+Z / Ctrl+Y
-    const editing = byId("lock-overlay").hidden && byId("settings-modal").hidden && byId("crop-modal").hidden;
+    const editing = byId("lock-overlay").hidden && byId("settings-modal").hidden && byId("crop-modal").hidden && byId("leave-modal").hidden;
     if(editing && (e.ctrlKey || e.metaKey)){
       if(e.key === "z" && !e.shiftKey){ e.preventDefault(); undo(); }
       else if((e.key === "z" && e.shiftKey) || e.key === "y"){ e.preventDefault(); redo(); }
