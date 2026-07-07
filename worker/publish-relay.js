@@ -237,6 +237,38 @@ async function handlePublish(request, env){
   }
 }
 
+/* 公開的訪客瀏覽計數：不需要密碼、不佔登入錯誤額度。
+   scope="site" 累計全站；scope="member"&id=<成員id> 累計單一成員頁，回傳遞增後的數字。
+   讀-改-寫非原子（Workers KV 特性），對這種展示用計數可接受；偶爾平行存取可能少算一兩次。
+   ⚠ 與防暴力破解共用同一個 KV，免費方案每日 1000 次寫入為兩者共用上限——一般小站流量綽綽有餘，
+   若站點爆紅可另建一個 KV 命名空間、綁定為 VIEWS，並把下面 kv 換成 env.VIEWS。 */
+const VIEW_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+async function handleViews(request, env){
+  const kv = env.VIEWS && typeof env.VIEWS.get === "function" ? env.VIEWS : env.RATE_LIMIT;
+  if(!kv || typeof kv.get !== "function"){
+    return json(env, { ok:false, error:"kv_missing" }, 200);   // 前端會安靜地不顯示計數，不讓頁面出錯
+  }
+  let body; try{ body = await request.json(); }catch(e){ body = {}; }
+  const scope = body && body.scope;
+  let key;
+  if(scope === "site"){
+    key = "views:site";
+  } else if(scope === "member" && VIEW_ID_RE.test((body && body.id) || "")){
+    key = "views:member:" + body.id;
+  } else {
+    return json(env, { ok:false, error:"bad_scope" }, 400);
+  }
+  let n = 0;
+  try{
+    const raw = await kv.get(key);
+    n = raw ? (parseInt(raw, 10) || 0) : 0;
+  }catch(e){ /* 讀取失敗就從 0 起算 */ }
+  n += 1;
+  try{ await kv.put(key, String(n)); }
+  catch(e){ return json(env, { ok:false, error:"write_failed", count:n }, 200); }
+  return json(env, { ok:true, count:n });
+}
+
 export default {
   async fetch(request, env){
     // 沒設定 ALLOWED_ORIGIN 就直接回報錯誤，而不是悄悄用空字串「剛好」擋掉跨網域請求——
@@ -262,6 +294,7 @@ export default {
     if(pathname === "/login") return handleLogin(request, env);
     if(pathname === "/publish") return handlePublish(request, env);
     if(pathname === "/health") return handleHealth(request, env);
+    if(pathname === "/views") return handleViews(request, env);
     return json(env, { ok:false, error:"not_found" }, 404);
   },
 };

@@ -11,6 +11,35 @@
   const dirClose = document.getElementById("dir-close");
   const dirBackdrop = document.getElementById("dir-backdrop");
 
+  /* 訪客瀏覽計數：透過自家 Cloudflare Worker 的 /views（公開、免密碼）累計。
+     網址非機密，與 admin.js 相同。Worker 尚未更新到有 /views 時會靜默失敗、不顯示計數。 */
+  const WORKER_URL = "https://member-directory-relay.retetrhjj123.workers.dev";
+  let siteViews = "pending";   // "pending" | number | "failed"
+  function fmtNum(n){ return Number(n||0).toLocaleString("en-US"); }
+  async function bumpView(scope, id){
+    if(!WORKER_URL) return null;
+    try{
+      const res = await fetch(WORKER_URL.replace(/\/+$/,"") + "/views", {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify(id ? { scope, id } : { scope }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if(data && data.ok && typeof data.count === "number") return data.count;
+    }catch(e){ /* 離線或 Worker 尚未更新：安靜略過 */ }
+    return null;
+  }
+  function updateSiteViewsUI(){
+    const el = document.getElementById("stat-views");
+    if(!el) return;
+    if(typeof siteViews === "number"){
+      const num = el.querySelector(".stat-num");
+      if(num) num.textContent = fmtNum(siteViews);
+    } else if(siteViews === "failed"){
+      el.remove();   // Worker 沒回應就把這格移掉，不留一個「…」
+    }
+  }
+
   /* ---------- data indexes ---------- */
   const byId = new Map();
   const memberIndex = [];
@@ -57,6 +86,7 @@
     camera: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>',
     crown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.562 3.266a.5.5 0 0 1 .876 0L15.39 8.87a1 1 0 0 0 1.516.294L21.183 5.5a.5.5 0 0 1 .798.519l-2.834 10.246a1 1 0 0 1-.956.735H5.81a1 1 0 0 1-.957-.735L2.02 6.02a.5.5 0 0 1 .798-.519l4.276 3.664a1 1 0 0 0 1.516-.294z"/></svg>',
     grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>',
+    eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>',
   };
 
   function photoCard(m){
@@ -194,6 +224,7 @@
         <div class="hero-stats anim" style="--i:3">
           <div class="stat"><div class="stat-num">${GROUPS.length}</div><div class="stat-label">專業分組</div></div>
           <div class="stat"><div class="stat-num">${TOTAL_MEMBERS}</div><div class="stat-label">位成員</div></div>
+          ${siteViews === "failed" ? "" : `<div class="stat" id="stat-views"><div class="stat-num">${typeof siteViews === "number" ? fmtNum(siteViews) : "…"}</div><div class="stat-label">累計瀏覽</div></div>`}
         </div>
       </section>
       <div class="section-head">
@@ -323,12 +354,24 @@
             <div class="info-text">${esc(m.business_items) || "資料尚未提供，補充後將顯示於此。"}</div>
           </div>
         </div>
+        <div class="detail-views" id="detail-views" hidden>${I.eye}<span>本頁已被瀏覽 <b>—</b> 次</span></div>
       </article>
       <nav class="detail-nav" aria-label="同組成員導覽">
         ${navCard(prev, false)}
         ${navCard(next, true)}
       </nav>`;
     app.innerHTML = html;
+
+    // 計入這位成員的瀏覽數；回來後若已離開此頁就不更新（避免把數字寫到別人頁上）
+    const targetHash = "#/member/" + encodeURIComponent(m.id);
+    bumpView("member", m.id).then(n => {
+      if(location.hash !== targetHash) return;
+      const vEl = document.getElementById("detail-views");
+      if(!vEl) return;
+      if(n == null){ vEl.remove(); return; }
+      const b = vEl.querySelector("b"); if(b) b.textContent = fmtNum(n);
+      vEl.hidden = false;
+    });
   }
 
   function renderSearch(q){
@@ -435,4 +478,7 @@
 
   if(!isSearchHash(location.hash)) prevHash = location.hash || "#/";
   render();
+
+  // 全站瀏覽量：每次開啟網站累計一次（Worker 尚未支援 /views 時靜默隱藏此格）
+  bumpView("site").then(n => { siteViews = (n == null ? "failed" : n); updateSiteViewsUI(); });
 })();
