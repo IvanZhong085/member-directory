@@ -2010,28 +2010,6 @@ const GROUPS = [
         "business_items": "",
         "id": "g6_m8",
         "dataIssue": false
-      },
-      {
-        "number": "216",
-        "name": "周世絜",
-        "title": "惜食線上系統",
-        "services": [
-          "即期食品變現金"
-        ],
-        "targets": [
-          "連鎖餐飲",
-          "個體戶店家",
-          "冷凍食品",
-          "料理包製造或批發商"
-        ],
-        "tagline": [
-          "即期食品eFOOOD省錢環保兩不誤"
-        ],
-        "image": "g6_m9_x.jpg",
-        "company": "",
-        "business_items": "",
-        "id": "g6_m9",
-        "dataIssue": false
       }
     ],
     "id": "g6"
