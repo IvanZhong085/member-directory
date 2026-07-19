@@ -17,7 +17,11 @@ member-site/            ← 這個資料夾的內容 = 網站根目錄
 ├─ sharecard.js  分享工具模組（分享卡繪製、QR、vCard、文案模板）
 ├─ qrcode.js     QR code 產生函式庫（qrcode-generator，MIT 授權，離線可用）
 ├─ m/            每位成員的分享預覽頁（由 tools/build-member-pages.mjs 產生）
-├─ tools/build-member-pages.mjs    分享預覽頁產生器（名錄增刪成員後重跑）
+├─ roster.csv    名冊鏡像（給 Google 試算表連結，發布後自動更新）
+├─ tools/build-member-pages.mjs    分享預覽頁產生器
+├─ tools/extract-inline-photos.mjs 內嵌照片轉實體檔
+├─ tools/build-roster.mjs          名冊鏡像產生器
+├─ .github/workflows/sync.yml      發布後自動執行上述三支（不用手動跑）
 ├─ worker/       發布中介服務（Cloudflare Worker）程式碼與部署教學，見 worker/README.md
 ├─ README.md
 └─ QUALITY-REPORT.md   夜間自評報告（僅本機產生，已列入 .gitignore，不會發布到網站）
@@ -127,7 +131,31 @@ node tools/build-member-pages.mjs
 
 一次選多張圖，檔名自動配對成員（擇一即可）：**編號**（`001.jpg`、`079小明.jpg` 開頭是編號也行）、**姓名**（`曾俊凱.jpg`）、或成員 id。配對結果先預覽再套用，照片會自動置中裁成名錄比例。
 
-> ⚠️ **照片與 Worker 升級**：Worker 升級後（見 `worker/README.md` 的「升級」一節），發布時照片會自動存成 `images/` 實體圖檔、並同步更新 `m/` 分享預覽頁——LINE/FB 預覽才會顯示本人照片。Worker 未升級也能用，但照片會內嵌在 data.js 裡（預覽圖退回通用圖）。
+> ℹ️ **照片儲存**：每次發布後，GitHub Action 會在一兩分鐘內自動把內嵌照片轉成 `images/` 實體圖檔、重建 `m/` 分享預覽頁（見下一節）。Worker 升級（見 `worker/README.md` 的「升級」一節）可以讓這件事在發布當下就完成，屬於選配加速。
+
+---
+
+## 六、Google 試算表每日同步（roster.csv）
+
+網站每次發布後，GitHub Action 會自動做三件事：**內嵌照片轉實體檔、重建分享預覽頁、更新名冊鏡像 `roster.csv`**。名冊鏡像的固定網址：
+
+```
+https://ivanzhong085.github.io/member-directory/roster.csv
+```
+
+### 接到 Google 試算表（設定一次，約一分鐘）
+
+1. 開一個新的 Google 試算表。
+2. 在 `A1` 貼上：`=IMPORTDATA("https://ivanzhong085.github.io/member-directory/roster.csv")`
+3. 完成。之後名錄一有發布，試算表會**自動跟上**（Google 約每小時重抓一次，至少每日更新）。
+
+用途：核對人數與分組、製作**分會產業小組 PDF**（可另開分頁用 `FILTER`／樞紐整理版面後「檔案 → 下載 → PDF」）、給幹部唯讀名冊。
+
+### 注意
+
+- 試算表是**唯讀鏡像**——在上面改字不會改到網站。要改資料：複製內容到新分頁改好 → 下載 CSV → 後台「匯入 CSV」→ 發布（欄位格式與匯入完全相容）。
+- `roster.csv` 不含 BOM（Google 取向）；要用 **Excel** 開名冊請改用後台的「匯出 CSV」（含 BOM，中文不亂碼）。
+- 名錄增刪成員後**不再需要**手動跑 `node tools/build-member-pages.mjs`，Action 會自動處理；本機開發時仍可手動執行。
 
 ---
 
