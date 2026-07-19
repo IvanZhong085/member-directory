@@ -298,6 +298,10 @@
             <button class="icon-btn" id="g-down" title="分組下移" ${gi===DATA.length-1?"disabled":""}>${ICON.down}</button>
           </div>
         </div>
+        <div class="field" style="margin-top:12px;">
+          <label>招募席位<span class="hint">（每行一項；會以紅字顯示在「產業小組表」該組名單下方）</span></label>
+          <textarea id="g-recruit" style="min-height:52px;">${esc((g.recruiting||[]).join("\n"))}</textarea>
+        </div>
       </div>
 
       <div class="adm-card" style="padding:14px 16px;">
@@ -317,6 +321,7 @@
     bindTextField("g-code", v => { g.code = v; renderSidebar(); scheduleSaveAndValidate(); });
     bindTextField("g-name", v => { g.name = v; renderSidebar(); scheduleSaveAndValidate(); });
     bindTextField("g-leader", v => { g.leader = v; scheduleSaveAndValidate(); });
+    bindTextField("g-recruit", v => { g.recruiting = linesToArr(v); scheduleSave(); });
     byId("g-up").onclick = () => moveGroup(gi, -1);
     byId("g-down").onclick = () => moveGroup(gi, 1);
     byId("add-mem").onclick = () => addMember(g);
