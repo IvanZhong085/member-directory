@@ -12,7 +12,7 @@ import { fileURLToPath } from "node:url";
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const GROUPS = new Function(readFileSync(join(ROOT, "data.js"), "utf8") + ";return GROUPS;")();
 
-const HEADERS = ["編號","姓名","行業職稱","分組代號","分組名稱","服務項目","適合引薦對象","宣傳標語","所屬公司","主要營業項目","照片","資料需確認","刪除"];
+const HEADERS = ["編號","姓名","行業職稱","分組代號","分組名稱","服務項目","適合引薦對象","宣傳標語","所屬公司","主要營業項目","公司網站","照片","名片","商品照片數","資料需確認","刪除"];
 const esc = v => {
   v = String(v == null ? "" : v);
   return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
@@ -24,8 +24,10 @@ for(const g of GROUPS){
     rows.push([
       m.number || "", m.name || "", m.title || "", g.code || "", g.name || "",
       (m.services || []).join("|"), (m.targets || []).join("|"), (m.tagline || []).join("|"),
-      m.company || "", m.business_items || "",
+      m.company || "", m.business_items || "", m.website || "",
       /^data:/.test(m.image || "") ? "(內嵌照片)" : (m.image || ""),
+      /^data:/.test(m.card || "") ? "(內嵌名片)" : (m.card || ""),
+      String((m.products || []).length),
       m.dataIssue ? "是" : "", "",
     ]);
   }

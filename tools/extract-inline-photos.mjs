@@ -19,20 +19,27 @@ const EXT_BY_MIME = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "we
 const fileSafeId = id => String(id).replace(/[^A-Za-z0-9_-]/g, "");
 
 let converted = 0;
+/* value=內嵌字串、suffix 決定檔名:形象照 _x、名片 _card、商品照 _p1.._p5 */
+function convert(m, value, suffix){
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(value || "");
+  if(!match) return null;
+  const fname = fileSafeId(m.id) + suffix + "." + EXT_BY_MIME[match[1]];
+  writeFileSync(join(ROOT, "images", fname), Buffer.from(match[2], "base64"));
+  const needle = JSON.stringify(value);
+  if(!src.includes(needle)){
+    console.error("⚠ 找不到 " + m.name + " 的內嵌圖片字串,略過(data.js 格式異常?)");
+    return null;
+  }
+  src = src.split(needle).join(JSON.stringify(fname));
+  converted++;
+  console.log("已轉檔:" + m.name + " → images/" + fname);
+  return fname;
+}
 for(const g of GROUPS){
   for(const m of g.members){
-    const match = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(m.image || "");
-    if(!match) continue;
-    const fname = fileSafeId(m.id) + "_x." + EXT_BY_MIME[match[1]];
-    writeFileSync(join(ROOT, "images", fname), Buffer.from(match[2], "base64"));
-    const needle = JSON.stringify(m.image);
-    if(!src.includes(needle)){
-      console.error("⚠ 找不到 " + m.name + " 的內嵌照片字串,略過(data.js 格式異常?)");
-      continue;
-    }
-    src = src.split(needle).join(JSON.stringify(fname));
-    converted++;
-    console.log("已轉檔:" + m.name + " → images/" + fname);
+    convert(m, m.image, "_x");
+    convert(m, m.card, "_card");
+    (m.products || []).forEach((p, i) => convert(m, p, "_p" + (i + 1)));
   }
 }
 
