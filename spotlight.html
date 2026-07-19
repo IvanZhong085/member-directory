@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>夥伴聚光燈產生器｜會員名錄</title>
+<meta name="description" content="選一位夥伴，一鍵產出社群貼文文案與分享卡圖片。">
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="stylesheet" href="styles.css?v=4">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="brand" href="./" aria-label="回到名錄首頁">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+          <circle cx="9" cy="7" r="4"/>
+          <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+        </svg>
+      </span>
+      <span class="brand-text">
+        <span class="brand-title">夥伴聚光燈</span>
+        <span class="brand-sub">SPOTLIGHT STUDIO</span>
+      </span>
+    </a>
+    <a class="back-btn" href="./">← 回名錄</a>
+  </div>
+</header>
+
+<main class="sp-wrap" id="app">
+  <section class="sp-pane sp-pane-pick">
+    <h2 class="sp-h">1・選擇夥伴</h2>
+    <label class="sp-label" for="sp-group">分組</label>
+    <select id="sp-group" class="sp-select"></select>
+    <label class="sp-label" for="sp-member">夥伴</label>
+    <select id="sp-member" class="sp-select"></select>
+    <div class="sp-stepper">
+      <button id="sp-prev" class="back-btn" type="button">← 上一位</button>
+      <button id="sp-next" class="back-btn" type="button">下一位 →</button>
+    </div>
+    <div class="sp-preview" id="sp-mini"></div>
+    <p class="sp-note">小提醒:每週輪播直接按「下一位」，順序照名錄分組排列。文案是模板產生的草稿，發文前請自己讀過一次。</p>
+  </section>
+
+  <section class="sp-pane">
+    <h2 class="sp-h">2・貼文文案</h2>
+    <div class="sp-tabs" role="tablist">
+      <button class="sp-tab active" data-style="warm" type="button">FB／IG</button>
+      <button class="sp-tab" data-style="pro" type="button">正式版</button>
+      <button class="sp-tab" data-style="short" type="button">LINE 短版</button>
+    </div>
+    <textarea id="sp-text" class="sp-text" rows="14" spellcheck="false"></textarea>
+    <div class="sp-actions">
+      <button id="sp-copy" class="sp-btn sp-btn-primary" type="button">複製文案</button>
+      <button id="sp-copy-ai" class="sp-btn" type="button" title="複製一段給 ChatGPT／Claude 的提示詞，讓 AI 幫你潤飾出更活的版本">複製 AI 潤飾提示詞</button>
+    </div>
+  </section>
+
+  <section class="sp-pane">
+    <h2 class="sp-h">3・分享卡</h2>
+    <div class="sp-tabs">
+      <button class="sp-tab sp-fmt active" data-fmt="portrait" type="button">直式 4:5</button>
+      <button class="sp-tab sp-fmt" data-fmt="square" type="button">方形 1:1</button>
+    </div>
+    <div class="sp-card-box"><canvas id="sp-canvas"></canvas></div>
+    <div class="sp-actions">
+      <button id="sp-download" class="sp-btn sp-btn-primary" type="button">下載分享卡 PNG</button>
+    </div>
+  </section>
+</main>
+
+<div id="live-region" class="sr-only" aria-live="polite" role="status"></div>
+
+<script src="data.js"></script>
+<script src="qrcode.js"></script>
+<script src="sharecard.js"></script>
+<script src="spotlight.js"></script>
+</body>
+</html>
