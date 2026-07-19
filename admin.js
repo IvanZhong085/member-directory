@@ -977,8 +977,117 @@
     });
   }
 
+  /* ---------- 匯入 PPT:會員專業簡報 → 批次更新欄位與照片 ----------
+     版型解析在 pptimport.js;這裡負責比對成員(編號優先、姓名備援)、
+     差異預覽與套用。空欄位=不變更、找不到的人列為待處理,不會自動新增。 */
+  function buildPptPlan(slides){
+    const plan = { updates: [], photos: [], errors: [], unrecognized: [], slideCount: slides.length };
+    const byNumber = new Map(), byName = new Map();
+    DATA.forEach(g => g.members.forEach(m => {
+      const n = (m.number || "").trim();
+      if(n) byNumber.set(n.replace(/^0+/, "") || "0", (byNumber.get(n.replace(/^0+/, "") || "0") || []).concat([{ g, m }]));
+      const nm = (m.name || "").trim();
+      if(nm) byName.set(nm, (byName.get(nm) || []).concat([{ g, m }]));
+    }));
+    const seen = new Set();
+    const PPT_FIELDS = [
+      { key: "title",    label: "行業職稱", type: "str" },
+      { key: "services", label: "服務項目", type: "arr" },
+      { key: "targets",  label: "適合引薦對象", type: "arr" },
+      { key: "tagline",  label: "宣傳標語", type: "arr" },
+    ];
+    for(const s of slides){
+      if(!s.name && !s.number){
+        if(s.photoPath || s.unclassified.length) plan.errors.push("第 " + s.slideNo + " 頁:抓不到姓名與編號,略過");
+        continue;   // 封面、目錄等版型外頁面,靜默跳過
+      }
+      let hit = null;
+      const normNum = (s.number || "").replace(/^0+/, "") || "";
+      if(normNum && byNumber.has(normNum)){
+        const list = byNumber.get(normNum);
+        if(list.length === 1) hit = list[0];
+      }
+      if(!hit && s.name && byName.has(s.name)){
+        const list = byName.get(s.name);
+        if(list.length === 1) hit = list[0];
+      }
+      if(!hit){
+        plan.errors.push("第 " + s.slideNo + " 頁:「" + (s.name || s.number) + "」在名錄找不到(簡報無分組資訊,請先在後台建好人再匯入)");
+        continue;
+      }
+      if(seen.has(hit.m.id)){
+        plan.errors.push("第 " + s.slideNo + " 頁:與前面頁面指向同一位成員(" + hit.m.name + "),略過");
+        continue;
+      }
+      seen.add(hit.m.id);
+
+      const changes = [];
+      for(const def of PPT_FIELDS){
+        const val = def.type === "arr" ? (s[def.key] || []) : String(s[def.key] || "").trim();
+        const has = def.type === "arr" ? val.length > 0 : val !== "";
+        if(!has) continue;                                     // 簡報空欄=不變更
+        const cur = def.type === "arr" ? (hit.m[def.key] || []) : (hit.m[def.key] || "");
+        const same = def.type === "arr" ? JSON.stringify(cur) === JSON.stringify(val) : cur === val;
+        if(!same) changes.push({ key: def.key, label: def.label, type: def.type, val,
+          from: def.type === "arr" ? cur.join("|") : String(cur),
+          to: def.type === "arr" ? val.join("|") : String(val) });
+      }
+      if(changes.length) plan.updates.push({ m: hit.m, g: hit.g, changes });
+      if(s.photoBlob) plan.photos.push({ m: hit.m, g: hit.g, blob: s.photoBlob, slideNo: s.slideNo });
+      if(s.unclassified.length) plan.unrecognized.push("第 " + s.slideNo + " 頁(" + hit.m.name + "):" + s.unclassified.join("/"));
+    }
+    return plan;
+  }
+
+  function renderPptPlanHTML(plan){
+    let h = "";
+    const sec = (title, cnt, inner, cls) => cnt
+      ? '<div class="batch-sec ' + (cls || "") + '"><h4>' + esc(title) + '<span class="cnt">' + cnt + "</span></h4>" + inner + "</div>" : "";
+    h += sec("待處理(這些頁不會套用)", plan.errors.length, "<ul>" + plan.errors.map(e => "<li>" + esc(e) + "</li>").join("") + "</ul>", "err");
+    h += sec("欄位更新", plan.updates.length, "<ul>" + plan.updates.map(u =>
+      "<li><b>" + esc(u.m.name) + "</b>：" + u.changes.map(c => esc(c.label) + "「" + esc(c.from || "（空）") + "」→「" + esc(c.to) + "」").join("；") + "</li>").join("") + "</ul>");
+    h += sec("照片更新(自動置中裁切)", plan.photos.length, "<ul>" + plan.photos.map(p =>
+      "<li><b>" + esc(p.m.name) + "</b>（第 " + p.slideNo + " 頁的照片）</li>").join("") + "</ul>");
+    h += sec("未辨識的文字(不影響套用,供人工確認)", plan.unrecognized.length,
+      "<ul>" + plan.unrecognized.map(t => "<li>" + esc(t) + "</li>").join("") + "</ul>", "err");
+    h += '<div class="batch-note">規則：以<b>編號</b>比對(姓名備援);簡報空欄位=不變更;名錄查無此人不會自動新增。套用後可用「上一步」復原,最後記得「發布到網站」。</div>';
+    return h || "<p>沒有偵測到可更新的內容。</p>";
+  }
+
+  async function handlePptFile(file){
+    if(typeof PPTImport === "undefined" || typeof JSZip === "undefined"){ toast("PPT 解析模組未載入", { warn: true }); return; }
+    toast("解析簡報中…", { duration: 30000 });
+    let parsed;
+    try{ parsed = await PPTImport.parse(file); }
+    catch(e){ toast("這個檔案無法解析(請確認是 .pptx)", { warn: true }); return; }
+    hideToast();
+    if(!parsed.count){ toast("簡報裡沒有投影片", { warn: true }); return; }
+    const plan = buildPptPlan(parsed.slides);
+    const total = plan.updates.length + plan.photos.length;
+    openBatchModal(
+      "匯入 PPT — 變更預覽",
+      renderPptPlanHTML(plan),
+      "共 " + plan.slideCount + " 頁：欄位更新 " + plan.updates.length + " 位・照片更新 " + plan.photos.length + " 位" + (plan.errors.length ? "・待處理 " + plan.errors.length : ""),
+      total ? "套用 " + total + " 項變更" : "沒有可套用的變更",
+      total ? async () => {
+        toast("套用中(含照片裁切)…", { duration: 60000 });
+        pushUndo();
+        plan.updates.forEach(u => u.changes.forEach(c => { u.m[c.key] = c.val; }));
+        let photoOk = 0, photoFail = 0;
+        for(const p of plan.photos){
+          const url = await autoCropResize(p.blob);
+          if(url){ p.m.image = url; photoOk++; } else photoFail++;
+        }
+        renderAll(); validate(); saveDraft();
+        toast("已套用:欄位 " + plan.updates.length + " 位、照片 " + photoOk + " 位" +
+          (photoFail ? "(" + photoFail + " 張照片讀取失敗)" : "") + ";確認沒問題後記得按「發布到網站」", { duration: 8000 });
+      } : null
+    );
+  }
+
   /* ---------- 缺資料清單:找出資料不齊的夥伴,產生可直接貼 LINE 的催收訊息 ---------- */
-  const FORM_URL = "";   // 夥伴補資料的 Google 表單網址(建立後填在這裡,催收訊息會自動附上)
+  const FORM_URL = "";    // 夥伴補資料的 Google 表單網址(建立後填在這裡,催收訊息會自動附上)
+  const SHEET_URL = "";   // Google 名冊試算表網址(建立後填在這裡,工具列會出現「名冊試算表」捷徑)
   function copyPlain(text){
     return navigator.clipboard.writeText(text).then(() => true).catch(() => {
       const ta = document.createElement("textarea");
@@ -1447,6 +1556,13 @@
     if(fs.length) handlePhotoFiles(fs);
   };
   byId("btn-missing").onclick = missingReport;
+  byId("btn-ppt").onclick = () => byId("ppt-file").click();
+  byId("ppt-file").onchange = () => {
+    const f = byId("ppt-file").files && byId("ppt-file").files[0];
+    byId("ppt-file").value = "";
+    if(f) handlePptFile(f);
+  };
+  if(SHEET_URL && byId("sheet-link")){ byId("sheet-link").href = SHEET_URL; byId("sheet-link").hidden = false; }
   byId("batch-cancel").onclick = closeBatchModal;
   byId("batch-apply").onclick = () => { const fn = batchApplyFn; closeBatchModal(); if(fn) fn(); };
   byId("batch-modal").addEventListener("click", e => { if(e.target.id === "batch-modal") closeBatchModal(); });

@@ -163,6 +163,24 @@ function renameUploads() {
   Logger.log("到 Drive 的表單上傳資料夾整批下載,「形象照」丟後台批次照片(檔名開頭是編號會自動配對);名片與商品照用各成員卡上傳。");
 }
 
+/* 建立「名冊鏡像」Google 試算表:A1 放 IMPORTDATA,名錄一發布就自動跟上(約每小時重抓) */
+function createRosterSheet() {
+  var ss = SpreadsheetApp.create("會員名錄・名冊鏡像");
+  var sheet = ss.getSheets()[0];
+  sheet.setName("名冊(自動同步)");
+  sheet.getRange("A1").setFormula('=IMPORTDATA("https://ivanzhong085.github.io/member-directory/roster.csv")');
+  var memo = ss.insertSheet("使用說明");
+  memo.getRange("A1:A6").setValues([
+    ["「名冊(自動同步)」分頁是唯讀鏡像:名錄網站一發布,約一小時內自動更新,請勿直接編輯。"],
+    ["要修改名錄:複製需要的列到新分頁改好 → 檔案 → 下載 → CSV → 名錄後台「匯入 CSV」→ 發布。"],
+    ["做產業小組 PDF:新增分頁,用 =FILTER('名冊(自動同步)'!A:P, '名冊(自動同步)'!D:D=\"A1\") 之類擷取各組,排版後 檔案 → 下載 → PDF。"],
+    ["催收缺資料:用 FILTER 篩「照片」「名片」「所屬公司」等欄為空白的列。"],
+    ["名冊鏡像固定網址:https://ivanzhong085.github.io/member-directory/roster.csv"],
+    ["把這份試算表的網址告訴網管助理 AI,可加進名錄後台工具列捷徑。"],
+  ]);
+  Logger.log("✅ 名冊鏡像試算表建立完成:" + ss.getUrl());
+}
+
 function getResponseSheet_(ss) {
   var sheets = ss.getSheets();
   for (var i = 0; i < sheets.length; i++) {
