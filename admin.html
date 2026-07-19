@@ -269,6 +269,9 @@
       <button class="btn" id="btn-photos" type="button" title="一次選多張照片，檔名自動配對編號或姓名">批次照片</button>
       <input type="file" id="photos-file" accept="image/*" multiple hidden>
       <button class="btn" id="btn-missing" type="button" title="列出資料不齊的夥伴，一鍵產生催收訊息">缺資料</button>
+      <button class="btn" id="btn-ppt" type="button" title="上傳會員專業簡報(.pptx)，自動抽出欄位與照片批次更新">匯入 PPT</button>
+      <input type="file" id="ppt-file" accept=".pptx" hidden>
+      <a class="btn adm-hide-mobile" id="sheet-link" href="#" target="_blank" rel="noopener" hidden title="開啟 Google 名冊試算表">名冊試算表 ↗</a>
       <button class="btn adm-hide-mobile" id="btn-export" type="button" title="下載一份備份檔">下載備份</button>
       <button class="btn btn-primary btn-publish" id="btn-publish" type="button">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 7 4-4 4 4"/><path d="M5 21h14"/></svg>
@@ -405,6 +408,8 @@
 <div class="toast" id="toast"></div>
 
 <script src="data.js"></script>
+<script src="jszip.js"></script>
+<script src="pptimport.js?v=5"></script>
 <script src="admin.js?v=5"></script>
 </body>
 </html>
