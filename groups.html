@@ -40,15 +40,18 @@
   .tbtn-primary{background:var(--red); border-color:var(--red); color:#fff;}
   .tbtn-primary:hover{background:var(--red-dark); border-color:var(--red-dark); color:#fff;}
 
-  /* ── A4 紙面 ── */
+  /* ── A4 紙面(直式/橫式雙版型,預設橫式) ── */
   .sheet{
-    position:relative; width:210mm; min-height:297mm; margin:16px auto;
-    background:#fff; padding:11mm 12mm 9mm;
+    position:relative; margin:16px auto;
+    background:#fff; padding:10mm 12mm 8mm;
     box-shadow:0 14px 40px -16px rgba(27,28,34,.28);
     background-image:radial-gradient(circle at 100% 0%, var(--red-50) 0%, rgba(253,243,245,0) 26%);
     display:flex; flex-direction:column;
   }
+  body.portrait .sheet{width:210mm; min-height:297mm;}
+  body.landscape .sheet{width:297mm; min-height:210mm;}
   .cols{flex:1;}
+  body.landscape .cols{columns:4;}
 
   /* ── 刊頭 ── */
   .mast{display:flex; align-items:flex-end; justify-content:space-between; gap:16px;}
@@ -145,10 +148,10 @@
   @media print{
     body{background:#fff;}
     .toolbar{display:none !important;}
-    .sheet{width:auto; min-height:0; margin:0; padding:0 0 18mm; box-shadow:none; display:block;}
+    .sheet{width:auto !important; min-height:0 !important; margin:0; padding:0 0 16mm; box-shadow:none; display:block;}
     .foot{position:fixed; bottom:0; left:0; right:0; background:#fff;}
-    @page{size:A4 portrait; margin:10mm 11mm 8mm;}
   }
+  /* @page 方向由 JS 依目前版型寫入 #orient-style */
   @media screen and (max-width:820px){
     .sheet{width:100%; min-height:0; padding:16px;}
     .cols{columns:1;}
@@ -162,8 +165,10 @@
   <span class="tip">標題與日期<b>點一下就能改字</b>;確認後按「列印/存 PDF」,在列印視窗選「儲存為 PDF」。</span>
   <a class="tbtn" href="admin.html">← 回後台</a>
   <a class="tbtn" href="./">回名錄</a>
+  <button class="tbtn" id="btn-orient" type="button" title="切換直式/橫式版面">⇄ 切成直式</button>
   <button class="tbtn tbtn-primary" onclick="window.print()" type="button">🖨 列印/存 PDF</button>
 </div>
+<style id="orient-style"></style>
 
 <div class="sheet">
   <header class="mast">
@@ -234,26 +239,45 @@
       if(qr.isDark(r, c)) ctx.fillRect(quiet*cell + c*cell, quiet*cell + r*cell, Math.ceil(cell)+.3, Math.ceil(cell)+.3);
   }catch(e){ var fq = document.querySelector(".foot-qr"); if(fq) fq.style.display = "none"; }
 
-  /* 自動縮放到一頁 A4(成員成長也不爆頁;下限 66%) */
-  var A4H = Math.round(297 * 96 / 25.4);
+  /* ── 直式/橫式切換(預設橫式,記住上次選擇) ── */
+  var ORIENT_KEY = "memberdir_groups_orient";
+  var orient = "landscape";
+  try{ orient = localStorage.getItem(ORIENT_KEY) || "landscape"; }catch(e){}
+  function applyOrient(o){
+    orient = o;
+    document.body.classList.remove("portrait", "landscape");
+    document.body.classList.add(o);
+    document.getElementById("orient-style").textContent =
+      "@page{size:A4 " + o + "; margin:9mm 11mm 7mm;}";
+    document.getElementById("btn-orient").textContent =
+      o === "landscape" ? "⇄ 切成直式" : "⇄ 切成橫式";
+    try{ localStorage.setItem(ORIENT_KEY, o); }catch(e){}
+    fit();
+  }
+  document.getElementById("btn-orient").onclick = function(){
+    applyOrient(orient === "landscape" ? "portrait" : "landscape");
+  };
+
+  /* 自動縮放到一頁(成員成長也不爆頁;太空則放大填滿) */
   var cols = document.getElementById("cols");
   var sheet = document.querySelector(".sheet");
   var foot = document.querySelector(".foot");
   var scale = 1, guard = 0;
+  function pageH(){ return Math.round((orient === "landscape" ? 210 : 297) * 96 / 25.4); }
   function bottomPx(){
-    return foot.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top + 9 * 96 / 25.4;
+    return foot.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top + 8 * 96 / 25.4;
   }
   function setScale(v){ scale = v; cols.style.setProperty("--s", scale.toFixed(2)); }
   function fit(){
+    var H = pageH();
     guard = 0;
     setScale(1);
-    while(bottomPx() > A4H && scale > 0.66 && guard < 24){ setScale(scale - 0.03); guard++; }
-    /* 塞得下且頁尾離底部還很遠 → 放大填滿(排版才不會頭重腳輕) */
+    while(bottomPx() > H && scale > 0.62 && guard < 26){ setScale(scale - 0.03); guard++; }
     guard = 0;
-    while(scale >= 1 && bottomPx() < A4H - 46 && scale < 1.24 && guard < 24){ setScale(scale + 0.02); guard++; }
-    if(bottomPx() > A4H && scale > 1) setScale(scale - 0.02);   // 放大過頭退一步
+    while(scale >= 1 && bottomPx() < H - 40 && scale < 1.24 && guard < 24){ setScale(scale + 0.02); guard++; }
+    if(bottomPx() > H && scale > 0.66) setScale(scale - 0.02);
   }
-  fit();
+  applyOrient(orient);
   if(document.fonts && document.fonts.ready) document.fonts.ready.then(fit);   // 字型載入後再量一次
 })();
 </script>
