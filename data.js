@@ -187,7 +187,11 @@ const GROUPS = [
         "dataIssue": false
       }
     ],
-    "id": "g3"
+    "id": "g3",
+    "recruiting": [
+      "雞肉加工批發零售",
+      "鮑魚批發零售"
+    ]
   },
   {
     "code": "A2",
@@ -396,7 +400,11 @@ const GROUPS = [
         "dataIssue": false
       }
     ],
-    "id": "g9"
+    "id": "g9",
+    "recruiting": [
+      "黑木耳生產銷售",
+      "南北雜貨批發銷售"
+    ]
   },
   {
     "code": "B1",
@@ -558,7 +566,11 @@ const GROUPS = [
         "dataIssue": false
       }
     ],
-    "id": "g12"
+    "id": "g12",
+    "recruiting": [
+      "植物肉批發零售",
+      "蛋商"
+    ]
   },
   {
     "code": "B2",
@@ -758,7 +770,14 @@ const GROUPS = [
         "dataIssue": false
       }
     ],
-    "id": "g7"
+    "id": "g7",
+    "recruiting": [
+      "精品水果禮盒",
+      "烘焙蛋糕店",
+      "羊肉爐",
+      "薑母鴨",
+      "燒肉餐館"
+    ]
   },
   {
     "code": "C",
@@ -989,7 +1008,14 @@ const GROUPS = [
         "dataIssue": false
       }
     ],
-    "id": "g10"
+    "id": "g10",
+    "recruiting": [
+      "營養師/藥師",
+      "食品安全輔導顧問",
+      "物理治療師",
+      "月子中心/母嬰用品",
+      "日照中心"
+    ]
   },
   {
     "code": "D1",
@@ -1179,7 +1205,15 @@ const GROUPS = [
         "dataIssue": false
       }
     ],
-    "id": "g8"
+    "id": "g8",
+    "recruiting": [
+      "平面設計",
+      "商品攝影",
+      "seo網站優化",
+      "社群行銷",
+      "直播主",
+      "網站設計"
+    ]
   },
   {
     "code": "D2",
@@ -1325,7 +1359,13 @@ const GROUPS = [
         "dataIssue": false
       }
     ],
-    "id": "g5"
+    "id": "g5",
+    "recruiting": [
+      "海外行銷通路商",
+      "紙箱設計量產",
+      "食品通路商",
+      "外送平台"
+    ]
   },
   {
     "code": "E",
@@ -1447,7 +1487,17 @@ const GROUPS = [
         "dataIssue": false
       }
     ],
-    "id": "g2"
+    "id": "g2",
+    "recruiting": [
+      "醫美產業",
+      "珠寶業",
+      "美甲師",
+      "美睫師",
+      "身心靈",
+      "健身教練",
+      "美體美容",
+      "整脊按摩"
+    ]
   },
   {
     "code": "F",
@@ -1592,7 +1642,16 @@ const GROUPS = [
         "dataIssue": false
       }
     ],
-    "id": "g4"
+    "id": "g4",
+    "recruiting": [
+      "永生花花藝",
+      "威士忌批發零售",
+      "殯葬業/生前契約",
+      "民宿/旅宿業者",
+      "觀光工廠",
+      "飯店業",
+      "露營業者"
+    ]
   },
   {
     "code": "G",
@@ -1826,7 +1885,14 @@ const GROUPS = [
         "dataIssue": false
       }
     ],
-    "id": "g11"
+    "id": "g11",
+    "recruiting": [
+      "建築師",
+      "建案代銷",
+      "木作工程",
+      "營造商",
+      "房屋仲介"
+    ]
   },
   {
     "code": "H",
@@ -2017,7 +2083,15 @@ const GROUPS = [
         "dataIssue": false
       }
     ],
-    "id": "g6"
+    "id": "g6",
+    "recruiting": [
+      "八字命理師",
+      "風水堪輿",
+      "商標專利",
+      "企業長租車輛",
+      "新車/商務車銷售業",
+      "中古車買賣"
+    ]
   },
   {
     "code": "I",
@@ -2187,7 +2261,16 @@ const GROUPS = [
         "dataIssue": false
       }
     ],
-    "id": "g1"
+    "id": "g1",
+    "recruiting": [
+      "工程人力派遣",
+      "工廠廢棄物清運",
+      "鋼構廠房建置",
+      "食品檢驗業者",
+      "食品粉料加工",
+      "寢具製造",
+      "居家廠房清潔"
+    ]
   }
 ];
 if (typeof module !== 'undefined') { module.exports = GROUPS; }
