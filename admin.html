@@ -193,6 +193,20 @@
   }
   @media (min-width:821px){ .drawer-backdrop{display:none !important;} }
 
+  /* CSV／批次照片預覽視窗 */
+  .batch-body{max-height:52vh; overflow:auto; display:flex; flex-direction:column; gap:12px; font-size:13px;}
+  .batch-sec{border:1px solid var(--border); border-radius:10px; padding:12px 14px;}
+  .batch-sec h4{margin:0 0 8px; font-size:13px; font-weight:800; display:flex; align-items:center; gap:8px;}
+  .batch-sec h4 .cnt{font-size:11px; font-weight:800; color:var(--red); background:var(--red-50); border:1px solid var(--red-100); border-radius:999px; padding:1px 8px;}
+  .batch-sec ul{margin:0; padding-left:18px; line-height:1.8; color:var(--ink);}
+  .batch-sec.err{background:var(--warn-bg); border-color:var(--warn-border);}
+  .batch-sec.err ul{color:var(--warn-ink);}
+  .batch-table{width:100%; border-collapse:collapse; font-size:12.5px;}
+  .batch-table th, .batch-table td{border:1px solid var(--border); padding:5px 9px; text-align:left;}
+  .batch-table th{background:var(--bg-soft); font-weight:800;}
+  .batch-table td.up{color:var(--red); font-weight:800;}
+  .batch-note{font-size:12px; color:var(--muted); line-height:1.7; background:var(--bg-soft); border:1px solid var(--border); border-radius:10px; padding:9px 12px;}
+
   /* 裁剪視窗 */
   .crop-overlay .crop-box{width:min(360px,100%);}
   .crop-stage{display:flex; justify-content:center; background:var(--bg-soft); border:1px solid var(--border); border-radius:12px; padding:12px; touch-action:none;}
@@ -236,6 +250,11 @@
         設定
       </button>
       <button class="btn adm-hide-mobile" id="btn-logout" type="button" title="登出">登出</button>
+      <button class="btn" id="btn-csv-export" type="button" title="下載全會名冊 CSV（Excel 可開，含分組與人數）">匯出 CSV</button>
+      <button class="btn" id="btn-csv-import" type="button" title="上傳改好的 CSV，批次更新組別與欄位（會先顯示差異預覽）">匯入 CSV</button>
+      <input type="file" id="csv-file" accept=".csv,text/csv" hidden>
+      <button class="btn" id="btn-photos" type="button" title="一次選多張照片，檔名自動配對編號或姓名">批次照片</button>
+      <input type="file" id="photos-file" accept="image/*" multiple hidden>
       <button class="btn adm-hide-mobile" id="btn-export" type="button" title="下載一份備份檔">下載備份</button>
       <button class="btn btn-primary btn-publish" id="btn-publish" type="button">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 7 4-4 4 4"/><path d="M5 21h14"/></svg>
@@ -340,6 +359,20 @@
   </div>
 </div>
 
+<!-- CSV 匯入／批次照片：差異預覽視窗（套用前的最後防線） -->
+<div class="modal-overlay" id="batch-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="batch-title" style="width:min(680px,100%);">
+    <h3 id="batch-title">變更預覽</h3>
+    <div id="batch-body" class="batch-body"></div>
+    <div class="modal-actions">
+      <span id="batch-summary" style="font-size:12.5px; color:var(--muted); font-weight:700;"></span>
+      <span style="flex:1"></span>
+      <button class="btn btn-sm" id="batch-cancel" type="button">取消</button>
+      <button class="btn btn-primary btn-sm" id="batch-apply" type="button">套用變更</button>
+    </div>
+  </div>
+</div>
+
 <div class="help adm-wrap" style="display:block; max-width:1240px;">
   <b>資料安全說明：</b>這個頁面的編輯只會暫存在<b>你自己的瀏覽器</b>裡，不會影響公開網站。真正能改到公開網站的，只有輸入正確<b>管理密碼</b>的人；密碼登入後由伺服器（Cloudflare Worker）代為發布，瀏覽器本身永遠不會拿到、也不會存放 GitHub 的權杖。密碼錯太多次會被暫時鎖住，防止有人亂猜。
   <br><br>
@@ -358,6 +391,6 @@
 <div class="toast" id="toast"></div>
 
 <script src="data.js"></script>
-<script src="admin.js?v=3"></script>
+<script src="admin.js?v=4"></script>
 </body>
 </html>
