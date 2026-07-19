@@ -1,9 +1,10 @@
 /**
  * 會員名錄・夥伴資料補齊表單(Google Apps Script)
  *
- * 用法(一次設定,約 5 分鐘):
+ * 用法(一次設定,約 3 分鐘):
  * 1. 開 https://script.google.com → 新增專案,把整個檔案內容貼上、儲存。
- * 2. 執行 createMemberForm(第一次會要求授權,一路允許)。
+ * 2. 執行 setupAll(第一次會要求授權,一路允許)——會一次建好:
+ *    表單、回應試算表、以及「每筆回應自動更新『匯入用』分頁」的綁定。
  * 3. 看「執行紀錄」:會印出 表單網址(給夥伴填)、編輯網址、回應試算表網址。
  * 4. ⚠ 手動補 3 題「檔案上傳」(Google 不開放程式建立這種題型,要在表單編輯頁加,約 2 分鐘):
  *    - 個人形象照(選填):新增題目 → 檔案上傳 → 只允許「圖片」→ 檔案數量上限 1
@@ -37,6 +38,29 @@ var FIELDS = {
   ],
   consent: "我同意以上資料與上傳的照片,公開顯示於分會會員名錄網站",
 };
+
+/* ★ 一鍵完成:建表單 + 回應試算表 + 「回應→匯入用 CSV」自動綁定(每筆回應即時更新)
+   只要執行這一個函式就好。 */
+function setupAll() {
+  createMemberForm();
+  installAutoRefresh_();
+  Logger.log("✅ 全部完成:表單回應會自動即時整理進「匯入用」分頁,下載 CSV 即可匯入名錄後台。");
+}
+
+/* 每有夥伴送出表單,自動重整「匯入用」分頁(表單回應 → 名錄可匯入的 CSV 格式) */
+function installAutoRefresh_() {
+  var ssId = PropertiesService.getScriptProperties().getProperty("SS_ID");
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === "onFormSubmitAuto") ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger("onFormSubmitAuto")
+    .forSpreadsheet(ssId)
+    .onFormSubmit()
+    .create();
+}
+function onFormSubmitAuto(e) {
+  try { refreshImportTab(); } catch (err) { /* 下次提交會再試,亦可手動執行 refreshImportTab */ }
+}
 
 function createMemberForm() {
   var form = FormApp.create("會員名錄・資料補齊表單");
