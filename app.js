@@ -92,6 +92,8 @@
     qr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>',
     contact: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg>',
     spark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>',
+    idcard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 10h2"/><path d="M16 14h2"/><path d="M6.17 15a3 3 0 0 1 5.66 0"/><circle cx="9" cy="11" r="2"/><rect x="2" y="5" width="20" height="14" rx="2"/></svg>',
+    box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 8.7 5 8.7-5"/></svg>',
   };
 
   function photoCard(m){
@@ -350,15 +352,33 @@
             <div class="info-head"><span class="info-icon">${I.target}</span><span class="info-label">適合引薦對象</span></div>
             <div class="info-text">${esc(joinLines(m.targets)) || "—"}</div>
           </div>
-          <div class="info-card placeholder">
-            <div class="info-head"><span class="info-icon">${I.building}</span><span class="info-label">所屬公司</span><span class="pending-chip">待補充</span></div>
+          <div class="info-card ${m.company ? "" : "placeholder"}">
+            <div class="info-head"><span class="info-icon">${I.building}</span><span class="info-label">所屬公司</span>${m.company ? "" : '<span class="pending-chip">待補充</span>'}</div>
             <div class="info-text">${esc(m.company) || "資料尚未提供，補充後將顯示於此。"}</div>
+            ${/^https?:\/\//.test(m.website || "") ? `<a class="website-link" href="${esc(m.website)}" target="_blank" rel="noopener nofollow">${I.link} 公司網站 ↗</a>` : ""}
           </div>
           <div class="info-card placeholder">
             <div class="info-head"><span class="info-icon">${I.tags}</span><span class="info-label">主要營業項目</span><span class="pending-chip">待補充</span></div>
             <div class="info-text">${esc(m.business_items) || "資料尚未提供，補充後將顯示於此。"}</div>
           </div>
         </div>
+        ${m.card || (m.products || []).length ? `
+        <div class="detail-extra">
+          ${m.card ? `
+          <div class="extra-sec">
+            <div class="info-head"><span class="info-icon">${I.idcard}</span><span class="info-label">名片</span></div>
+            <a class="card-img-link" href="${esc(imgSrc(m.card))}" target="_blank" rel="noopener" title="點擊看原圖">
+              <img class="card-img" src="${esc(imgSrc(m.card))}" alt="${esc(m.name)} 的名片" loading="lazy">
+            </a>
+          </div>` : ""}
+          ${(m.products || []).length ? `
+          <div class="extra-sec">
+            <div class="info-head"><span class="info-icon">${I.box}</span><span class="info-label">商品／服務照片</span><span class="section-count" style="margin-left:auto;">${(m.products || []).length} 張</span></div>
+            <div class="product-grid">
+              ${(m.products || []).map((p, i) => `<a href="${esc(imgSrc(p))}" target="_blank" rel="noopener" title="點擊看原圖"><img src="${esc(imgSrc(p))}" alt="${esc(m.name)} 的商品照片 ${i + 1}" loading="lazy"></a>`).join("")}
+            </div>
+          </div>` : ""}
+        </div>` : ""}
         <div class="share-bar" id="share-bar">
           <div class="share-bar-head">${I.share}<span>分享這位夥伴</span></div>
           <div class="share-actions">

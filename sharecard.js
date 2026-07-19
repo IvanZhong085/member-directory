@@ -119,6 +119,7 @@ window.ShareTools = (function(){
       m.company ? "ORG:" + vEsc(m.company) : "ORG:" + vEsc(BRAND_TITLE),
       "TITLE:" + vEsc(m.title),
       "URL:" + shareUrl(m),
+      m.website ? "URL;TYPE=WORK:" + String(m.website).trim() : "",
       note ? "NOTE:" + vEsc(note) : "",
       "END:VCARD",
     ].filter(Boolean).join("\r\n");

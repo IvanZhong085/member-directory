@@ -384,6 +384,21 @@
             <div class="field"><label>所屬公司</label><input data-f="company" value="${esc(m.company||"")}" placeholder="待補充"></div>
             <div class="field"><label>主要營業項目</label><input data-f="business_items" value="${esc(m.business_items||"")}" placeholder="待補充"></div>
           </div>
+          <div class="field"><label>公司網站<span class="hint">（選填，請含 https://）</span></label><input data-f="website" value="${esc(m.website||"")}" placeholder="https://…"></div>
+          <div class="field"><label>名片圖檔<span class="hint">（橫式即可，不裁切、自動縮圖）</span></label>
+            <div class="cardimg-row">
+              ${m.card ? `<img class="cardimg-thumb" src="${esc(imgSrc(m.card))}" alt="">` : `<span class="cardimg-none">尚無名片</span>`}
+              <button class="btn btn-sm" data-act="cardbtn" type="button">更換名片</button>
+              <button class="btn btn-sm btn-danger" data-act="rmcard" type="button" ${m.card?"":"disabled"}>移除</button>
+              <input type="file" accept="image/*" data-act="cardfile" hidden>
+            </div>
+          </div>
+          <div class="field"><label>商品／服務照片<span class="hint">（至多 5 張，會顯示在成員內頁）</span></label>
+            <div class="prod-row">
+              ${(m.products||[]).map((p,i)=>`<span class="prod-item"><img src="${esc(imgSrc(p))}" alt=""><button class="prod-del" data-act="rmprod" data-i="${i}" type="button" title="移除這張">×</button></span>`).join("")}
+              ${(m.products||[]).length < 5 ? `<button class="btn btn-sm" data-act="prodbtn" type="button">＋ 加商品照</button><input type="file" accept="image/*" multiple data-act="prodfile" hidden>` : ""}
+            </div>
+          </div>
         </div>
       </div>`;
   }
@@ -391,7 +406,7 @@
   function bindMember(g, m, i){
     const card = main.querySelector('.mem-card[data-mid="'+cssq(m.id)+'"]');
     if(!card) return;
-    ["number","name","title","company","business_items"].forEach(f => {
+    ["number","name","title","company","business_items","website"].forEach(f => {
       wireTextInput(card.querySelector('[data-f="'+f+'"]'), v => { m[f] = v; scheduleSaveAndValidate(); });
     });
     ["services","targets","tagline"].forEach(f => {
@@ -424,6 +439,75 @@
     card.querySelector('[data-act="down"]').onclick = () => moveMember(g, i, 1);
     card.querySelector('[data-act="dup"]').onclick = () => duplicateMember(g, i);
     card.querySelector('[data-act="del"]').onclick = () => deleteMember(g, i);
+
+    /* 名片:不裁切,自動縮圖 */
+    const cardFile = card.querySelector('[data-act="cardfile"]');
+    card.querySelector('[data-act="cardbtn"]').onclick = () => cardFile.click();
+    cardFile.onchange = async () => {
+      const file = cardFile.files && cardFile.files[0];
+      cardFile.value = "";
+      if(!file) return;
+      const url = await resizeFlat(file, 1400);
+      if(url){ pushUndo(); m.card = url; renderMembers(g); saveDraft(); toast("名片已更新，記得最後按「發布到網站」"); }
+      else toast("名片讀取失敗", {warn:true});
+    };
+    card.querySelector('[data-act="rmcard"]').onclick = () => {
+      if(!m.card) return;
+      pushUndo(); m.card = ""; renderMembers(g); saveDraft();
+    };
+
+    /* 商品照:多選,最多 5 張 */
+    const prodFile = card.querySelector('[data-act="prodfile"]');
+    const prodBtn = card.querySelector('[data-act="prodbtn"]');
+    if(prodBtn && prodFile){
+      prodBtn.onclick = () => prodFile.click();
+      prodFile.onchange = async () => {
+        const files = Array.from(prodFile.files || []);
+        prodFile.value = "";
+        if(!files.length) return;
+        const room = 5 - (m.products || []).length;
+        const take = files.slice(0, room);
+        pushUndo();
+        if(!m.products) m.products = [];
+        let ok = 0;
+        for(const f of take){
+          const url = await resizeFlat(f, 1200);
+          if(url){ m.products.push(url); ok++; }
+        }
+        renderMembers(g); saveDraft();
+        toast("已加入 " + ok + " 張商品照" + (files.length > room ? "（超過 5 張上限，其餘略過）" : "") + "，記得最後按「發布到網站」");
+      };
+    }
+    card.querySelectorAll('[data-act="rmprod"]').forEach(btn => {
+      btn.onclick = () => {
+        const idx = parseInt(btn.dataset.i, 10);
+        if(!(m.products || [])[idx] && (m.products || [])[idx] !== "") return;
+        pushUndo(); m.products.splice(idx, 1); renderMembers(g); saveDraft();
+      };
+    });
+  }
+
+  /* 等比例縮圖(不裁切):名片、商品照用 */
+  function resizeFlat(file, maxSide){
+    return new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onerror = () => resolve(null);
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => resolve(null);
+        img.onload = () => {
+          const s = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+          const out = document.createElement("canvas");
+          out.width = Math.round(img.naturalWidth * s);
+          out.height = Math.round(img.naturalHeight * s);
+          out.getContext("2d").drawImage(img, 0, 0, out.width, out.height);
+          let url; try{ url = out.toDataURL("image/jpeg", 0.85); }catch(e){ url = null; }
+          resolve(url);
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
   }
 
   /* ---------- mutations（每個結構性動作先 pushUndo() 記錄一步） ---------- */
@@ -443,7 +527,7 @@
   function addMember(g, name, opts){
     opts = opts || {};
     pushUndo();
-    const m = { id: uid(g.id+"_m"), number:"", name:name||"", title:"", services:[], targets:[], tagline:[], image:"", company:"", business_items:"", dataIssue:false };
+    const m = { id: uid(g.id+"_m"), number:"", name:name||"", title:"", services:[], targets:[], tagline:[], image:"", company:"", business_items:"", website:"", card:"", products:[], dataIssue:false };
     g.members.push(m); renderSidebar(); renderMembers(g); scheduleSaveAndValidate();
     if(opts.quick){
       toast("已新增成員" + (name ? "「" + name + "」" : ""));
@@ -502,7 +586,7 @@
      匯入原則：「空格＝不變更」「一個 - ＝清空」「刪除要在刪除欄標記」，
      且套用前一定先看差異預覽——一張錯表不會毀掉名錄。
      ================================================================== */
-  const CSV_HEADERS = ["編號","姓名","行業職稱","分組代號","分組名稱","服務項目","適合引薦對象","宣傳標語","所屬公司","主要營業項目","照片","資料需確認","刪除"];
+  const CSV_HEADERS = ["編號","姓名","行業職稱","分組代號","分組名稱","服務項目","適合引薦對象","宣傳標語","所屬公司","主要營業項目","公司網站","照片","名片","商品照片數","資料需確認","刪除"];
   const FIELD_DEFS = [
     { key:"number",         label:"編號",          type:"str" },
     { key:"name",           label:"姓名",          type:"str" },
@@ -512,6 +596,7 @@
     { key:"tagline",        label:"宣傳標語",      type:"arr" },
     { key:"company",        label:"所屬公司",      type:"str" },
     { key:"business_items", label:"主要營業項目",  type:"str" },
+    { key:"website",        label:"公司網站",      type:"str" },
     { key:"dataIssue",      label:"資料需確認",    type:"bool" },
   ];
   const YES_VALUES = ["是","y","yes","v","true"];
@@ -547,8 +632,10 @@
       rows.push([
         m.number || "", m.name || "", m.title || "", g.code || "", g.name || "",
         (m.services || []).join("|"), (m.targets || []).join("|"), (m.tagline || []).join("|"),
-        m.company || "", m.business_items || "",
+        m.company || "", m.business_items || "", m.website || "",
         /^data:/.test(m.image || "") ? "(內嵌照片)" : (m.image || ""),
+        /^data:/.test(m.card || "") ? "(內嵌名片)" : (m.card || ""),
+        String((m.products || []).length),
         m.dataIssue ? "是" : "", "",
       ]);
     }));
@@ -573,6 +660,7 @@
       "分組名稱":"gname", "組名":"gname",
       "服務項目":"services", "適合引薦對象":"targets", "宣傳標語":"tagline",
       "所屬公司":"company", "主要營業項目":"business_items",
+      "公司網站":"website", "網站":"website",
       "資料需確認":"dataIssue", "刪除":"del",
     };
     const map = {};
@@ -744,7 +832,7 @@
     plan.adds.forEach(a => {
       const to = resolveG(a.targetG, a.newGroupKey);
       if(!to) return;
-      const m = { id: uid(to.id + "_m"), number: a.number || "", name: a.name || "", title: "", services: [], targets: [], tagline: [], image: "", company: "", business_items: "", dataIssue: false };
+      const m = { id: uid(to.id + "_m"), number: a.number || "", name: a.name || "", title: "", services: [], targets: [], tagline: [], image: "", company: "", business_items: "", website: "", card: "", products: [], dataIssue: false };
       FIELD_DEFS.forEach(def => { if(def.key in a.fields) m[def.key] = a.fields[def.key]; });
       to.members.push(m);
     });
@@ -852,20 +940,23 @@
     const res = matchPhotoFiles(Array.from(fileList));
     let h = "";
     if(res.matched.length){
-      h += '<div class="batch-sec"><h4>將更新照片<span class="cnt">' + res.matched.length + "</span></h4><ul>" +
-        res.matched.map(it => "<li><b>" + esc(it.m.name) + "</b>（" + esc(it.g.code) + "）← " + esc(it.file.name) + "<span style='color:var(--faint);'>（以" + it.how + "配對）</span></li>").join("") + "</ul></div>";
+      h += '<div class="batch-sec"><h4>將更新照片<span class="cnt">' + res.matched.length + "</span></h4><ul class='batch-photo-list'>" +
+        res.matched.map((it, i) => "<li><img class='batch-thumb' data-thumb='" + i + "' alt=''><b>" + esc(it.m.name) + "</b>（" + esc(it.g.code) + "）← " + esc(it.file.name) + "<span style='color:var(--faint);'>（以" + it.how + "配對）</span></li>").join("") + "</ul></div>";
     }
     if(res.unmatched.length){
       h += '<div class="batch-sec err"><h4>無法配對<span class="cnt">' + res.unmatched.length + "</span></h4><ul>" +
         res.unmatched.map(u => "<li>" + esc(u.name) + "——" + esc(u.why) + "</li>").join("") + "</ul></div>";
     }
     h += '<div class="batch-note">檔名配對規則（擇一即可）：<b>編號</b>（如 001.jpg、079小明.jpg 開頭是編號也可）、<b>姓名</b>（如 曾俊凱.jpg）、或成員id。照片會自動置中裁成名錄比例。</div>';
+    const thumbs = res.matched.map(it => URL.createObjectURL(it.file));
+    setTimeout(() => thumbs.forEach(u => URL.revokeObjectURL(u)), 120000);   // 取消不套用時的保底回收
     openBatchModal(
-      "批次照片 — 配對預覽",
+      "批次照片 — 配對預覽(縮圖請逐張目視審查)",
       h,
       "選了 " + fileList.length + " 個檔案：可配對 " + res.matched.length + "・無法配對 " + res.unmatched.length,
-      res.matched.length ? "套用 " + res.matched.length + " 張照片" : "沒有可套用的照片",
+      res.matched.length ? "審查沒問題，套用 " + res.matched.length + " 張" : "沒有可套用的照片",
       res.matched.length ? async () => {
+        thumbs.forEach(u => URL.revokeObjectURL(u));
         toast("照片處理中…", { duration: 60000 });
         pushUndo();
         let done = 0, failed = 0;
@@ -877,7 +968,66 @@
         const failNote = failed ? "（" + failed + " 張讀取失敗未更新）" : "";
         toast(workerCaps.files
           ? "已更新 " + done + " 張照片" + failNote + "，發布時會自動存成實體圖檔"
-          : "已更新 " + done + " 張照片" + failNote + "。⚠ Worker 尚未升級，發布後照片將以內嵌方式儲存（分享預覽會用通用圖）——升級教學見 worker/README.md", { duration: 9000 });
+          : "已更新 " + done + " 張照片" + failNote + "。發布後照片會由自動同步機制轉成實體圖檔（1–2 分鐘）", { duration: 9000 });
+      } : null
+    );
+    document.querySelectorAll(".batch-thumb").forEach(img => {
+      const i = parseInt(img.dataset.thumb, 10);
+      if(thumbs[i]) img.src = thumbs[i];
+    });
+  }
+
+  /* ---------- 缺資料清單:找出資料不齊的夥伴,產生可直接貼 LINE 的催收訊息 ---------- */
+  const FORM_URL = "";   // 夥伴補資料的 Google 表單網址(建立後填在這裡,催收訊息會自動附上)
+  function copyPlain(text){
+    return navigator.clipboard.writeText(text).then(() => true).catch(() => {
+      const ta = document.createElement("textarea");
+      ta.value = text; document.body.appendChild(ta); ta.select();
+      let ok = false; try{ ok = document.execCommand("copy"); }catch(e){}
+      ta.remove(); return ok;
+    });
+  }
+  function missingReport(){
+    const items = [];
+    const fieldCount = {};
+    const bump = k => { fieldCount[k] = (fieldCount[k] || 0) + 1; };
+    DATA.forEach(g => g.members.forEach(m => {
+      const miss = [];
+      if(!m.image) miss.push("形象照");
+      if(!(m.card || "").trim()) miss.push("名片圖檔");
+      if(!(m.products || []).length) miss.push("商品照片");
+      if(!(m.company || "").trim()) miss.push("所屬公司");
+      if(!(m.business_items || "").trim()) miss.push("主要營業項目");
+      if(!(m.services || []).filter(s => String(s).trim()).length) miss.push("服務項目");
+      if(!(m.targets || []).filter(s => String(s).trim()).length) miss.push("適合引薦對象");
+      if(!(m.tagline || []).filter(s => String(s).trim()).length) miss.push("宣傳標語");
+      if(miss.length){ items.push({ g, m, miss }); miss.forEach(bump); }
+    }));
+    const total = DATA.reduce((n, g) => n + g.members.length, 0);
+    const lines = items.map(it => "・" + it.m.name + "(" + (it.g.code || "?") + "):缺 " + it.miss.join("、"));
+    const notice = [
+      "【會員名錄・資料補齊通知】",
+      "以下夥伴的名錄資料還有缺項,麻煩抽空補上,讓你的頁面更有引薦力 💪",
+      FORM_URL ? "補資料表單:" + FORM_URL : "(補資料表單建立後會附上連結)",
+      "",
+    ].concat(lines).join("\n");
+    const statHtml = Object.entries(fieldCount).sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => "<tr><td>" + esc(k) + "</td><td>" + v + " 位</td></tr>").join("");
+    const html =
+      '<div class="batch-sec"><h4>缺項統計<span class="cnt">' + items.length + "／" + total + ' 位</span></h4>' +
+      '<table class="batch-table"><tr><th>缺的項目</th><th>人數</th></tr>' + statHtml + "</table></div>" +
+      '<div class="batch-sec"><h4>催收訊息(按下方「複製」直接貼到 LINE 群)</h4>' +
+      '<textarea readonly rows="12" style="width:100%; font:inherit; font-size:12.5px; line-height:1.8; border:1.5px solid var(--border-2); border-radius:10px; padding:10px 12px; background:var(--bg-soft);">' +
+      esc(notice) + "</textarea></div>" +
+      '<div class="batch-note">「商品照片」與「名片」屬選填,催收語氣自行斟酌;統計即時反映目前草稿內容。</div>';
+    openBatchModal(
+      "缺資料清單",
+      items.length ? html : "<p>🎉 全員資料齊全,沒有缺項。</p>",
+      items.length ? items.length + " 位夥伴有缺項" : "0 缺項",
+      "複製催收訊息",
+      items.length ? async () => {
+        const ok = await copyPlain(notice);
+        toast(ok ? "催收訊息已複製,貼到 LINE 群即可" : "複製失敗,請開啟清單手動複製", ok ? {} : { warn: true });
       } : null
     );
   }
@@ -1130,6 +1280,18 @@
           const b64 = (m.image.split(",")[1] || "").trim();
           if(b64){ files.push({ path: "images/" + fname, contentB64: b64 }); m.image = fname; }
         }
+        if(/^data:image\/jpeg;base64,/.test(m.card || "")){
+          const fname = fileSafeId(m.id) + "_card.jpg";
+          const b64 = (m.card.split(",")[1] || "").trim();
+          if(b64){ files.push({ path: "images/" + fname, contentB64: b64 }); m.card = fname; }
+        }
+        (m.products || []).forEach((p, i) => {
+          if(/^data:image\/jpeg;base64,/.test(p || "")){
+            const fname = fileSafeId(m.id) + "_p" + (i + 1) + ".jpg";
+            const b64 = (p.split(",")[1] || "").trim();
+            if(b64){ files.push({ path: "images/" + fname, contentB64: b64 }); m.products[i] = fname; }
+          }
+        });
         if(base.get(m.id) !== stubSig(m)){
           files.push({ path: "m/" + fileSafeId(m.id) + ".html", contentB64: b64EncodeUtf8(memberStubHTML(m, g)) });
         }
@@ -1284,6 +1446,7 @@
     byId("photos-file").value = "";
     if(fs.length) handlePhotoFiles(fs);
   };
+  byId("btn-missing").onclick = missingReport;
   byId("batch-cancel").onclick = closeBatchModal;
   byId("batch-apply").onclick = () => { const fn = batchApplyFn; closeBatchModal(); if(fn) fn(); };
   byId("batch-modal").addEventListener("click", e => { if(e.target.id === "batch-modal") closeBatchModal(); });
