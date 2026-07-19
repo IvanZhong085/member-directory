@@ -6,21 +6,28 @@
 <title>產業小組表｜會員名錄</title>
 <meta name="robots" content="noindex">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&family=Noto+Serif+TC:wght@700;900&display=swap" rel="stylesheet">
 <style>
   :root{
     --red:#C8102E; --red-dark:#A50D26; --red-deep:#7C0A1D;
-    --red-50:#FDF3F5; --red-100:#FAE4E8;
-    --ink:#1B1C22; --muted:#6E727E; --border:#EAEBEF; --bg-soft:#F8F8F9;
+    --red-50:#FDF3F5; --red-100:#FAE4E8; --red-200:#F3C4CD;
+    --ink:#1B1C22; --body:#3E414B; --muted:#787D89; --faint:#A6AAB4;
+    --hair:#EEEFF2; --bg-soft:#F7F7F8;
+    --sans:"Noto Sans TC",-apple-system,BlinkMacSystemFont,"PingFang TC","Microsoft JhengHei",sans-serif;
+    --serif:"Noto Serif TC","Songti TC","PMingLiU",serif;
   }
   *{box-sizing:border-box;}
   body{
-    margin:0; background:var(--bg-soft); color:var(--ink);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+    margin:0; background:var(--bg-soft); color:var(--ink); font-family:var(--sans);
     -webkit-print-color-adjust:exact; print-color-adjust:exact;
+    -webkit-font-smoothing:antialiased;
   }
-  /* 螢幕上的工具列(列印時隱藏) */
+
+  /* ── 螢幕工具列(列印隱藏) ── */
   .toolbar{
-    position:sticky; top:0; z-index:10; background:#fff; border-bottom:1px solid var(--border);
+    position:sticky; top:0; z-index:10; background:#fff; border-bottom:1px solid var(--hair);
     padding:10px 18px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
   }
   .toolbar .tip{font-size:12.5px; color:var(--muted); margin-right:auto; line-height:1.5;}
@@ -33,123 +40,221 @@
   .tbtn-primary{background:var(--red); border-color:var(--red); color:#fff;}
   .tbtn-primary:hover{background:var(--red-dark); border-color:var(--red-dark); color:#fff;}
 
-  /* A4 紙面 */
+  /* ── A4 紙面 ── */
   .sheet{
-    width:210mm; min-height:297mm; margin:16px auto; background:#fff; padding:10mm 11mm 8mm;
-    box-shadow:0 10px 30px -12px rgba(27,28,34,.25);
+    position:relative; width:210mm; min-height:297mm; margin:16px auto;
+    background:#fff; padding:11mm 12mm 9mm;
+    box-shadow:0 14px 40px -16px rgba(27,28,34,.28);
+    background-image:radial-gradient(circle at 100% 0%, var(--red-50) 0%, rgba(253,243,245,0) 26%);
+    display:flex; flex-direction:column;
   }
-  .sheet-head{text-align:center; border-bottom:3px solid var(--red); padding-bottom:8px; margin-bottom:10px;}
-  .sheet-title{
-    font-size:21px; font-weight:900; letter-spacing:.04em; color:var(--red-deep); outline:none;
-  }
-  .sheet-title b{color:var(--red);}
-  .sheet-sub{font-size:10.5px; color:var(--muted); font-weight:600; letter-spacing:.06em; margin-top:4px; outline:none;}
-  .sheet-sub .date{color:var(--red); font-weight:800;}
-  [contenteditable]:hover{background:var(--red-50); border-radius:4px;}
-  [contenteditable]:focus{background:var(--red-50); border-radius:4px;}
+  .cols{flex:1;}
 
-  .cols{columns:3; column-gap:6mm; --s:1;}
-  .gblock{break-inside:avoid; margin-bottom:calc(7px * var(--s));}
-  .ghead{
-    display:flex; align-items:baseline; gap:6px;
-    background:var(--red); color:#fff; border-radius:6px;
-    padding:calc(3px * var(--s)) 8px; margin-bottom:calc(3px * var(--s));
+  /* ── 刊頭 ── */
+  .mast{display:flex; align-items:flex-end; justify-content:space-between; gap:16px;}
+  .mast-left{min-width:0;}
+  .eyebrow{
+    display:flex; align-items:center; gap:8px;
+    font-size:8.2px; font-weight:800; letter-spacing:.34em; color:var(--red);
   }
-  .gcode{font-size:calc(11px * var(--s)); font-weight:900; letter-spacing:.02em;}
-  .gname{font-size:calc(11px * var(--s)); font-weight:800; flex:1; min-width:0;}
-  .gcount{font-size:calc(9.5px * var(--s)); font-weight:800; opacity:.9;}
-  .mrow{
-    font-size:calc(10.2px * var(--s)); line-height:1.42; padding:calc(1px * var(--s)) 2px calc(1px * var(--s)) 4px;
-    display:flex; gap:4px; align-items:baseline;
-    border-bottom:1px dashed #F0F1F4;
+  .eyebrow::before{content:""; width:22px; height:2px; background:var(--red);}
+  .mast-title{
+    margin:5px 0 0; font-family:var(--serif); font-weight:900;
+    font-size:25px; line-height:1.22; letter-spacing:.035em; color:var(--ink); outline:none;
   }
-  .mrow:last-child{border-bottom:none;}
-  .mname{font-weight:800; white-space:nowrap; flex:none; min-width:calc(42px * var(--s));}
-  .msep{color:var(--red-100); flex:none;}
-  .mtitle{color:#3A3C45; font-weight:500; min-width:0;}
-  .sheet-foot{
-    margin-top:6px; padding-top:6px; border-top:1px solid var(--border);
-    display:flex; justify-content:space-between; font-size:9px; color:var(--muted); font-weight:600;
+  .mast-title .accent{color:var(--red);}
+  .mast-title .count{
+    font-family:var(--sans); font-size:14px; font-weight:900; color:var(--red);
+    letter-spacing:.02em; margin-left:4px; vertical-align:2px;
   }
+  .mast-meta{
+    margin-top:6px; font-size:8.8px; color:var(--muted); font-weight:500;
+    letter-spacing:.14em; display:flex; align-items:center; gap:8px; flex-wrap:wrap; outline:none;
+  }
+  .mast-meta .date{color:var(--red-dark); font-weight:800;}
+  .mast-meta [contenteditable]{outline:none;}
+  .mast-stats{
+    flex:none; text-align:right; display:flex; gap:6px; padding-bottom:2px;
+  }
+  .stat-chip{
+    border:1px solid var(--red-100); background:#fff; border-radius:8px;
+    padding:5px 10px 4px; text-align:center; min-width:44px;
+  }
+  .stat-chip b{display:block; font-size:15px; font-weight:900; color:var(--red); line-height:1.1; font-variant-numeric:tabular-nums;}
+  .stat-chip span{font-size:7.2px; font-weight:800; color:var(--muted); letter-spacing:.22em;}
+  /* 雙分隔線:編輯刊物慣用的粗紅+細灰 */
+  .rule{margin:9px 0 10px; border-top:2.5px solid var(--red); position:relative;}
+  .rule::after{content:""; position:absolute; left:0; right:0; top:2px; border-top:1px solid var(--hair);}
+
+  [contenteditable]:hover, [contenteditable]:focus{background:var(--red-50); border-radius:4px;}
+
+  /* ── 三欄內容 ── */
+  .cols{columns:3; column-gap:7mm; column-rule:1px solid var(--hair); --s:1;}
+  .g{break-inside:avoid; margin-bottom:calc(9px * var(--s));}
+  .g-h{
+    display:flex; align-items:center; gap:6px;
+    padding-bottom:calc(3px * var(--s)); margin-bottom:calc(3px * var(--s));
+    border-bottom:2px solid var(--red);
+  }
+  .g-code{
+    flex:none; min-width:calc(19px * var(--s)); height:calc(15.5px * var(--s)); padding:0 4px;
+    background:var(--red); color:#fff; border-radius:4px;
+    display:inline-flex; align-items:center; justify-content:center;
+    font-size:calc(9px * var(--s)); font-weight:900; letter-spacing:.04em;
+  }
+  .g-name{
+    margin:0; font-size:calc(11.2px * var(--s)); font-weight:900; letter-spacing:.06em;
+    color:var(--ink); flex:1; min-width:0; white-space:nowrap; overflow:hidden;
+  }
+  .g-count{
+    flex:none; font-size:calc(8.2px * var(--s)); font-weight:800; color:var(--red);
+    font-variant-numeric:tabular-nums; letter-spacing:.06em;
+  }
+  .g-list{list-style:none; margin:0; padding:0;}
+  .g-list li{
+    display:grid; grid-template-columns:calc(50px * var(--s)) 1fr; gap:calc(7px * var(--s));
+    align-items:baseline; padding:calc(1.6px * var(--s)) 1px;
+  }
+  .g-list li:nth-child(even){background:#FCFCFD;}
+  .n{
+    font-size:calc(9.9px * var(--s)); font-weight:700; color:var(--ink);
+    letter-spacing:.05em; white-space:nowrap;
+  }
+  .t{
+    font-size:calc(9.3px * var(--s)); font-weight:450; color:var(--body);
+    line-height:1.35; min-width:0;
+    border-left:1px solid var(--red-200); padding-left:calc(7px * var(--s));
+  }
+
+  /* ── 頁尾 ── */
+  .foot{
+    margin-top:10px; padding-top:8px; border-top:1px solid var(--hair);
+    display:flex; align-items:center; gap:12px;
+  }
+  .foot-mark{
+    width:20px; height:20px; border-radius:6px; flex:none;
+    background:linear-gradient(135deg,var(--red),var(--red-deep)); color:#fff;
+    display:flex; align-items:center; justify-content:center; font-size:10.5px; font-weight:900;
+  }
+  .foot-text{font-size:8px; color:var(--muted); font-weight:600; letter-spacing:.1em; line-height:1.6;}
+  .foot-text b{color:var(--ink); letter-spacing:.06em;}
+  .foot-qr{margin-left:auto; display:flex; align-items:center; gap:7px;}
+  .foot-qr canvas{width:46px; height:46px; border:1px solid var(--hair); border-radius:6px;}
+  .foot-qr span{font-size:7.6px; color:var(--muted); font-weight:700; letter-spacing:.14em; text-align:right; line-height:1.7;}
 
   @media print{
     body{background:#fff;}
     .toolbar{display:none !important;}
-    .sheet{width:auto; min-height:0; margin:0; padding:0; box-shadow:none;}
-    @page{size:A4 portrait; margin:9mm;}
+    .sheet{width:auto; min-height:0; margin:0; padding:0 0 18mm; box-shadow:none; display:block;}
+    .foot{position:fixed; bottom:0; left:0; right:0; background:#fff;}
+    @page{size:A4 portrait; margin:10mm 11mm 8mm;}
   }
   @media screen and (max-width:820px){
-    .sheet{width:100%; min-height:0; padding:14px;}
+    .sheet{width:100%; min-height:0; padding:16px;}
     .cols{columns:1;}
+    .mast{flex-direction:column; align-items:flex-start;}
   }
 </style>
 </head>
 <body>
 
 <div class="toolbar">
-  <span class="tip">標題與日期<b>點一下就能改字</b>;確認後按「列印/存 PDF」,在列印視窗選「儲存為 PDF」即可。</span>
+  <span class="tip">標題與日期<b>點一下就能改字</b>;確認後按「列印/存 PDF」,在列印視窗選「儲存為 PDF」。</span>
   <a class="tbtn" href="admin.html">← 回後台</a>
   <a class="tbtn" href="./">回名錄</a>
   <button class="tbtn tbtn-primary" onclick="window.print()" type="button">🖨 列印/存 PDF</button>
 </div>
 
 <div class="sheet">
-  <div class="sheet-head">
-    <div class="sheet-title" id="sheet-title" contenteditable="true" spellcheck="false"></div>
-    <div class="sheet-sub">
-      <span contenteditable="true" spellcheck="false">投嘉雲彰區域/Nantou.Chiayi.Yunlin.Changhua/Taiwan</span>
-      ・<span class="date" id="sheet-date" contenteditable="true" spellcheck="false"></span>
+  <header class="mast">
+    <div class="mast-left">
+      <div class="eyebrow">MEMBER DIRECTORY・INDUSTRY GROUP TEAM</div>
+      <h1 class="mast-title" id="mast-title" contenteditable="true" spellcheck="false"></h1>
+      <div class="mast-meta">
+        <span contenteditable="true" spellcheck="false">投嘉雲彰區域 NANTOU・CHIAYI・YUNLIN・CHANGHUA</span>
+        <span class="date" id="sheet-date" contenteditable="true" spellcheck="false"></span>
+      </div>
     </div>
-  </div>
+    <div class="mast-stats">
+      <div class="stat-chip"><b id="stat-groups">—</b><span>專業分組</span></div>
+      <div class="stat-chip"><b id="stat-members">—</b><span>位成員</span></div>
+    </div>
+  </header>
+  <div class="rule"></div>
   <div class="cols" id="cols"></div>
-  <div class="sheet-foot">
-    <span>會員名錄自動產生・資料即時同步</span>
-    <span id="foot-stat"></span>
-  </div>
+  <footer class="foot">
+    <div class="foot-mark">會</div>
+    <div class="foot-text"><b>會員名錄</b>・本表由名錄網站自動產生,資料即時同步<br>ivanzhong085.github.io/member-directory</div>
+    <div class="foot-qr">
+      <span>掃描 QR<br>看完整名錄</span>
+      <canvas id="foot-qr-canvas" width="184" height="184"></canvas>
+    </div>
+  </footer>
 </div>
 
 <script src="data.js"></script>
+<script src="qrcode.js"></script>
 <script>
 (function(){
   "use strict";
-  function esc(s){ return (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+  function esc(s){ return (s||"").replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 
   var total = GROUPS.reduce(function(n,g){ return n + g.members.length; }, 0);
-  document.getElementById("sheet-title").innerHTML =
-    "雲榮鑽石分會成交破億產業小組團隊<b>(" + total + ")</b>";
+  document.getElementById("mast-title").innerHTML =
+    "雲榮鑽石分會<span class=\"accent\">成交破億</span>產業小組團隊<span class=\"count\">(" + total + ")</span>";
   var d = new Date(), pad = function(n){ return String(n).padStart(2,"0"); };
-  document.getElementById("sheet-date").textContent = d.getFullYear() + "/" + pad(d.getMonth()+1) + "/" + pad(d.getDate());
-  document.getElementById("foot-stat").textContent = GROUPS.length + " 組・" + total + " 位成員";
+  document.getElementById("sheet-date").textContent = d.getFullYear() + "." + pad(d.getMonth()+1) + "." + pad(d.getDate());
+  document.getElementById("stat-groups").textContent = GROUPS.length;
+  document.getElementById("stat-members").textContent = total;
 
   var html = "";
   GROUPS.forEach(function(g){
-    html += '<div class="gblock"><div class="ghead">' +
-      '<span class="gcode">' + esc(g.code || "") + '</span>' +
-      '<span class="gname">' + esc(g.name || "") + '</span>' +
-      '<span class="gcount">(' + g.members.length + ')</span></div>';
+    html += '<section class="g"><header class="g-h">' +
+      '<span class="g-code">' + esc(g.code || "") + '</span>' +
+      '<h2 class="g-name">' + esc(g.name || "") + '</h2>' +
+      '<span class="g-count">' + g.members.length + ' 位</span></header><ul class="g-list">';
     g.members.forEach(function(m){
-      html += '<div class="mrow"><span class="mname">' + esc(m.name || "") + '</span>' +
-        '<span class="msep">｜</span><span class="mtitle">' + esc(m.title || "") + "</span></div>";
+      html += '<li><span class="n">' + esc(m.name || "") + '</span><span class="t">' + esc(m.title || "") + "</span></li>";
     });
-    html += "</div>";
+    html += "</ul></section>";
   });
   document.getElementById("cols").innerHTML = html;
 
-  /* 自動縮放到一頁 A4:成員數成長也不爆頁(逐步縮小字級直到塞得下,下限 66%) */
-  var A4H = Math.round(297 * 96 / 25.4);          // 297mm → px
+  /* 頁尾 QR:掃描直達名錄網站 */
+  try{
+    var qr = qrcode(0, "M");
+    qr.addData("https://ivanzhong085.github.io/member-directory/");
+    qr.make();
+    var cv = document.getElementById("foot-qr-canvas");
+    var ctx = cv.getContext("2d");
+    var n = qr.getModuleCount(), quiet = 2, cell = cv.width / (n + quiet * 2);
+    ctx.fillStyle = "#FFFFFF"; ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = "#1B1C22";
+    for(var r = 0; r < n; r++) for(var c = 0; c < n; c++)
+      if(qr.isDark(r, c)) ctx.fillRect(quiet*cell + c*cell, quiet*cell + r*cell, Math.ceil(cell)+.3, Math.ceil(cell)+.3);
+  }catch(e){ var fq = document.querySelector(".foot-qr"); if(fq) fq.style.display = "none"; }
+
+  /* 自動縮放到一頁 A4(成員成長也不爆頁;下限 66%) */
+  var A4H = Math.round(297 * 96 / 25.4);
   var cols = document.getElementById("cols");
   var sheet = document.querySelector(".sheet");
-  var foot = document.querySelector(".sheet-foot");
-  var scale = 1;
-  function contentBottom(){
-    return foot.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top
-      + 8 * 96 / 25.4;                             // 加回下方 8mm 內距
+  var foot = document.querySelector(".foot");
+  var scale = 1, guard = 0;
+  function bottomPx(){
+    return foot.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top + 9 * 96 / 25.4;
   }
-  var guard = 0;
-  while(contentBottom() > A4H && scale > 0.66 && guard < 20){
-    scale -= 0.03; guard++;
-    cols.style.setProperty("--s", scale.toFixed(2));
+  function setScale(v){ scale = v; cols.style.setProperty("--s", scale.toFixed(2)); }
+  function fit(){
+    guard = 0;
+    setScale(1);
+    while(bottomPx() > A4H && scale > 0.66 && guard < 24){ setScale(scale - 0.03); guard++; }
+    /* 塞得下且頁尾離底部還很遠 → 放大填滿(排版才不會頭重腳輕) */
+    guard = 0;
+    while(scale >= 1 && bottomPx() < A4H - 46 && scale < 1.24 && guard < 24){ setScale(scale + 0.02); guard++; }
+    if(bottomPx() > A4H && scale > 1) setScale(scale - 0.02);   // 放大過頭退一步
   }
+  fit();
+  if(document.fonts && document.fonts.ready) document.fonts.ready.then(fit);   // 字型載入後再量一次
 })();
 </script>
 </body>
