@@ -480,10 +480,10 @@
   }
 
   /* ---------- export ---------- */
-  function serialize(){
+  function serialize(data){
     return "// 會員名錄資料檔 — 由後台編輯器 admin.html 產生/更新\n" +
            "// 直接用文字編輯器修改也可以；欄位說明見 README.md\n" +
-           "const GROUPS = " + JSON.stringify(DATA, null, 2) + ";\n" +
+           "const GROUPS = " + JSON.stringify(data || DATA, null, 2) + ";\n" +
            "if (typeof module !== 'undefined') { module.exports = GROUPS; }\n";
   }
   function download(){
@@ -496,6 +496,405 @@
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     toast("已下載備份 data.js");
   }
+
+  /* ==================================================================
+     CSV 匯出／匯入 與 批次照片
+     匯入原則：「空格＝不變更」「一個 - ＝清空」「刪除要在刪除欄標記」，
+     且套用前一定先看差異預覽——一張錯表不會毀掉名錄。
+     ================================================================== */
+  const CSV_HEADERS = ["編號","姓名","行業職稱","分組代號","分組名稱","服務項目","適合引薦對象","宣傳標語","所屬公司","主要營業項目","照片","資料需確認","刪除"];
+  const FIELD_DEFS = [
+    { key:"number",         label:"編號",          type:"str" },
+    { key:"name",           label:"姓名",          type:"str" },
+    { key:"title",          label:"行業職稱",      type:"str" },
+    { key:"services",       label:"服務項目",      type:"arr" },
+    { key:"targets",        label:"適合引薦對象",  type:"arr" },
+    { key:"tagline",        label:"宣傳標語",      type:"arr" },
+    { key:"company",        label:"所屬公司",      type:"str" },
+    { key:"business_items", label:"主要營業項目",  type:"str" },
+    { key:"dataIssue",      label:"資料需確認",    type:"bool" },
+  ];
+  const YES_VALUES = ["是","y","yes","v","true"];
+  const DEL_VALUES = ["是","y","yes","v","刪除","delete"];
+
+  function csvEscape(v){
+    v = String(v == null ? "" : v);
+    return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+  }
+  /* 支援引號、跳脫引號、CRLF、BOM 的標準 CSV 解析 */
+  function parseCSV(text){
+    text = String(text).replace(/^\uFEFF/, "");
+    const rows = []; let row = [], field = "", inQ = false;
+    for(let i = 0; i < text.length; i++){
+      const c = text[i];
+      if(inQ){
+        if(c === '"'){ if(text[i+1] === '"'){ field += '"'; i++; } else inQ = false; }
+        else field += c;
+      } else {
+        if(c === '"') inQ = true;
+        else if(c === ","){ row.push(field); field = ""; }
+        else if(c === "\n"){ row.push(field); rows.push(row); row = []; field = ""; }
+        else if(c !== "\r") field += c;
+      }
+    }
+    if(field !== "" || row.length){ row.push(field); rows.push(row); }
+    return rows.filter(r => r.some(c => String(c).trim() !== ""));
+  }
+
+  function csvExport(){
+    const rows = [CSV_HEADERS.slice()];
+    DATA.forEach(g => g.members.forEach(m => {
+      rows.push([
+        m.number || "", m.name || "", m.title || "", g.code || "", g.name || "",
+        (m.services || []).join("|"), (m.targets || []).join("|"), (m.tagline || []).join("|"),
+        m.company || "", m.business_items || "",
+        /^data:/.test(m.image || "") ? "(內嵌照片)" : (m.image || ""),
+        m.dataIssue ? "是" : "", "",
+      ]);
+    }));
+    const csv = "\uFEFF" + rows.map(r => r.map(csvEscape).join(",")).join("\r\n");   // BOM：讓 Excel 直接開就是正確中文
+    const blob = new Blob([csv], { type:"text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    const d = new Date(), pad = n => String(n).padStart(2, "0");
+    a.href = URL.createObjectURL(blob);
+    a.download = "會員名錄_" + d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + ".csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+    const total = DATA.reduce((n, g) => n + g.members.length, 0);
+    toast("已匯出名冊：" + DATA.length + " 組、" + total + " 位成員");
+  }
+
+  /* ---------- 匯入：欄位對應（容忍常見別名） ---------- */
+  function importColMap(header){
+    const alias = {
+      "編號":"number", "姓名":"name",
+      "行業職稱":"title", "行業":"title", "職稱":"title", "行業/職稱":"title", "行業／職稱":"title",
+      "分組代號":"gcode", "組別代號":"gcode", "組別":"gcode", "分組":"gcode",
+      "分組名稱":"gname", "組名":"gname",
+      "服務項目":"services", "適合引薦對象":"targets", "宣傳標語":"tagline",
+      "所屬公司":"company", "主要營業項目":"business_items",
+      "資料需確認":"dataIssue", "刪除":"del",
+    };
+    const map = {};
+    header.forEach((h, i) => { const k = alias[String(h).trim()]; if(k && !(k in map)) map[k] = i; });
+    return map;
+  }
+
+  function buildImportPlan(rows){
+    const col = importColMap(rows[0]);
+    const plan = { updates:[], moves:[], adds:[], dels:[], newGroups:[], errors:[], skipped:0, rowCount: rows.length - 1 };
+    if(!("name" in col) && !("number" in col)){
+      plan.errors.push("找不到「姓名」或「編號」欄位——請用「匯出 CSV」的檔案當範本修改後再匯入。");
+      return plan;
+    }
+    const cell = (row, key) => (key in col) ? String(row[col[key]] == null ? "" : row[col[key]]).trim() : null;   // null＝整欄不存在
+    function parseVal(def, raw){
+      if(raw === null || raw === "") return undefined;                     // 空格＝不變更
+      if(raw === "-") return def.type === "arr" ? [] : def.type === "bool" ? false : "";   // - ＝清空
+      if(def.type === "arr") return raw.split("|").map(s => s.trim()).filter(Boolean);
+      if(def.type === "bool") return YES_VALUES.includes(raw.toLowerCase());
+      return raw;
+    }
+
+    const byNumber = new Map(), byName = new Map(), gByCode = new Map();
+    DATA.forEach(g => {
+      const c = (g.code || "").trim();
+      if(c && !gByCode.has(c)) gByCode.set(c, g);
+      g.members.forEach(m => {
+        const n = (m.number || "").trim();
+        if(n) byNumber.set(n, (byNumber.get(n) || []).concat([{ g, m }]));
+        const nm = (m.name || "").trim();
+        if(nm) byName.set(nm, (byName.get(nm) || []).concat([{ g, m }]));
+      });
+    });
+    const pendingNewGroups = new Map();
+    const seen = new Set();
+
+    for(let r = 1; r < rows.length; r++){
+      const row = rows[r], rowNo = r + 1;
+      const number = cell(row, "number") || "";
+      const name = cell(row, "name") || "";
+      if(!number && !name){ plan.skipped++; continue; }
+
+      /* 比對：編號優先、姓名備援 */
+      let hit = null, matchedBy = "";
+      if(number && byNumber.has(number)){
+        const list = byNumber.get(number);
+        if(list.length > 1){ plan.errors.push("第 " + rowNo + " 列：編號 " + number + " 在名錄中重複（" + list.map(x => x.m.name).join("／") + "），無法判定，此列略過"); continue; }
+        hit = list[0]; matchedBy = "編號";
+      } else if(name && byName.has(name)){
+        const list = byName.get(name);
+        if(list.length > 1){ plan.errors.push("第 " + rowNo + " 列：姓名「" + name + "」在名錄中有 " + list.length + " 位且無法用編號判定，此列略過"); continue; }
+        hit = list[0]; matchedBy = "姓名";
+      }
+      if(hit && seen.has(hit.m.id)){ plan.errors.push("第 " + rowNo + " 列：與前面的列指向同一位成員（" + hit.m.name + "），此列略過"); continue; }
+
+      /* 刪除：一定要明確標記 */
+      const delRaw = cell(row, "del");
+      if(delRaw && DEL_VALUES.includes(delRaw.toLowerCase())){
+        if(!hit){ plan.errors.push("第 " + rowNo + " 列：標記刪除，但名錄中找不到「" + (name || number) + "」"); continue; }
+        seen.add(hit.m.id);
+        plan.dels.push({ g: hit.g, m: hit.m });
+        continue;
+      }
+
+      /* 分組：填了代號才會移動；代號不存在但有填分組名稱＝建新組 */
+      const gcode = cell(row, "gcode");
+      let targetG = null, newGroupKey = null;
+      if(gcode){
+        targetG = gByCode.get(gcode) || null;
+        if(!targetG){
+          if(pendingNewGroups.has(gcode)){ newGroupKey = gcode; }
+          else {
+            const gname = cell(row, "gname") || "";
+            if(gname){
+              pendingNewGroups.set(gcode, { code: gcode, name: gname });
+              plan.newGroups.push({ code: gcode, name: gname });
+              newGroupKey = gcode;
+            } else {
+              plan.errors.push("第 " + rowNo + " 列：分組代號「" + gcode + "」不存在（要建新組請同時填「分組名稱」），此列略過");
+              continue;
+            }
+          }
+        }
+      }
+
+      if(!hit){
+        if(!gcode){ plan.errors.push("第 " + rowNo + " 列：「" + (name || number) + "」是新成員，但沒有填分組代號，此列略過"); continue; }
+        const fields = {};
+        FIELD_DEFS.forEach(def => { const v = parseVal(def, cell(row, def.key)); if(v !== undefined) fields[def.key] = v; });
+        plan.adds.push({ rowNo, name, number, targetG, newGroupKey, fields });
+        continue;
+      }
+      seen.add(hit.m.id);
+
+      if((targetG && targetG.id !== hit.g.id) || newGroupKey){
+        plan.moves.push({ m: hit.m, from: hit.g, to: targetG, newGroupKey });
+      }
+
+      const changes = [];
+      FIELD_DEFS.forEach(def => {
+        const val = parseVal(def, cell(row, def.key));
+        if(val === undefined) return;
+        const cur = def.type === "arr" ? (hit.m[def.key] || []) : def.type === "bool" ? !!hit.m.dataIssue : (hit.m[def.key] || "");
+        const same = def.type === "arr" ? JSON.stringify(cur) === JSON.stringify(val) : cur === val;
+        if(!same) changes.push({ key: def.key, label: def.label, type: def.type, val,
+          from: def.type === "arr" ? cur.join("|") : String(cur),
+          to:   def.type === "arr" ? val.join("|") : String(val) });
+      });
+      if(changes.length) plan.updates.push({ m: hit.m, g: hit.g, matchedBy, changes });
+    }
+    return plan;
+  }
+
+  function groupCountRows(plan){
+    const counts = [];
+    const byGid = new Map();
+    DATA.forEach(g => { const c = { code: g.code, name: g.name, before: g.members.length, after: g.members.length }; counts.push(c); byGid.set(g.id, c); });
+    const byNew = new Map();
+    plan.newGroups.forEach(ng => { const c = { code: ng.code, name: ng.name + "（新組）", before: 0, after: 0 }; counts.push(c); byNew.set(ng.code, c); });
+    const target = mv => mv.newGroupKey ? byNew.get(mv.newGroupKey) : byGid.get(mv.to.id);
+    plan.moves.forEach(mv => { byGid.get(mv.from.id).after--; const t = target(mv); if(t) t.after++; });
+    plan.adds.forEach(a => { const t = a.newGroupKey ? byNew.get(a.newGroupKey) : byGid.get(a.targetG.id); if(t) t.after++; });
+    plan.dels.forEach(d => { byGid.get(d.g.id).after--; });
+    return counts;
+  }
+
+  function renderPlanHTML(plan){
+    let h = "";
+    const sec = (title, cnt, inner, cls) => cnt
+      ? '<div class="batch-sec ' + (cls || "") + '"><h4>' + esc(title) + '<span class="cnt">' + cnt + "</span></h4>" + inner + "</div>" : "";
+    h += sec("錯誤（這些列不會套用）", plan.errors.length, "<ul>" + plan.errors.map(e => "<li>" + esc(e) + "</li>").join("") + "</ul>", "err");
+    h += sec("移動分組", plan.moves.length, "<ul>" + plan.moves.map(mv =>
+      "<li><b>" + esc(mv.m.name) + "</b>：" + esc(mv.from.code) + " → " + esc(mv.newGroupKey || (mv.to && mv.to.code) || "?") + "</li>").join("") + "</ul>");
+    h += sec("新增成員", plan.adds.length, "<ul>" + plan.adds.map(a =>
+      "<li><b>" + esc(a.name || a.number) + "</b> → " + esc(a.newGroupKey || (a.targetG && a.targetG.code) || "?") + "</li>").join("") + "</ul>");
+    h += sec("刪除成員", plan.dels.length, "<ul>" + plan.dels.map(d =>
+      "<li><b>" + esc(d.m.name) + "</b>（" + esc(d.g.code) + "）</li>").join("") + "</ul>");
+    h += sec("欄位更新", plan.updates.length, "<ul>" + plan.updates.map(u =>
+      "<li><b>" + esc(u.m.name) + "</b>：" + u.changes.map(c => esc(c.label) + "「" + esc(c.from || "（空）") + "」→「" + esc(c.to || "（清空）") + "」").join("；") + "</li>").join("") + "</ul>");
+    if(plan.newGroups.length){
+      h += sec("將建立新分組", plan.newGroups.length, "<ul>" + plan.newGroups.map(g => "<li>" + esc(g.code) + "・" + esc(g.name) + "</li>").join("") + "</ul>");
+    }
+    const counts = groupCountRows(plan).filter(c => c.before !== c.after);
+    if(counts.length){
+      h += '<div class="batch-sec"><h4>各組人數變化</h4><table class="batch-table"><tr><th>組</th><th>套用前</th><th>套用後</th></tr>' +
+        counts.map(c => "<tr><td>" + esc(c.code) + "・" + esc(c.name) + '</td><td>' + c.before + '</td><td class="up">' + c.after + "</td></tr>").join("") +
+        "</table></div>";
+    }
+    h += '<div class="batch-note">規則：空格＝不變更；填一個 <b>-</b> ＝清空該欄；「服務項目／引薦對象／標語」多項用 <b>|</b> 分隔；要刪人請在「刪除」欄填「是」。照片欄僅供核對，匯入不會動照片（照片請用「批次照片」）。</div>';
+    return h || "<p>沒有偵測到任何變更。</p>";
+  }
+
+  function applyImportPlan(plan){
+    pushUndo();
+    const createdByCode = new Map();
+    plan.newGroups.forEach(ng => {
+      const g = { id: uid("g"), code: ng.code, name: ng.name, leader: "", room: "", members: [] };
+      DATA.push(g); createdByCode.set(ng.code, g);
+    });
+    const resolveG = (targetG, key) => key ? createdByCode.get(key) : (targetG ? groupById(targetG.id) : null);
+    plan.updates.forEach(u => u.changes.forEach(c => { u.m[c.key] = c.val; }));
+    plan.moves.forEach(mv => {
+      const from = groupById(mv.from.id), to = resolveG(mv.to, mv.newGroupKey);
+      if(!from || !to || from === to) return;
+      const i = from.members.indexOf(mv.m);
+      if(i >= 0){ from.members.splice(i, 1); to.members.push(mv.m); }
+    });
+    plan.adds.forEach(a => {
+      const to = resolveG(a.targetG, a.newGroupKey);
+      if(!to) return;
+      const m = { id: uid(to.id + "_m"), number: a.number || "", name: a.name || "", title: "", services: [], targets: [], tagline: [], image: "", company: "", business_items: "", dataIssue: false };
+      FIELD_DEFS.forEach(def => { if(def.key in a.fields) m[def.key] = a.fields[def.key]; });
+      to.members.push(m);
+    });
+    plan.dels.forEach(d => {
+      const g = groupById(d.g.id);
+      if(!g) return;
+      const i = g.members.indexOf(d.m);
+      if(i >= 0) g.members.splice(i, 1);
+    });
+    fixSelected(); renderAll(); validate(); saveDraft();
+  }
+
+  function handleCsvFile(file){
+    const readAs = enc => new Promise(res => { const fr = new FileReader(); fr.onerror = () => res(null); fr.onload = () => res(String(fr.result)); fr.readAsText(file, enc); });
+    (async () => {
+      let text = await readAs("utf-8");
+      if(text == null){ toast("CSV 讀取失敗", { warn:true }); return; }
+      // 舊版 Excel 另存的 CSV 是 Big5：出現大量亂碼替代字元時自動改用 Big5 重讀
+      if((text.match(/�/g) || []).length > 2){
+        const big5 = await readAs("big5");
+        if(big5 && (big5.match(/�/g) || []).length === 0) text = big5;
+      }
+      const rows = parseCSV(text);
+      if(rows.length < 2){ toast("CSV 裡沒有資料列（第一列需為欄位名稱）", { warn:true }); return; }
+      const plan = buildImportPlan(rows);
+      const total = plan.updates.length + plan.moves.length + plan.adds.length + plan.dels.length;
+      openBatchModal(
+        "匯入 CSV — 變更預覽",
+        renderPlanHTML(plan),
+        "共 " + plan.rowCount + " 列：更新 " + plan.updates.length + "・移組 " + plan.moves.length + "・新增 " + plan.adds.length + "・刪除 " + plan.dels.length + (plan.errors.length ? "・錯誤 " + plan.errors.length : ""),
+        total ? "套用 " + total + " 項變更" : "沒有可套用的變更",
+        total ? () => {
+          applyImportPlan(plan);
+          toast("已套用 " + total + " 項變更（可用上一步復原）；確認沒問題後記得按「發布到網站」", { duration: 7000 });
+        } : null
+      );
+    })();
+  }
+
+  /* ---------- 批次照片：檔名配對 成員id → 編號 → 姓名 ---------- */
+  function autoCropResize(file){
+    return new Promise(resolve => {
+      const reader = new FileReader();
+      reader.onerror = () => resolve(null);
+      reader.onload = () => {
+        const img = new Image();
+        img.onerror = () => resolve(null);
+        img.onload = () => {
+          const out = document.createElement("canvas");
+          out.width = CROP_OUT_W; out.height = CROP_OUT_H;
+          const ctx = out.getContext("2d");
+          const s = Math.max(CROP_OUT_W / img.naturalWidth, CROP_OUT_H / img.naturalHeight);
+          const dw = img.naturalWidth * s, dh = img.naturalHeight * s;
+          ctx.drawImage(img, (CROP_OUT_W - dw) / 2, (CROP_OUT_H - dh) / 2, dw, dh);
+          let url; try{ url = out.toDataURL("image/jpeg", 0.85); }catch(e){ url = null; }
+          resolve(url);
+        };
+        img.src = reader.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function matchPhotoFiles(files){
+    const byIdMap = new Map(), byNumber = new Map(), byName = new Map();
+    const normNum = n => (String(n || "").trim().replace(/^0+/, "") || "0");
+    DATA.forEach(g => g.members.forEach(m => {
+      byIdMap.set(m.id, { g, m });
+      const n = (m.number || "").trim();
+      if(n) byNumber.set(normNum(n), (byNumber.get(normNum(n)) || []).concat([{ g, m }]));
+      const nm = (m.name || "").trim();
+      if(nm) byName.set(nm, (byName.get(nm) || []).concat([{ g, m }]));
+    }));
+    const matched = [], unmatched = [];
+    const taken = new Set();
+    for(const file of files){
+      const stem = file.name.replace(/\.[^.]+$/, "").trim();
+      let hit = null, how = "";
+      if(byIdMap.has(stem)){ hit = byIdMap.get(stem); how = "成員id"; }
+      else {
+        const stemNoSuffix = stem.replace(/_x$/, "");
+        if(byIdMap.has(stemNoSuffix)){ hit = byIdMap.get(stemNoSuffix); how = "成員id"; }
+      }
+      if(!hit && /\d/.test(stem)){
+        const numPart = (stem.match(/^0*(\d+)/) || [])[1];
+        if(numPart){
+          const list = byNumber.get(normNum(numPart)) || [];
+          if(list.length === 1){ hit = list[0]; how = "編號"; }
+        }
+      }
+      if(!hit){
+        const list = byName.get(stem) || [];
+        if(list.length === 1){ hit = list[0]; how = "姓名"; }
+        else if(list.length > 1){ unmatched.push({ name: file.name, why: "同名 " + list.length + " 位，請改用編號命名" }); continue; }
+      }
+      if(!hit){ unmatched.push({ name: file.name, why: "對不到編號、姓名或成員id" }); continue; }
+      if(taken.has(hit.m.id)){ unmatched.push({ name: file.name, why: "與另一個檔案配到同一位（" + hit.m.name + "）" }); continue; }
+      taken.add(hit.m.id);
+      matched.push({ file, g: hit.g, m: hit.m, how });
+    }
+    return { matched, unmatched };
+  }
+
+  function handlePhotoFiles(fileList){
+    const res = matchPhotoFiles(Array.from(fileList));
+    let h = "";
+    if(res.matched.length){
+      h += '<div class="batch-sec"><h4>將更新照片<span class="cnt">' + res.matched.length + "</span></h4><ul>" +
+        res.matched.map(it => "<li><b>" + esc(it.m.name) + "</b>（" + esc(it.g.code) + "）← " + esc(it.file.name) + "<span style='color:var(--faint);'>（以" + it.how + "配對）</span></li>").join("") + "</ul></div>";
+    }
+    if(res.unmatched.length){
+      h += '<div class="batch-sec err"><h4>無法配對<span class="cnt">' + res.unmatched.length + "</span></h4><ul>" +
+        res.unmatched.map(u => "<li>" + esc(u.name) + "——" + esc(u.why) + "</li>").join("") + "</ul></div>";
+    }
+    h += '<div class="batch-note">檔名配對規則（擇一即可）：<b>編號</b>（如 001.jpg、079小明.jpg 開頭是編號也可）、<b>姓名</b>（如 曾俊凱.jpg）、或成員id。照片會自動置中裁成名錄比例。</div>';
+    openBatchModal(
+      "批次照片 — 配對預覽",
+      h,
+      "選了 " + fileList.length + " 個檔案：可配對 " + res.matched.length + "・無法配對 " + res.unmatched.length,
+      res.matched.length ? "套用 " + res.matched.length + " 張照片" : "沒有可套用的照片",
+      res.matched.length ? async () => {
+        toast("照片處理中…", { duration: 60000 });
+        pushUndo();
+        let done = 0, failed = 0;
+        for(const it of res.matched){
+          const url = await autoCropResize(it.file);
+          if(url){ it.m.image = url; done++; } else failed++;
+        }
+        renderAll(); validate(); saveDraft();
+        const failNote = failed ? "（" + failed + " 張讀取失敗未更新）" : "";
+        toast(workerCaps.files
+          ? "已更新 " + done + " 張照片" + failNote + "，發布時會自動存成實體圖檔"
+          : "已更新 " + done + " 張照片" + failNote + "。⚠ Worker 尚未升級，發布後照片將以內嵌方式儲存（分享預覽會用通用圖）——升級教學見 worker/README.md", { duration: 9000 });
+      } : null
+    );
+  }
+
+  /* ---------- 批次預覽視窗（CSV 與照片共用） ---------- */
+  let batchApplyFn = null;
+  function openBatchModal(title, bodyHTML, summary, applyLabel, onApply){
+    byId("batch-title").textContent = title;
+    byId("batch-body").innerHTML = bodyHTML;
+    byId("batch-summary").textContent = summary || "";
+    const ap = byId("batch-apply");
+    ap.textContent = applyLabel || "套用變更";
+    ap.disabled = !onApply;
+    batchApplyFn = onApply || null;
+    byId("batch-modal").hidden = false;
+  }
+  function closeBatchModal(){ byId("batch-modal").hidden = true; batchApplyFn = null; }
 
   /* ---------- publish relay (Cloudflare Worker holds the real GitHub token) ----------
      瀏覽器只保管「Worker 網址」（不是機密）與一次登入用的 session（存在 sessionStorage，
@@ -641,6 +1040,7 @@
     if(url && !/^https:\/\//.test(url)){ toast("網址需以 https:// 開頭", {warn:true}); return; }
     const changed = url !== loadWorkerUrl();
     saveWorkerUrl(url);
+    refreshCaps();   // 換了服務就重新確認它支不支援附件
     closeSettings();
     if(loadSession() && !changed){
       // 已登入且網址沒變（例如只是打開看看就按儲存）→ 不需要把人踢回登入畫面
@@ -661,6 +1061,83 @@
     else { toast("✘ 連不到這個網址，請確認 Worker 是否已部署、網址是否正確", {warn:true, duration:6000}); }
   }
 
+  /* ---------- Worker 能力偵測 + 發布附件（照片實體檔、分享預覽頁） ----------
+     Worker 升級後 /ping 會回 caps.files=true：發布時把內嵌照片轉成 images/ 實體檔、
+     並為異動過的成員重生 m/ 分享預覽頁，一併交給 Worker 寫入。
+     Worker 未升級時完全維持舊行為（照片內嵌在 data.js 裡）。 */
+  const PUB_SITE_BASE = "https://ivanzhong085.github.io/member-directory/";
+  let workerCaps = {};
+  async function refreshCaps(){
+    const res = await workerFetch("/ping");
+    workerCaps = (res && res.ok && res.caps) || {};
+  }
+
+  function b64EncodeUtf8(str){
+    const bytes = new TextEncoder().encode(str);
+    let bin = "";
+    for(let i = 0; i < bytes.length; i += 0x8000){
+      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+    }
+    return btoa(bin);
+  }
+  function fileSafeId(id){ return String(id).replace(/[^A-Za-z0-9_-]/g, ""); }
+
+  /* 成員分享預覽頁（og 標籤＋跳轉）。內容需與 tools/build-member-pages.mjs 一致，兩邊要同步改。 */
+  function memberStubHTML(m, g){
+    const descParts = [];
+    if((m.services || []).length) descParts.push("服務項目：" + m.services.join("、"));
+    if((m.targets || []).length) descParts.push("適合引薦：" + m.targets.join("、"));
+    const desc = (descParts.join("；") || "會員名錄成員介紹").slice(0, 150);
+    const title = (m.name || "") + "｜" + (m.title || "");
+    const img = (m.image && !/^data:/.test(m.image)) ? PUB_SITE_BASE + "images/" + encodeURIComponent(m.image) : PUB_SITE_BASE + "og-image.png";
+    const target = "../index.html#/member/" + encodeURIComponent(m.id);
+    const pageUrl = PUB_SITE_BASE + "m/" + encodeURIComponent(m.id) + ".html";
+    return '<!doctype html>\n<html lang="zh-Hant">\n<head>\n<meta charset="UTF-8">\n' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
+      "<title>" + esc(title) + "｜會員名錄</title>\n" +
+      '<meta name="description" content="' + esc(desc) + '">\n' +
+      '<meta name="robots" content="noindex">\n' +
+      '<meta property="og:type" content="profile">\n' +
+      '<meta property="og:site_name" content="會員名錄">\n' +
+      '<meta property="og:title" content="' + esc(title) + '">\n' +
+      '<meta property="og:description" content="' + esc(desc) + '">\n' +
+      '<meta property="og:url" content="' + esc(pageUrl) + '">\n' +
+      '<meta property="og:image" content="' + esc(img) + '">\n' +
+      '<meta name="twitter:card" content="summary">\n' +
+      '<link rel="canonical" href="' + esc(PUB_SITE_BASE) + "#/member/" + encodeURIComponent(m.id) + '">\n' +
+      '<meta http-equiv="refresh" content="0;url=' + esc(target) + '">\n' +
+      '<link rel="icon" type="image/svg+xml" href="../favicon.svg">\n' +
+      "</head>\n<body>\n" +
+      "<script>location.replace(" + JSON.stringify(target) + ");<\/script>\n" +
+      '<noscript><p style="font-family:sans-serif;padding:24px;">正在前往 <a href="' + esc(target) + '">' + esc(m.name || "") + " 的介紹頁</a>…</p></noscript>\n" +
+      "</body>\n</html>\n";
+  }
+
+  function stubSig(m){
+    return JSON.stringify([m.name, m.title, m.services, m.targets, /^data:/.test(m.image || "") ? "(inline)" : (m.image || "")]);
+  }
+
+  /* 組出這次發布的 data.js 內容與附件清單 */
+  function buildPublishPayload(){
+    const data = clone(DATA);
+    const files = [];
+    if(workerCaps.files){
+      const base = new Map();
+      (typeof GROUPS !== "undefined" ? GROUPS : []).forEach(g => g.members.forEach(m => base.set(m.id, stubSig(m))));
+      data.forEach(g => g.members.forEach(m => {
+        if(/^data:image\/jpeg;base64,/.test(m.image || "")){
+          const fname = fileSafeId(m.id) + "_x.jpg";
+          const b64 = (m.image.split(",")[1] || "").trim();
+          if(b64){ files.push({ path: "images/" + fname, contentB64: b64 }); m.image = fname; }
+        }
+        if(base.get(m.id) !== stubSig(m)){
+          files.push({ path: "m/" + fileSafeId(m.id) + ".html", contentB64: b64EncodeUtf8(memberStubHTML(m, g)) });
+        }
+      }));
+    }
+    return { content: serialize(data), files };
+  }
+
   let publishing = false;
   async function publish(){
     if(publishing) return false;
@@ -677,7 +1154,25 @@
     const orig = btn.innerHTML;
     btn.disabled = true; btn.textContent = "發布中…";
     try{
-      const res = await workerFetch("/publish", { session, content: serialize() });
+      const payload = buildPublishPayload();
+      const CHUNK = 20;   // 單次請求附件上限（Worker 限 25，留餘裕）；照片多時自動分批
+      const chunks = [];
+      for(let i = 0; i < payload.files.length; i += CHUNK) chunks.push(payload.files.slice(i, i + CHUNK));
+      if(!chunks.length) chunks.push([]);
+      let res = { ok:false, error:"network" };
+      let sent = 0;
+      for(let i = 0; i < chunks.length; i++){
+        const isLast = i === chunks.length - 1;
+        if(payload.files.length > CHUNK){
+          sent += chunks[i].length;
+          btn.textContent = "發布中…（檔案 " + sent + "/" + payload.files.length + "）";
+        }
+        // data.js 一定放在最後一批：附件先全部就位，公開網站才不會指到不存在的照片
+        res = await workerFetch("/publish", isLast
+          ? { session, content: payload.content, files: chunks[i] }
+          : { session, files: chunks[i] });
+        if(!res.ok) break;
+      }
       if(res.ok){
         clearTimeout(saveTimer);
         dirty = false;
@@ -776,6 +1271,23 @@
   byId("btn-discard").onclick = discardDraft;
   byId("btn-logout").onclick = logout;
   byId("btn-save").onclick = manualSave;
+  byId("btn-csv-export").onclick = csvExport;
+  byId("btn-csv-import").onclick = () => byId("csv-file").click();
+  byId("csv-file").onchange = () => {
+    const f = byId("csv-file").files && byId("csv-file").files[0];
+    byId("csv-file").value = "";
+    if(f) handleCsvFile(f);
+  };
+  byId("btn-photos").onclick = () => byId("photos-file").click();
+  byId("photos-file").onchange = () => {
+    const fs = Array.from(byId("photos-file").files || []);
+    byId("photos-file").value = "";
+    if(fs.length) handlePhotoFiles(fs);
+  };
+  byId("batch-cancel").onclick = closeBatchModal;
+  byId("batch-apply").onclick = () => { const fn = batchApplyFn; closeBatchModal(); if(fn) fn(); };
+  byId("batch-modal").addEventListener("click", e => { if(e.target.id === "batch-modal") closeBatchModal(); });
+  refreshCaps();   // 問一次 Worker 是否支援附件（照片實體檔）；失敗就當不支援，行為同舊版
   byId("btn-undo").onclick = undo;
   byId("btn-redo").onclick = redo;
   byId("s-save").onclick = saveSettings;
@@ -810,12 +1322,13 @@
   document.addEventListener("keydown", e => {
     if(e.key === "Escape"){
       if(!byId("crop-modal").hidden){ byId("crop-cancel").click(); return; }
+      if(!byId("batch-modal").hidden){ closeBatchModal(); return; }
       if(!byId("leave-modal").hidden){ closeLeaveModal(); return; }
       if(!byId("settings-modal").hidden){ closeSettings(); return; }
       if(document.body.classList.contains("drawer-open")){ closeDrawerIfMobile(); return; }
     }
     // 只有在編輯中（非鎖定、非彈窗）才吃 Ctrl+Z / Ctrl+Y
-    const editing = byId("lock-overlay").hidden && byId("settings-modal").hidden && byId("crop-modal").hidden && byId("leave-modal").hidden;
+    const editing = byId("lock-overlay").hidden && byId("settings-modal").hidden && byId("crop-modal").hidden && byId("leave-modal").hidden && byId("batch-modal").hidden;
     if(editing && (e.ctrlKey || e.metaKey)){
       if(e.key === "z" && !e.shiftKey){ e.preventDefault(); undo(); }
       else if((e.key === "z" && e.shiftKey) || e.key === "y"){ e.preventDefault(); redo(); }
