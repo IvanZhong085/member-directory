@@ -87,6 +87,11 @@
     crown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11.562 3.266a.5.5 0 0 1 .876 0L15.39 8.87a1 1 0 0 0 1.516.294L21.183 5.5a.5.5 0 0 1 .798.519l-2.834 10.246a1 1 0 0 1-.956.735H5.81a1 1 0 0 1-.957-.735L2.02 6.02a.5.5 0 0 1 .798-.519l4.276 3.664a1 1 0 0 0 1.516-.294z"/></svg>',
     grid: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>',
     eye: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></svg>',
+    share: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.59 13.51 6.83 3.98"/><path d="m15.41 6.51-6.82 3.98"/></svg>',
+    link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+    qr: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M21 16h-3a2 2 0 0 0-2 2v3"/><path d="M21 21v.01"/><path d="M12 7v3a2 2 0 0 1-2 2H7"/><path d="M3 12h.01"/><path d="M12 3h.01"/><path d="M12 16v.01"/><path d="M16 12h1"/><path d="M21 12v.01"/><path d="M12 21v-1"/></svg>',
+    contact: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg>',
+    spark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>',
   };
 
   function photoCard(m){
@@ -354,6 +359,23 @@
             <div class="info-text">${esc(m.business_items) || "資料尚未提供，補充後將顯示於此。"}</div>
           </div>
         </div>
+        <div class="share-bar" id="share-bar">
+          <div class="share-bar-head">${I.share}<span>分享這位夥伴</span></div>
+          <div class="share-actions">
+            <button class="share-btn" id="share-native" type="button" hidden>${I.share} 分享…</button>
+            <button class="share-btn" id="share-copy" type="button">${I.link} 複製連結</button>
+            <button class="share-btn" id="share-qr-btn" type="button" aria-expanded="false" aria-controls="share-qr-panel">${I.qr} QR code</button>
+            <button class="share-btn" id="share-vcard" type="button">${I.contact} 存入通訊錄</button>
+            <a class="share-btn" href="spotlight.html?m=${encodeURIComponent(m.id)}">${I.spark} 貼文／分享卡</a>
+          </div>
+          <div class="share-qr-panel" id="share-qr-panel" hidden>
+            <canvas id="share-qr-canvas" width="300" height="300" aria-label="這位夥伴介紹頁的 QR code"></canvas>
+            <div class="share-qr-text">
+              <div class="share-qr-tip">掃描或長按 QR code，直接開啟 ${esc(m.name)} 的介紹頁</div>
+              <div class="share-qr-url" id="share-qr-url"></div>
+            </div>
+          </div>
+        </div>
         <div class="detail-views" id="detail-views" hidden>${I.eye}<span>本頁已被瀏覽 <b>—</b> 次</span></div>
       </article>
       <nav class="detail-nav" aria-label="同組成員導覽">
@@ -361,6 +383,7 @@
         ${navCard(next, true)}
       </nav>`;
     app.innerHTML = html;
+    wireShareBar(m);
 
     // 計入這位成員的瀏覽數；回來後若已離開此頁就不更新（避免把數字寫到別人頁上）
     const targetHash = "#/member/" + encodeURIComponent(m.id);
@@ -372,6 +395,62 @@
       const b = vEl.querySelector("b"); if(b) b.textContent = fmtNum(n);
       vEl.hidden = false;
     });
+  }
+
+  /* ---------- 分享列(成員內頁):複製連結、QR、vCard、原生分享 ---------- */
+  function wireShareBar(m){
+    const bar = document.getElementById("share-bar");
+    if(!bar) return;
+    if(typeof ShareTools === "undefined"){ bar.hidden = true; return; }   // 分享模組沒載入就整列隱藏
+    const url = ShareTools.shareUrl(m);
+
+    function flash(btn, ok){
+      const orig = btn.dataset.orig || (btn.dataset.orig = btn.innerHTML);
+      btn.innerHTML = ok ? "已複製 ✓" : "複製失敗";
+      setTimeout(() => { btn.innerHTML = orig; }, 1400);
+    }
+
+    const nativeBtn = document.getElementById("share-native");
+    if(nativeBtn && navigator.share){
+      nativeBtn.hidden = false;
+      nativeBtn.addEventListener("click", () => {
+        navigator.share({title: m.name + "|" + m.title, text: m.name + "|" + m.title, url})
+          .catch(() => {});   // 使用者取消分享面板不算錯誤
+      });
+    }
+
+    const copyBtn = document.getElementById("share-copy");
+    if(copyBtn) copyBtn.addEventListener("click", async () => {
+      let ok = true;
+      try{ await navigator.clipboard.writeText(url); }
+      catch(_){
+        const ta = document.createElement("textarea");
+        ta.value = url; document.body.appendChild(ta); ta.select();
+        try{ ok = document.execCommand("copy"); }catch(e){ ok = false; }
+        ta.remove();
+      }
+      flash(copyBtn, ok);
+    });
+
+    const qrBtn = document.getElementById("share-qr-btn");
+    const qrPanel = document.getElementById("share-qr-panel");
+    let qrDrawn = false;
+    if(qrBtn && qrPanel) qrBtn.addEventListener("click", () => {
+      const show = qrPanel.hidden;
+      qrPanel.hidden = !show;
+      qrBtn.setAttribute("aria-expanded", show ? "true" : "false");
+      if(show && !qrDrawn){
+        qrDrawn = true;
+        const cv = document.getElementById("share-qr-canvas");
+        const src = ShareTools.makeQRCanvas(url, 600);
+        cv.getContext("2d").drawImage(src, 0, 0, cv.width, cv.height);
+        const u = document.getElementById("share-qr-url");
+        if(u) u.textContent = ShareTools.displayUrl(m);
+      }
+    });
+
+    const vcardBtn = document.getElementById("share-vcard");
+    if(vcardBtn) vcardBtn.addEventListener("click", () => ShareTools.downloadVCard(m));
   }
 
   function renderSearch(q){
