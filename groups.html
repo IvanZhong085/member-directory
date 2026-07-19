@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>產業小組表｜會員名錄</title>
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
+<style>
+  :root{
+    --red:#C8102E; --red-dark:#A50D26; --red-deep:#7C0A1D;
+    --red-50:#FDF3F5; --red-100:#FAE4E8;
+    --ink:#1B1C22; --muted:#6E727E; --border:#EAEBEF; --bg-soft:#F8F8F9;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg-soft); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif;
+    -webkit-print-color-adjust:exact; print-color-adjust:exact;
+  }
+  /* 螢幕上的工具列(列印時隱藏) */
+  .toolbar{
+    position:sticky; top:0; z-index:10; background:#fff; border-bottom:1px solid var(--border);
+    padding:10px 18px; display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+  }
+  .toolbar .tip{font-size:12.5px; color:var(--muted); margin-right:auto; line-height:1.5;}
+  .tbtn{
+    display:inline-flex; align-items:center; gap:6px; border:1.5px solid #DDDFE5; background:#fff;
+    color:var(--ink); border-radius:999px; padding:8px 18px; font-size:13.5px; font-weight:700;
+    cursor:pointer; text-decoration:none; font-family:inherit;
+  }
+  .tbtn:hover{border-color:var(--red); color:var(--red); background:var(--red-50);}
+  .tbtn-primary{background:var(--red); border-color:var(--red); color:#fff;}
+  .tbtn-primary:hover{background:var(--red-dark); border-color:var(--red-dark); color:#fff;}
+
+  /* A4 紙面 */
+  .sheet{
+    width:210mm; min-height:297mm; margin:16px auto; background:#fff; padding:10mm 11mm 8mm;
+    box-shadow:0 10px 30px -12px rgba(27,28,34,.25);
+  }
+  .sheet-head{text-align:center; border-bottom:3px solid var(--red); padding-bottom:8px; margin-bottom:10px;}
+  .sheet-title{
+    font-size:21px; font-weight:900; letter-spacing:.04em; color:var(--red-deep); outline:none;
+  }
+  .sheet-title b{color:var(--red);}
+  .sheet-sub{font-size:10.5px; color:var(--muted); font-weight:600; letter-spacing:.06em; margin-top:4px; outline:none;}
+  .sheet-sub .date{color:var(--red); font-weight:800;}
+  [contenteditable]:hover{background:var(--red-50); border-radius:4px;}
+  [contenteditable]:focus{background:var(--red-50); border-radius:4px;}
+
+  .cols{columns:3; column-gap:6mm; --s:1;}
+  .gblock{break-inside:avoid; margin-bottom:calc(7px * var(--s));}
+  .ghead{
+    display:flex; align-items:baseline; gap:6px;
+    background:var(--red); color:#fff; border-radius:6px;
+    padding:calc(3px * var(--s)) 8px; margin-bottom:calc(3px * var(--s));
+  }
+  .gcode{font-size:calc(11px * var(--s)); font-weight:900; letter-spacing:.02em;}
+  .gname{font-size:calc(11px * var(--s)); font-weight:800; flex:1; min-width:0;}
+  .gcount{font-size:calc(9.5px * var(--s)); font-weight:800; opacity:.9;}
+  .mrow{
+    font-size:calc(10.2px * var(--s)); line-height:1.42; padding:calc(1px * var(--s)) 2px calc(1px * var(--s)) 4px;
+    display:flex; gap:4px; align-items:baseline;
+    border-bottom:1px dashed #F0F1F4;
+  }
+  .mrow:last-child{border-bottom:none;}
+  .mname{font-weight:800; white-space:nowrap; flex:none; min-width:calc(42px * var(--s));}
+  .msep{color:var(--red-100); flex:none;}
+  .mtitle{color:#3A3C45; font-weight:500; min-width:0;}
+  .sheet-foot{
+    margin-top:6px; padding-top:6px; border-top:1px solid var(--border);
+    display:flex; justify-content:space-between; font-size:9px; color:var(--muted); font-weight:600;
+  }
+
+  @media print{
+    body{background:#fff;}
+    .toolbar{display:none !important;}
+    .sheet{width:auto; min-height:0; margin:0; padding:0; box-shadow:none;}
+    @page{size:A4 portrait; margin:9mm;}
+  }
+  @media screen and (max-width:820px){
+    .sheet{width:100%; min-height:0; padding:14px;}
+    .cols{columns:1;}
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <span class="tip">標題與日期<b>點一下就能改字</b>;確認後按「列印/存 PDF」,在列印視窗選「儲存為 PDF」即可。</span>
+  <a class="tbtn" href="admin.html">← 回後台</a>
+  <a class="tbtn" href="./">回名錄</a>
+  <button class="tbtn tbtn-primary" onclick="window.print()" type="button">🖨 列印/存 PDF</button>
+</div>
+
+<div class="sheet">
+  <div class="sheet-head">
+    <div class="sheet-title" id="sheet-title" contenteditable="true" spellcheck="false"></div>
+    <div class="sheet-sub">
+      <span contenteditable="true" spellcheck="false">投嘉雲彰區域/Nantou.Chiayi.Yunlin.Changhua/Taiwan</span>
+      ・<span class="date" id="sheet-date" contenteditable="true" spellcheck="false"></span>
+    </div>
+  </div>
+  <div class="cols" id="cols"></div>
+  <div class="sheet-foot">
+    <span>會員名錄自動產生・資料即時同步</span>
+    <span id="foot-stat"></span>
+  </div>
+</div>
+
+<script src="data.js"></script>
+<script>
+(function(){
+  "use strict";
+  function esc(s){ return (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+  var total = GROUPS.reduce(function(n,g){ return n + g.members.length; }, 0);
+  document.getElementById("sheet-title").innerHTML =
+    "雲榮鑽石分會成交破億產業小組團隊<b>(" + total + ")</b>";
+  var d = new Date(), pad = function(n){ return String(n).padStart(2,"0"); };
+  document.getElementById("sheet-date").textContent = d.getFullYear() + "/" + pad(d.getMonth()+1) + "/" + pad(d.getDate());
+  document.getElementById("foot-stat").textContent = GROUPS.length + " 組・" + total + " 位成員";
+
+  var html = "";
+  GROUPS.forEach(function(g){
+    html += '<div class="gblock"><div class="ghead">' +
+      '<span class="gcode">' + esc(g.code || "") + '</span>' +
+      '<span class="gname">' + esc(g.name || "") + '</span>' +
+      '<span class="gcount">(' + g.members.length + ')</span></div>';
+    g.members.forEach(function(m){
+      html += '<div class="mrow"><span class="mname">' + esc(m.name || "") + '</span>' +
+        '<span class="msep">｜</span><span class="mtitle">' + esc(m.title || "") + "</span></div>";
+    });
+    html += "</div>";
+  });
+  document.getElementById("cols").innerHTML = html;
+
+  /* 自動縮放到一頁 A4:成員數成長也不爆頁(逐步縮小字級直到塞得下,下限 66%) */
+  var A4H = Math.round(297 * 96 / 25.4);          // 297mm → px
+  var cols = document.getElementById("cols");
+  var sheet = document.querySelector(".sheet");
+  var foot = document.querySelector(".sheet-foot");
+  var scale = 1;
+  function contentBottom(){
+    return foot.getBoundingClientRect().bottom - sheet.getBoundingClientRect().top
+      + 8 * 96 / 25.4;                             // 加回下方 8mm 內距
+  }
+  var guard = 0;
+  while(contentBottom() > A4H && scale > 0.66 && guard < 20){
+    scale -= 0.03; guard++;
+    cols.style.setProperty("--s", scale.toFixed(2));
+  }
+})();
+</script>
+</body>
+</html>
