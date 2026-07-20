@@ -71,6 +71,7 @@
       saveState.textContent = "已自動儲存 " + new Date().toLocaleTimeString("zh-Hant",{hour:"2-digit",minute:"2-digit"});
       showDraftBanner(true);
       dirty = false;
+      renderDash();   // 儀表板數字跟著草稿即時更新
     }catch(e){
       saveState.textContent = "⚠ 無法自動儲存草稿（瀏覽器儲存空間不足或被封鎖）— 發布前請勿關閉此分頁，並建議先「下載備份」";
     }
@@ -1566,7 +1567,57 @@
   function bindTextField(id, cb){ wireTextInput(byId(id), cb); }
   function scheduleSaveAndValidate(){ scheduleSave(); validate(); }
 
-  function renderAll(){ renderSidebar(); renderMain(); }
+  function renderAll(){ renderSidebar(); renderMain(); renderDash(); }
+
+  /* ---------- 分會總覽儀表板:即時統計+工具捷徑 ---------- */
+  function renderDash(){
+    const el = byId("dash-stats");
+    if(!el) return;
+    const total = DATA.reduce((n, g) => n + g.members.length, 0);
+    let noPhoto = 0, hasCard = 0, hasProducts = 0, hasWebsite = 0, recruit = 0, missingMembers = 0;
+    DATA.forEach(g => {
+      recruit += (g.recruiting || []).filter(r => String(r).trim()).length;
+      g.members.forEach(m => {
+        if(!m.image) noPhoto++;
+        if((m.card || "").trim()) hasCard++;
+        if((m.products || []).length) hasProducts++;
+        if(/^https?:\/\//.test(m.website || "")) hasWebsite++;
+        const miss = !m.image || !(m.card || "").trim() || !(m.products || []).length ||
+          !(m.company || "").trim() || !(m.business_items || "").trim() ||
+          !(m.services || []).filter(s => String(s).trim()).length ||
+          !(m.targets || []).filter(s => String(s).trim()).length ||
+          !(m.tagline || []).filter(s => String(s).trim()).length;
+        if(miss) missingMembers++;
+      });
+    });
+    const sub = byId("dash-sub");
+    if(sub) sub.textContent = "資料一修改,數字立即更新;發布後全站同步";
+    el.innerHTML =
+      '<div class="dstat"><b>' + total + '</b><span>位成員</span></div>' +
+      '<div class="dstat"><b>' + DATA.length + '</b><span>專業分組</span></div>' +
+      '<div class="dstat click warn" id="dstat-missing" title="點擊看缺項清單與催收訊息"><b>' + missingMembers + '<small>／' + total + '</small></b><span>資料有缺項 →</span></div>' +
+      '<div class="dstat"><b>' + (total - noPhoto) + '<small>／' + total + '</small></b><span>已有形象照</span></div>' +
+      '<div class="dstat"><b>' + hasCard + '<small>／' + total + '</small></b><span>已有名片圖</span></div>' +
+      '<div class="dstat"><b>' + hasProducts + '<small>／' + total + '</small></b><span>已有商品照</span></div>' +
+      '<div class="dstat"><b>' + hasWebsite + '<small>／' + total + '</small></b><span>已填公司網站</span></div>' +
+      '<div class="dstat"><b>' + recruit + '</b><span>招募中席位</span></div>';
+    const dm = byId("dstat-missing");
+    if(dm) dm.onclick = missingReport;
+
+    const tools = byId("dash-tools");
+    if(tools && !tools.dataset.built){
+      tools.dataset.built = "1";
+      let h =
+        '<a class="dtool" href="index.html" target="_blank" rel="noopener">🏠 前台名錄</a>' +
+        '<a class="dtool" href="spotlight.html" target="_blank" rel="noopener">🌟 聚光燈產生器</a>' +
+        '<a class="dtool" href="groups.html" target="_blank" rel="noopener">📋 產業小組表</a>' +
+        '<a class="dtool" href="visitor.html" target="_blank" rel="noopener">🤝 來賓報名頁</a>' +
+        '<a class="dtool" href="roster.csv" target="_blank" rel="noopener">📄 名冊 CSV</a>';
+      if(FORM_URL) h += '<a class="dtool" href="' + esc(FORM_URL) + '" target="_blank" rel="noopener">📝 夥伴補資料表單</a>';
+      if(SHEET_URL) h += '<a class="dtool" href="' + esc(SHEET_URL) + '" target="_blank" rel="noopener">📊 名冊試算表</a>';
+      tools.innerHTML = h;
+    }
+  }
 
   /* ---------- boot ---------- */
   // 清掉舊版（權杖存本機加密）留下的機密，遷移到新架構後這些不該再存在
@@ -1627,6 +1678,14 @@
   byId("lock-setup").onclick = () => { openSettings(); };
   byId("perm-recheck").onclick = () => { hidePermBanner(); toast("已隱藏提醒，發布時若還有問題會再顯示"); };
   byId("settings-modal").addEventListener("click", e => { if(e.target.id === "settings-modal") closeSettings(); });
+
+  // 總覽儀表板收合(記住選擇)
+  const DASH_KEY = "member-directory-dash-collapsed";
+  try{ if(localStorage.getItem(DASH_KEY) === "1") document.body.classList.add("dash-collapsed"); }catch(e){}
+  byId("dash-toggle").onclick = () => {
+    const c = document.body.classList.toggle("dash-collapsed");
+    try{ localStorage.setItem(DASH_KEY, c ? "1" : "0"); }catch(e){}
+  };
 
   // 側邊分組：桌機收合 / 手機抽屜
   byId("btn-collapse").onclick = () => document.body.classList.toggle("side-collapsed");
