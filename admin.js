@@ -588,7 +588,7 @@
   }
 
   /* ==================================================================
-     CSV 匯出／匯入 與 批次照片
+     CSV 匯出／匯入
      匯入原則：「空格＝不變更」「一個 - ＝清空」「刪除要在刪除欄標記」，
      且套用前一定先看差異預覽——一張錯表不會毀掉名錄。
      ================================================================== */
@@ -816,7 +816,7 @@
         counts.map(c => "<tr><td>" + esc(c.code) + "・" + esc(c.name) + '</td><td>' + c.before + '</td><td class="up">' + c.after + "</td></tr>").join("") +
         "</table></div>";
     }
-    h += '<div class="batch-note">規則：空格＝不變更；填一個 <b>-</b> ＝清空該欄；「服務項目／引薦對象／標語」多項用 <b>|</b> 分隔；要刪人請在「刪除」欄填「是」。照片欄僅供核對，匯入不會動照片（照片請用「批次照片」）。</div>';
+    h += '<div class="batch-note">規則：空格＝不變更；填一個 <b>-</b> ＝清空該欄；「服務項目／引薦對象／標語」多項用 <b>|</b> 分隔；要刪人請在「刪除」欄填「是」。照片欄僅供核對，匯入不會動照片（照片請到各成員卡用「更換照片」放入）。</div>';
     return h || "<p>沒有偵測到任何變更。</p>";
   }
 
@@ -917,7 +917,7 @@
     }
   }
 
-  /* ---------- 批次照片：檔名配對 成員id → 編號 → 姓名 ---------- */
+  /* ---------- 照片自動置中裁切(PPT 匯入照片用) ---------- */
   function autoCropResize(file){
     return new Promise(resolve => {
       const reader = new FileReader();
@@ -939,195 +939,6 @@
       };
       reader.readAsDataURL(file);
     });
-  }
-
-  function matchPhotoFiles(files){
-    const byIdMap = new Map(), byNumber = new Map(), byName = new Map();
-    const normNum = n => (String(n || "").trim().replace(/^0+/, "") || "0");
-    DATA.forEach(g => g.members.forEach(m => {
-      byIdMap.set(m.id, { g, m });
-      const n = (m.number || "").trim();
-      if(n) byNumber.set(normNum(n), (byNumber.get(normNum(n)) || []).concat([{ g, m }]));
-      const nm = (m.name || "").trim();
-      if(nm) byName.set(nm, (byName.get(nm) || []).concat([{ g, m }]));
-    }));
-    const matched = [], unmatched = [];
-    const taken = new Set();
-    for(const file of files){
-      const stem = file.name.replace(/\.[^.]+$/, "").trim();
-      let hit = null, how = "";
-      if(byIdMap.has(stem)){ hit = byIdMap.get(stem); how = "成員id"; }
-      else {
-        const stemNoSuffix = stem.replace(/_x$/, "");
-        if(byIdMap.has(stemNoSuffix)){ hit = byIdMap.get(stemNoSuffix); how = "成員id"; }
-      }
-      if(!hit && /\d/.test(stem)){
-        const numPart = (stem.match(/^0*(\d+)/) || [])[1];
-        if(numPart){
-          const list = byNumber.get(normNum(numPart)) || [];
-          if(list.length === 1){ hit = list[0]; how = "編號"; }
-        }
-      }
-      if(!hit){
-        const list = byName.get(stem) || [];
-        if(list.length === 1){ hit = list[0]; how = "姓名"; }
-        else if(list.length > 1){ unmatched.push({ name: file.name, why: "同名 " + list.length + " 位，請改用編號命名" }); continue; }
-      }
-      if(!hit){ unmatched.push({ name: file.name, why: "對不到編號、姓名或成員id" }); continue; }
-      if(taken.has(hit.m.id)){ unmatched.push({ name: file.name, why: "與另一個檔案配到同一位（" + hit.m.name + "）" }); continue; }
-      taken.add(hit.m.id);
-      matched.push({ file, g: hit.g, m: hit.m, how });
-    }
-    return { matched, unmatched };
-  }
-
-  function handlePhotoFiles(fileList){
-    const res = matchPhotoFiles(Array.from(fileList));
-    let h = "";
-    if(res.matched.length){
-      h += '<div class="batch-sec"><h4>將更新照片<span class="cnt">' + res.matched.length + "</span></h4><ul class='batch-photo-list'>" +
-        res.matched.map((it, i) => "<li><img class='batch-thumb' data-thumb='" + i + "' alt=''><b>" + esc(it.m.name) + "</b>（" + esc(it.g.code) + "）← " + esc(it.file.name) + "<span style='color:var(--faint);'>（以" + it.how + "配對）</span></li>").join("") + "</ul></div>";
-    }
-    if(res.unmatched.length){
-      h += '<div class="batch-sec err"><h4>無法配對<span class="cnt">' + res.unmatched.length + "</span></h4><ul>" +
-        res.unmatched.map(u => "<li>" + esc(u.name) + "——" + esc(u.why) + "</li>").join("") + "</ul></div>";
-    }
-    h += '<div class="batch-note">檔名配對規則（擇一即可）：<b>編號</b>（如 001.jpg、079小明.jpg 開頭是編號也可）、<b>姓名</b>（如 曾俊凱.jpg）、或成員id。照片會自動置中裁成名錄比例。</div>';
-    const thumbs = res.matched.map(it => URL.createObjectURL(it.file));
-    setTimeout(() => thumbs.forEach(u => URL.revokeObjectURL(u)), 120000);   // 取消不套用時的保底回收
-    openBatchModal(
-      "批次照片 — 配對預覽(縮圖請逐張目視審查)",
-      h,
-      "選了 " + fileList.length + " 個檔案：可配對 " + res.matched.length + "・無法配對 " + res.unmatched.length,
-      res.matched.length ? "審查沒問題，套用 " + res.matched.length + " 張" : "沒有可套用的照片",
-      res.matched.length ? async () => {
-        thumbs.forEach(u => URL.revokeObjectURL(u));
-        toast("照片處理中…", { duration: 60000 });
-        pushUndo();
-        let done = 0, failed = 0;
-        for(const it of res.matched){
-          const url = await autoCropResize(it.file);
-          if(url){ it.m.image = url; done++; } else failed++;
-        }
-        renderAll(); validate(); saveDraft();
-        const failNote = failed ? "（" + failed + " 張讀取失敗未更新）" : "";
-        toast(workerCaps.files
-          ? "已更新 " + done + " 張照片" + failNote + "，發布時會自動存成實體圖檔"
-          : "已更新 " + done + " 張照片" + failNote + "。發布後照片會由自動同步機制轉成實體圖檔（1–2 分鐘）", { duration: 9000 });
-      } : null
-    );
-    document.querySelectorAll(".batch-thumb").forEach(img => {
-      const i = parseInt(img.dataset.thumb, 10);
-      if(thumbs[i]) img.src = thumbs[i];
-    });
-  }
-
-  /* ---------- 匯入 PPT:會員專業簡報 → 批次更新欄位與照片 ----------
-     版型解析在 pptimport.js;這裡負責比對成員(編號優先、姓名備援)、
-     差異預覽與套用。空欄位=不變更、找不到的人列為待處理,不會自動新增。 */
-  function buildPptPlan(slides){
-    const plan = { updates: [], photos: [], errors: [], unrecognized: [], slideCount: slides.length };
-    const byNumber = new Map(), byName = new Map();
-    DATA.forEach(g => g.members.forEach(m => {
-      const n = (m.number || "").trim();
-      if(n) byNumber.set(n.replace(/^0+/, "") || "0", (byNumber.get(n.replace(/^0+/, "") || "0") || []).concat([{ g, m }]));
-      const nm = (m.name || "").trim();
-      if(nm) byName.set(nm, (byName.get(nm) || []).concat([{ g, m }]));
-    }));
-    const seen = new Set();
-    const PPT_FIELDS = [
-      { key: "title",    label: "行業職稱", type: "str" },
-      { key: "services", label: "服務項目", type: "arr" },
-      { key: "targets",  label: "適合引薦對象", type: "arr" },
-      { key: "tagline",  label: "宣傳標語", type: "arr" },
-    ];
-    for(const s of slides){
-      if(!s.name && !s.number){
-        if(s.photoPath || s.unclassified.length) plan.errors.push("第 " + s.slideNo + " 頁:抓不到姓名與編號,略過");
-        continue;   // 封面、目錄等版型外頁面,靜默跳過
-      }
-      let hit = null;
-      const normNum = (s.number || "").replace(/^0+/, "") || "";
-      if(normNum && byNumber.has(normNum)){
-        const list = byNumber.get(normNum);
-        if(list.length === 1) hit = list[0];
-      }
-      if(!hit && s.name && byName.has(s.name)){
-        const list = byName.get(s.name);
-        if(list.length === 1) hit = list[0];
-      }
-      if(!hit){
-        plan.errors.push("第 " + s.slideNo + " 頁:「" + (s.name || s.number) + "」在名錄找不到(簡報無分組資訊,請先在後台建好人再匯入)");
-        continue;
-      }
-      if(seen.has(hit.m.id)){
-        plan.errors.push("第 " + s.slideNo + " 頁:與前面頁面指向同一位成員(" + hit.m.name + "),略過");
-        continue;
-      }
-      seen.add(hit.m.id);
-
-      const changes = [];
-      for(const def of PPT_FIELDS){
-        const val = def.type === "arr" ? (s[def.key] || []) : String(s[def.key] || "").trim();
-        const has = def.type === "arr" ? val.length > 0 : val !== "";
-        if(!has) continue;                                     // 簡報空欄=不變更
-        const cur = def.type === "arr" ? (hit.m[def.key] || []) : (hit.m[def.key] || "");
-        const same = def.type === "arr" ? JSON.stringify(cur) === JSON.stringify(val) : cur === val;
-        if(!same) changes.push({ key: def.key, label: def.label, type: def.type, val,
-          from: def.type === "arr" ? cur.join("|") : String(cur),
-          to: def.type === "arr" ? val.join("|") : String(val) });
-      }
-      if(changes.length) plan.updates.push({ m: hit.m, g: hit.g, changes });
-      if(s.photoBlob) plan.photos.push({ m: hit.m, g: hit.g, blob: s.photoBlob, slideNo: s.slideNo });
-      if(s.unclassified.length) plan.unrecognized.push("第 " + s.slideNo + " 頁(" + hit.m.name + "):" + s.unclassified.join("/"));
-    }
-    return plan;
-  }
-
-  function renderPptPlanHTML(plan){
-    let h = "";
-    const sec = (title, cnt, inner, cls) => cnt
-      ? '<div class="batch-sec ' + (cls || "") + '"><h4>' + esc(title) + '<span class="cnt">' + cnt + "</span></h4>" + inner + "</div>" : "";
-    h += sec("待處理(這些頁不會套用)", plan.errors.length, "<ul>" + plan.errors.map(e => "<li>" + esc(e) + "</li>").join("") + "</ul>", "err");
-    h += sec("欄位更新", plan.updates.length, "<ul>" + plan.updates.map(u =>
-      "<li><b>" + esc(u.m.name) + "</b>：" + u.changes.map(c => esc(c.label) + "「" + esc(c.from || "（空）") + "」→「" + esc(c.to) + "」").join("；") + "</li>").join("") + "</ul>");
-    h += sec("照片更新(自動置中裁切)", plan.photos.length, "<ul>" + plan.photos.map(p =>
-      "<li><b>" + esc(p.m.name) + "</b>（第 " + p.slideNo + " 頁的照片）</li>").join("") + "</ul>");
-    h += sec("未辨識的文字(不影響套用,供人工確認)", plan.unrecognized.length,
-      "<ul>" + plan.unrecognized.map(t => "<li>" + esc(t) + "</li>").join("") + "</ul>", "err");
-    h += '<div class="batch-note">規則：以<b>編號</b>比對(姓名備援);簡報空欄位=不變更;名錄查無此人不會自動新增。套用後可用「上一步」復原,最後記得「發布到網站」。</div>';
-    return h || "<p>沒有偵測到可更新的內容。</p>";
-  }
-
-  async function handlePptFile(file){
-    if(typeof PPTImport === "undefined" || typeof JSZip === "undefined"){ toast("PPT 解析模組未載入", { warn: true }); return; }
-    toast("解析簡報中…", { duration: 30000 });
-    let parsed;
-    try{ parsed = await PPTImport.parse(file); }
-    catch(e){ toast("這個檔案無法解析(請確認是 .pptx)", { warn: true }); return; }
-    hideToast();
-    if(!parsed.count){ toast("簡報裡沒有投影片", { warn: true }); return; }
-    const plan = buildPptPlan(parsed.slides);
-    const total = plan.updates.length + plan.photos.length;
-    openBatchModal(
-      "匯入 PPT — 變更預覽",
-      renderPptPlanHTML(plan),
-      "共 " + plan.slideCount + " 頁：欄位更新 " + plan.updates.length + " 位・照片更新 " + plan.photos.length + " 位" + (plan.errors.length ? "・待處理 " + plan.errors.length : ""),
-      total ? "套用 " + total + " 項變更" : "沒有可套用的變更",
-      total ? async () => {
-        toast("套用中(含照片裁切)…", { duration: 60000 });
-        pushUndo();
-        plan.updates.forEach(u => u.changes.forEach(c => { u.m[c.key] = c.val; }));
-        let photoOk = 0, photoFail = 0;
-        for(const p of plan.photos){
-          const url = await autoCropResize(p.blob);
-          if(url){ p.m.image = url; photoOk++; } else photoFail++;
-        }
-        renderAll(); validate(); saveDraft();
-        toast("已套用:欄位 " + plan.updates.length + " 位、照片 " + photoOk + " 位" +
-          (photoFail ? "(" + photoFail + " 張照片讀取失敗)" : "") + ";確認沒問題後記得按「發布到網站」", { duration: 8000 });
-      } : null
-    );
   }
 
   /* ---------- 缺資料清單:找出資料不齊的夥伴,產生可直接貼 LINE 的催收訊息 ---------- */
@@ -1647,12 +1458,6 @@
     const f = byId("csv-file").files && byId("csv-file").files[0];
     byId("csv-file").value = "";
     if(f) handleCsvFile(f);
-  };
-  byId("btn-photos").onclick = () => byId("photos-file").click();
-  byId("photos-file").onchange = () => {
-    const fs = Array.from(byId("photos-file").files || []);
-    byId("photos-file").value = "";
-    if(fs.length) handlePhotoFiles(fs);
   };
   byId("btn-pull-form").onclick = pullFormResponses;
   byId("btn-missing").onclick = missingReport;

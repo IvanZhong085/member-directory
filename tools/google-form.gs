@@ -18,8 +18,7 @@
  * - 執行 refreshImportTab:把最新回應整理成「匯入用」分頁(多行欄位自動轉 | 分隔、
  *   同一人多次填答取最新)→ 檔案 → 下載 → CSV → 名錄後台「匯入 CSV」→ 發布。
  * - 執行 renameUploads:把夥伴上傳的照片自動改名成「編號_姓名_形象照.jpg」格式,
- *   下載後丟後台「批次照片」(檔名開頭是編號,會自動配對);名片與商品照用後台
- *   各成員卡的上傳鈕放入(審查同時進行)。
+ *   下載後對照檔名,到後台各成員卡用「更換照片」「更換名片」「加商品照」放入(順便審查)。
  */
 
 var FIELDS = {
@@ -148,7 +147,7 @@ function refreshImportTab() {
   Logger.log("✅「匯入用」分頁已更新:" + rows.length + " 位(檔案 → 下載 → CSV,丟名錄後台「匯入 CSV」)");
 }
 
-/* 把上傳的照片改名成「編號_姓名_形象照.jpg」等格式,下載後可直接餵後台「批次照片」 */
+/* 把上傳的照片改名成「編號_姓名_形象照.jpg」等格式,下載後對照檔名放進各成員卡 */
 function renameUploads() {
   var ss = SpreadsheetApp.openById(PropertiesService.getScriptProperties().getProperty("SS_ID"));
   var src = getResponseSheet_(ss);
@@ -184,7 +183,7 @@ function renameUploads() {
     });
   }
   Logger.log("✅ 改名完成:" + renamed + " 個檔案" + (failed ? "(" + failed + " 個失敗,可能無權限)" : ""));
-  Logger.log("到 Drive 的表單上傳資料夾整批下載,「形象照」丟後台批次照片(檔名開頭是編號會自動配對);名片與商品照用各成員卡上傳。");
+  Logger.log("到 Drive 的表單上傳資料夾整批下載,對照檔名到後台各成員卡放入(更換照片/更換名片/加商品照)。");
 }
 
 /* 建立「來賓參訪報名」表單:回應進獨立試算表,當作來賓 CRM(自行加「追蹤狀態」欄) */
