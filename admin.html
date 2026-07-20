@@ -193,7 +193,7 @@
   }
   @media (min-width:821px){ .drawer-backdrop{display:none !important;} }
 
-  /* CSV／批次照片預覽視窗 */
+  /* CSV／PPT 匯入預覽視窗 */
   .batch-body{max-height:52vh; overflow:auto; display:flex; flex-direction:column; gap:12px; font-size:13px;}
   .batch-sec{border:1px solid var(--border); border-radius:10px; padding:12px 14px;}
   .batch-sec h4{margin:0 0 8px; font-size:13px; font-weight:800; display:flex; align-items:center; gap:8px;}
@@ -245,9 +245,6 @@
   .prod-item img{width:64px; height:64px; object-fit:cover; border-radius:8px; border:1px solid var(--border); display:block; background:var(--bg-soft);}
   .prod-del{position:absolute; top:-7px; right:-7px; width:20px; height:20px; border-radius:50%; border:none; background:var(--ink); color:#fff; font-size:13px; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center;}
   .prod-del:hover{background:var(--red);}
-  .batch-photo-list{list-style:none; padding-left:0 !important;}
-  .batch-photo-list li{display:flex; align-items:center; gap:10px; margin:6px 0;}
-  .batch-thumb{width:52px; height:60px; object-fit:cover; border-radius:8px; border:1px solid var(--border); background:var(--bg-soft); flex:none;}
 
   /* 裁剪視窗 */
   .crop-overlay .crop-box{width:min(360px,100%);}
@@ -296,8 +293,6 @@
       <button class="btn" id="btn-csv-import" type="button" title="上傳改好的 CSV，批次更新組別與欄位（會先顯示差異預覽）">匯入 CSV</button>
       <input type="file" id="csv-file" accept=".csv,text/csv" hidden>
       <button class="btn" id="btn-pull-form" type="button" title="直接拉表單「匯入用」分頁的最新回應進差異預覽（需在設定填入發布的 CSV 網址）">抓表單回應</button>
-      <button class="btn" id="btn-photos" type="button" title="一次選多張照片，檔名自動配對編號或姓名">批次照片</button>
-      <input type="file" id="photos-file" accept="image/*" multiple hidden>
       <button class="btn" id="btn-missing" type="button" title="列出資料不齊的夥伴，一鍵產生催收訊息">缺資料</button>
       <button class="btn" id="btn-ppt" type="button" title="上傳會員專業簡報(.pptx)，自動抽出欄位與照片批次更新">匯入 PPT</button>
       <input type="file" id="ppt-file" accept=".pptx" hidden>
@@ -425,7 +420,7 @@
   </div>
 </div>
 
-<!-- CSV 匯入／批次照片：差異預覽視窗（套用前的最後防線） -->
+<!-- CSV／PPT 匯入：差異預覽視窗（套用前的最後防線） -->
 <div class="modal-overlay" id="batch-modal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="batch-title" style="width:min(680px,100%);">
     <h3 id="batch-title">變更預覽</h3>
