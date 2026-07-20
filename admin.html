@@ -266,6 +266,7 @@
       <button class="btn" id="btn-csv-export" type="button" title="下載全會名冊 CSV（Excel 可開，含分組與人數）">匯出 CSV</button>
       <button class="btn" id="btn-csv-import" type="button" title="上傳改好的 CSV，批次更新組別與欄位（會先顯示差異預覽）">匯入 CSV</button>
       <input type="file" id="csv-file" accept=".csv,text/csv" hidden>
+      <button class="btn" id="btn-pull-form" type="button" title="直接拉表單「匯入用」分頁的最新回應進差異預覽（需在設定填入發布的 CSV 網址）">抓表單回應</button>
       <button class="btn" id="btn-photos" type="button" title="一次選多張照片，檔名自動配對編號或姓名">批次照片</button>
       <input type="file" id="photos-file" accept="image/*" multiple hidden>
       <button class="btn" id="btn-missing" type="button" title="列出資料不齊的夥伴，一鍵產生催收訊息">缺資料</button>
@@ -321,6 +322,7 @@
     <h3 id="settings-title">連線設定</h3>
     <p class="modal-lead">這裡填的是「發布服務的網址」，不是密碼、也不是權杖——這台電腦的瀏覽器完全不會保管任何機密。真正的 GitHub 權杖只放在你自己架設的 Cloudflare Worker 裡，瀏覽器只會送密碼過去驗證。</p>
     <div class="field"><label>後端服務網址（Cloudflare Worker）</label><input id="s-worker-url" placeholder="https://xxxx.workers.dev" autocomplete="off"></div>
+    <div class="field"><label>表單回應 CSV 網址<span class="hint">（選填：回應試算表 → 檔案 → 共用 → 發布到網路 → 選「匯入用」分頁＋CSV，把網址貼here；設定後工具列「抓表單回應」一鍵拉最新資料）</span></label><input id="s-formcsv-url" placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?gid=…&single=true&output=csv" autocomplete="off"></div>
     <p class="modal-hint">還沒建立 Worker？見 <code>member-site/worker/README.md</code> 的教學（Cloudflare 網站上點一點，不需要安裝任何軟體）。網址設定好、儲存後，回到登入畫面輸入管理密碼即可。</p>
     <div class="modal-actions">
       <button class="btn btn-sm" id="s-test" type="button">測試連線</button>
