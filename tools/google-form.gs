@@ -187,6 +187,28 @@ function renameUploads() {
   Logger.log("到 Drive 的表單上傳資料夾整批下載,「形象照」丟後台批次照片(檔名開頭是編號會自動配對);名片與商品照用各成員卡上傳。");
 }
 
+/* 建立「來賓參訪報名」表單:回應進獨立試算表,當作來賓 CRM(自行加「追蹤狀態」欄) */
+function createVisitorForm() {
+  var form = FormApp.create("雲榮鑽石分會・來賓參訪報名");
+  form.setDescription(
+    "感謝你的參訪意願!填寫約 1 分鐘,送出後分會夥伴會與你確認場次與細節。\n" +
+    "建議提早 15 分鐘到場交流,著商務服裝、攜帶名片。"
+  );
+  form.addTextItem().setTitle("姓名").setRequired(true);
+  form.addTextItem().setTitle("公司/品牌").setRequired(true);
+  form.addTextItem().setTitle("專業別(你的行業)").setRequired(true).setHelpText("例:室內設計、稅務會計、進口紅酒");
+  form.addTextItem().setTitle("手機").setRequired(true).setHelpText("僅供聯繫確認場次,不會公開");
+  form.addTextItem().setTitle("邀請你的分會夥伴").setHelpText("填夥伴姓名;沒有邀請人也歡迎,留白即可");
+  form.addTextItem().setTitle("想參訪的日期").setHelpText("例:下週四;不確定可留白,由我們與你確認");
+  form.addParagraphTextItem().setTitle("想認識哪類產業或夥伴?").setHelpText("選填,幫你先安排同桌交流");
+
+  var ss = SpreadsheetApp.create("雲榮鑽石分會・來賓報名(CRM)");
+  form.setDestination(FormApp.DestinationType.SPREADSHEET, ss.getId());
+  Logger.log("✅ 來賓報名表單建立完成");
+  Logger.log("給來賓填的網址(貼進 visitor.html 的 VISITOR.formUrl):" + form.getPublishedUrl());
+  Logger.log("報名回應試算表(來賓 CRM;建議手動加「追蹤狀態/到訪日/結果」三欄):" + ss.getUrl());
+}
+
 /* 建立「名冊鏡像」Google 試算表:A1 放 IMPORTDATA,名錄一發布就自動跟上(約每小時重抓) */
 function createRosterSheet() {
   var ss = SpreadsheetApp.create("會員名錄・名冊鏡像");

@@ -860,21 +860,60 @@
         const big5 = await readAs("big5");
         if(big5 && (big5.match(/�/g) || []).length === 0) text = big5;
       }
-      const rows = parseCSV(text);
-      if(rows.length < 2){ toast("CSV 裡沒有資料列（第一列需為欄位名稱）", { warn:true }); return; }
-      const plan = buildImportPlan(rows);
-      const total = plan.updates.length + plan.moves.length + plan.adds.length + plan.dels.length;
-      openBatchModal(
-        "匯入 CSV — 變更預覽",
-        renderPlanHTML(plan),
-        "共 " + plan.rowCount + " 列：更新 " + plan.updates.length + "・移組 " + plan.moves.length + "・新增 " + plan.adds.length + "・刪除 " + plan.dels.length + (plan.errors.length ? "・錯誤 " + plan.errors.length : ""),
-        total ? "套用 " + total + " 項變更" : "沒有可套用的變更",
-        total ? () => {
-          applyImportPlan(plan);
-          toast("已套用 " + total + " 項變更（可用上一步復原）；確認沒問題後記得按「發布到網站」", { duration: 7000 });
-        } : null
-      );
+      processCsvText(text, "匯入 CSV");
     })();
+  }
+
+  /* 一段 CSV 文字 → 差異預覽 → 套用（檔案上傳與「抓表單回應」共用同一條路） */
+  function processCsvText(text, sourceLabel){
+    const rows = parseCSV(text);
+    if(rows.length < 2){ toast((sourceLabel || "CSV") + " 裡沒有資料列（第一列需為欄位名稱）", { warn:true }); return; }
+    const plan = buildImportPlan(rows);
+    const total = plan.updates.length + plan.moves.length + plan.adds.length + plan.dels.length;
+    openBatchModal(
+      (sourceLabel || "匯入 CSV") + " — 變更預覽",
+      renderPlanHTML(plan),
+      "共 " + plan.rowCount + " 列：更新 " + plan.updates.length + "・移組 " + plan.moves.length + "・新增 " + plan.adds.length + "・刪除 " + plan.dels.length + (plan.errors.length ? "・錯誤 " + plan.errors.length : ""),
+      total ? "套用 " + total + " 項變更" : "沒有可套用的變更",
+      total ? () => {
+        applyImportPlan(plan);
+        toast("已套用 " + total + " 項變更（可用上一步復原）；確認沒問題後記得按「發布到網站」", { duration: 7000 });
+      } : null
+    );
+  }
+
+  /* ---------- 抓表單回應：直接拉「匯入用」分頁發布的 CSV，免下載免上傳 ---------- */
+  const FORMCSV_KEY = "member-directory-formcsv-url-v1";
+  let memFormCsvUrl = "";
+  function loadFormCsvUrl(){
+    let saved = ""; try{ saved = localStorage.getItem(FORMCSV_KEY) || ""; }catch(e){}
+    return (saved || memFormCsvUrl || "").trim();
+  }
+  function saveFormCsvUrl(url){
+    memFormCsvUrl = url;
+    try{ localStorage.setItem(FORMCSV_KEY, url); }catch(e){}
+  }
+  async function pullFormResponses(){
+    const url = loadFormCsvUrl();
+    if(!url){
+      toast("先到「設定」貼上表單回應的 CSV 發布網址（教學見該欄位說明）", { warn:true, duration: 7000 });
+      openSettings();
+      return;
+    }
+    const btn = byId("btn-pull-form");
+    const orig = btn.textContent;
+    btn.disabled = true; btn.textContent = "拉取中…";
+    try{
+      const res = await fetch(url, { cache: "no-store" });
+      if(!res.ok) throw new Error("HTTP " + res.status);
+      const text = await res.text();
+      if(/<html/i.test(text.slice(0, 300))) throw new Error("not_csv");   // 拿到網頁＝網址不是「發布的 CSV」
+      processCsvText(text, "表單回應");
+    }catch(e){
+      toast("拉不到表單資料：請確認「匯入用」分頁已「發布到網路（CSV）」且網址正確", { warn: true, duration: 8000 });
+    }finally{
+      btn.disabled = false; btn.textContent = orig;
+    }
   }
 
   /* ---------- 批次照片：檔名配對 成員id → 編號 → 姓名 ---------- */
@@ -1295,6 +1334,7 @@
   /* ---------- settings（只有 Worker 網址，不是機密） ---------- */
   function openSettings(){
     byId("s-worker-url").value = loadWorkerUrl();
+    byId("s-formcsv-url").value = loadFormCsvUrl();
     byId("settings-modal").hidden = false;
     byId("s-worker-url").focus();
   }
@@ -1302,6 +1342,9 @@
   function saveSettings(){
     const url = byId("s-worker-url").value.trim().replace(/\/+$/, "");
     if(url && !/^https:\/\//.test(url)){ toast("網址需以 https:// 開頭", {warn:true}); return; }
+    const formCsv = byId("s-formcsv-url").value.trim();
+    if(formCsv && !/^https:\/\//.test(formCsv)){ toast("表單 CSV 網址需以 https:// 開頭", {warn:true}); return; }
+    saveFormCsvUrl(formCsv);
     const changed = url !== loadWorkerUrl();
     saveWorkerUrl(url);
     refreshCaps();   // 換了服務就重新確認它支不支援附件
@@ -1560,6 +1603,7 @@
     byId("photos-file").value = "";
     if(fs.length) handlePhotoFiles(fs);
   };
+  byId("btn-pull-form").onclick = pullFormResponses;
   byId("btn-missing").onclick = missingReport;
   byId("btn-ppt").onclick = () => byId("ppt-file").click();
   byId("ppt-file").onchange = () => {
