@@ -127,13 +127,13 @@
     <div class="meet">
       <div class="meet-card">
         <div class="k">時間 TIME</div>
-        <div class="v" id="meet-time">每週例會(時間待網管確認後更新)</div>
-        <div class="hint">建議提早 15 分鐘到,交流名片時間最有價值。</div>
+        <div class="v" id="meet-time">每週四 06:30–09:00</div>
+        <div class="hint">建議提早 10–15 分鐘進線交流,黃金人脈時間別錯過。</div>
       </div>
       <div class="meet-card">
         <div class="k">地點 PLACE</div>
-        <div class="v" id="meet-place">(例會地點待網管確認後更新)</div>
-        <div class="hint">著商務服裝、帶 30 張名片,自我介紹 30 秒。</div>
+        <div class="v" id="meet-place">Zoom 線上會議</div>
+        <div class="hint">報名後提供會議連結;著商務服裝、開鏡頭,準備 30 秒自我介紹。</div>
       </div>
     </div>
   </section>
@@ -141,7 +141,7 @@
   <section class="sec">
     <h2 class="sec-title">為什麼值得來一次</h2>
     <div class="why">
-      <div class="why-card"><b>一次見到全產業</b><p>93 位各行業的老闆與決策者同場,一個早上抵過三個月陌生開發。</p></div>
+      <div class="why-card"><b>一次見到全產業</b><p>93 位各行業的老闆與決策者同場,一個早上抵過三個月陌生開發——線上參與,全台都能加入。</p></div>
       <div class="why-card"><b>引薦文化,不推銷</b><p>夥伴之間互相把信任的客戶介紹給彼此——你看到的是一套運轉中的引薦系統。</p></div>
       <div class="why-card"><b>你的產業還有位子嗎</b><p>每個專業別一席,先卡位先贏。下方紅字席次都在找人。</p></div>
     </div>
@@ -175,8 +175,8 @@
   /* ── 頁面設定(網管維護):報名表單網址與例會資訊 ── */
   var VISITOR = {
     formUrl: "",                                  // 來賓報名 Google 表單網址(用 google-form.gs 的 createVisitorForm 建立後填入)
-    meetTime: "",                                 // 例:每週四 06:45–09:00
-    meetPlace: "",                                // 例:某某飯店 3F 宴會廳(地址)
+    meetTime: "每週四 06:30–09:00",
+    meetPlace: "Zoom 線上會議",
   };
 
   function esc(s){ return (s||"").replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
