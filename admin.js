@@ -942,7 +942,7 @@
   }
 
   /* ---------- 缺資料清單:找出資料不齊的夥伴,產生可直接貼 LINE 的催收訊息 ---------- */
-  const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLScgUOftNht1QcyNCq2YGBvnmiYVpPVLqqoRB9Rpfnw-JA7vgQ/viewform";   // 夥伴補資料表單(催收訊息自動附上)
+  const FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSfpANy9jsQRtSwOV97fXvqV5LfXWoOyMRrWyzlCdJhHwhmWlQ/viewform";   // 夥伴補資料表單(催收訊息自動附上)
   const SHEET_URL = "";   // Google 名冊試算表網址(建立後填在這裡,工具列會出現「名冊試算表」捷徑)
   function copyPlain(text){
     return navigator.clipboard.writeText(text).then(() => true).catch(() => {

@@ -6,19 +6,18 @@
  * 2. 執行 setupAll(第一次會要求授權,一路允許)——會一次建好:
  *    表單、回應試算表、以及「每筆回應自動更新『匯入用』分頁」的綁定。
  * 3. 看「執行紀錄」:會印出 表單網址(給夥伴填)、編輯網址、回應試算表網址。
- * 4. ⚠ 手動補 3 題「檔案上傳」(Google 不開放程式建立這種題型,要在表單編輯頁加,約 2 分鐘):
- *    - 個人形象照(選填):新增題目 → 檔案上傳 → 只允許「圖片」→ 檔案數量上限 1
- *    - 名片圖檔(選填):同上,上限 1
+ * 4. ⚠ 手動補 2 題「檔案上傳」(Google 不開放程式建立這種題型,要在表單編輯頁加,約 2 分鐘):
+ *    - 名片圖檔(選填):新增題目 → 檔案上傳 → 只允許「圖片」→ 檔案數量上限 2(正反面)
  *    - 商品/服務照片(選填):同上,上限 5
- *    (表單裡已放好「照片上傳區」標題,把三題加在它下面即可)
+ *    (表單裡已放好「照片上傳區」標題,把兩題加在它下面即可;形象照不開表單題,另外收)
  * 5. 把表單網址填回名錄後台 admin.js 最上方的 FORM_URL(或告訴網管助理 AI,一分鐘改好),
  *    之後「缺資料」按鈕產生的催收訊息就會自動附表單連結。
  *
  * 收到回應之後:
  * - 執行 refreshImportTab:把最新回應整理成「匯入用」分頁(多行欄位自動轉 | 分隔、
  *   同一人多次填答取最新)→ 檔案 → 下載 → CSV → 名錄後台「匯入 CSV」→ 發布。
- * - 執行 renameUploads:把夥伴上傳的照片自動改名成「編號_姓名_形象照.jpg」格式,
- *   下載後對照檔名,到後台各成員卡用「更換照片」「更換名片」「加商品照」放入(順便審查)。
+ * - 執行 renameUploads:把夥伴上傳的照片自動改名成「姓名_名片1.jpg」等格式,
+ *   下載後對照檔名,到後台各成員卡用「更換名片」「加商品照」放入(順便審查)。
  */
 
 var FIELDS = {
@@ -27,12 +26,10 @@ var FIELDS = {
     { title: "所屬公司", help: "公司或商號全名(會顯示在名錄)", type: "text" },
     { title: "主要營業項目", help: "一句話說明主要業務(會顯示在名錄)", type: "text" },
   ],
+  /* 2026/7 決定精簡:編號/專業別/服務項目/宣傳標語 不開放表單填寫(比對以姓名為準,
+     這幾欄改由網管透過 CSV/PPT 維護);表單只留下面兩個選填。 */
   optional: [
-    { title: "編號", help: "名錄上的編號(如 001);不確定可留白", type: "text" },
-    { title: "專業別(行業職稱)", help: "留白=沿用名錄現有資料", type: "text" },
-    { title: "服務項目", help: "一行一項;留白=沿用名錄現有資料", type: "para" },
     { title: "適合引薦對象", help: "一行一項;留白=沿用名錄現有資料", type: "para" },
-    { title: "宣傳標語", help: "1–2 句;留白=沿用名錄現有資料", type: "para" },
     { title: "公司網站", help: "請含 https:// 開頭", type: "url" },
   ],
   consent: "我同意以上資料與上傳的照片,公開顯示於分會會員名錄網站",
@@ -61,6 +58,15 @@ function onFormSubmitAuto(e) {
   try { refreshImportTab(); } catch (err) { /* 下次提交會再試,亦可手動執行 refreshImportTab */ }
 }
 
+/* 表單已經建好、只想把「回應→匯入用」自動更新重綁到最新表單的試算表時,執行這個。
+   (⚠ 不要用 setupAll 重綁——重跑會多建一份全新表單。) */
+function reinstallAutoRefresh() {
+  installAutoRefresh_();
+  var ss = SpreadsheetApp.openById(PropertiesService.getScriptProperties().getProperty("SS_ID"));
+  Logger.log("✅ 觸發器已重綁到:" + ss.getName() + " " + ss.getUrl());
+  Logger.log("之後每筆回應會自動更新這份試算表的「匯入用」分頁。");
+}
+
 function createMemberForm() {
   var form = FormApp.create("會員名錄・資料補齊表單");
   form.setDescription(
@@ -78,7 +84,7 @@ function createMemberForm() {
 
   form.addSectionHeaderItem()
     .setTitle("照片上傳區(選填)")
-    .setHelpText("網管會在這個標題下面手動加入三題檔案上傳:個人形象照(1 張)、名片圖檔(1 張)、商品/服務照片(至多 5 張)。若你看得到上傳題,直接使用即可。");
+    .setHelpText("網管會在這個標題下面手動加入兩題檔案上傳:名片圖檔(至多 2 張,正反面)、商品/服務照片(至多 5 張)。若你看得到上傳題,直接使用即可。");
 
   form.addCheckboxItem()
     .setTitle("同意聲明")
@@ -147,7 +153,8 @@ function refreshImportTab() {
   Logger.log("✅「匯入用」分頁已更新:" + rows.length + " 位(檔案 → 下載 → CSV,丟名錄後台「匯入 CSV」)");
 }
 
-/* 把上傳的照片改名成「編號_姓名_形象照.jpg」等格式,下載後對照檔名放進各成員卡 */
+/* 把上傳的照片改名成「姓名_名片1.jpg」等格式(有填編號會自動加編號前綴),
+   下載後對照檔名放進各成員卡 */
 function renameUploads() {
   var ss = SpreadsheetApp.openById(PropertiesService.getScriptProperties().getProperty("SS_ID"));
   var src = getResponseSheet_(ss);
@@ -175,7 +182,7 @@ function renameUploads() {
         try {
           var file = DriveApp.getFileById(m[1]);
           var ext = (file.getName().match(/\.[A-Za-z0-9]+$/) || [".jpg"])[0];
-          var suffix = c.tag === "商品" ? "商品" + (idx + 1) : c.tag;
+          var suffix = (c.tag === "商品" || urls.length > 1) ? c.tag + (idx + 1) : c.tag;
           file.setName(prefix + "_" + suffix + ext);
           renamed++;
         } catch (e) { failed++; }
@@ -183,7 +190,7 @@ function renameUploads() {
     });
   }
   Logger.log("✅ 改名完成:" + renamed + " 個檔案" + (failed ? "(" + failed + " 個失敗,可能無權限)" : ""));
-  Logger.log("到 Drive 的表單上傳資料夾整批下載,對照檔名到後台各成員卡放入(更換照片/更換名片/加商品照)。");
+  Logger.log("到 Drive 的表單上傳資料夾整批下載,對照檔名到後台各成員卡放入(更換名片/加商品照)。");
 }
 
 /* 建立「來賓參訪報名」表單:回應進獨立試算表,當作來賓 CRM(自行加「追蹤狀態」欄) */
