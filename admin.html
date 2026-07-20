@@ -363,7 +363,7 @@
     <h3 id="settings-title">連線設定</h3>
     <p class="modal-lead">這裡填的是「發布服務的網址」，不是密碼、也不是權杖——這台電腦的瀏覽器完全不會保管任何機密。真正的 GitHub 權杖只放在你自己架設的 Cloudflare Worker 裡，瀏覽器只會送密碼過去驗證。</p>
     <div class="field"><label>後端服務網址（Cloudflare Worker）</label><input id="s-worker-url" placeholder="https://xxxx.workers.dev" autocomplete="off"></div>
-    <div class="field"><label>表單回應 CSV 網址<span class="hint">（選填：回應試算表 → 檔案 → 共用 → 發布到網路 → 選「匯入用」分頁＋CSV，把網址貼here；設定後工具列「抓表單回應」一鍵拉最新資料）</span></label><input id="s-formcsv-url" placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?gid=…&single=true&output=csv" autocomplete="off"></div>
+    <div class="field"><label>表單回應 CSV 網址<span class="hint">（選填：回應試算表 → 檔案 → 共用 → 發布到網路 → 選「匯入用」分頁＋CSV，把網址貼在這裡；設定後工具列「抓表單回應」一鍵拉最新資料）</span></label><input id="s-formcsv-url" placeholder="https://docs.google.com/spreadsheets/d/e/…/pub?gid=…&single=true&output=csv" autocomplete="off"></div>
     <p class="modal-hint">還沒建立 Worker？見 <code>member-site/worker/README.md</code> 的教學（Cloudflare 網站上點一點，不需要安裝任何軟體）。網址設定好、儲存後，回到登入畫面輸入管理密碼即可。</p>
     <div class="modal-actions">
       <button class="btn btn-sm" id="s-test" type="button">測試連線</button>
