@@ -1,3 +1,29 @@
+/* 會員名錄・後台編輯器
+   ══════════════════════════════════════════════════════════════
+   目錄(節區依出現順序,搜尋「---------- 節區名」可跳轉):
+     state                    共用狀態與 DOM 參照
+     undo / redo              上一步/重做(最多 10 步)
+     draft persistence        草稿自動存 localStorage
+     toast                    提示訊息(可帶動作按鈕)
+     helpers / validation     小工具與資料檢查
+     image crop + resize      成員照裁切(4:4.6)與名片/商品照縮圖
+     render: sidebar / main   畫面渲染
+     mutations                增刪改(結構性動作先 pushUndo)
+     export                   data.js 備份下載
+     CSV 匯出/匯入            欄位定義共用 csv-schema.js;空格=不變更
+     抓表單回應               拉 Google 表單「匯入用」CSV 進差異預覽
+     照片自動置中裁切         PPT 匯入照片用
+     匯入 PPT                 會員專業簡報 → 批次更新(pptimport.js 解析)
+     缺資料清單               催收訊息產生器(附表單連結)
+     批次預覽視窗             CSV/PPT 共用的差異預覽 modal
+     publish relay            經 Cloudflare Worker 發布(密碼與 token 都在 Worker)
+     lock screen / settings   登入鎖與設定(Worker 網址、表單 CSV 網址)
+     Worker 能力偵測+發布附件 照片實體檔;分享頁由 GitHub Action 重建
+     leave-to-site guard      離開前提醒未發布變更
+     small utils              esc/clone/byId 等
+     分會總覽儀表板           即時統計+工具捷徑
+     boot                     事件接線與初始化
+   ══════════════════════════════════════════════════════════════ */
 (function(){
   "use strict";
 
@@ -592,7 +618,7 @@
      匯入原則：「空格＝不變更」「一個 - ＝清空」「刪除要在刪除欄標記」，
      且套用前一定先看差異預覽——一張錯表不會毀掉名錄。
      ================================================================== */
-  const CSV_HEADERS = ["編號","姓名","行業職稱","分組代號","分組名稱","服務項目","適合引薦對象","宣傳標語","所屬公司","主要營業項目","公司網站","照片","名片","商品照片數","資料需確認","刪除"];
+  const CSV_HEADERS = CSV_SCHEMA.HEADERS;   // 欄位定義單一來源:csv-schema.js(與 roster.csv 鏡像共用)
   const FIELD_DEFS = [
     { key:"number",         label:"編號",          type:"str" },
     { key:"name",           label:"姓名",          type:"str" },
@@ -608,10 +634,7 @@
   const YES_VALUES = ["是","y","yes","v","true"];
   const DEL_VALUES = ["是","y","yes","v","刪除","delete"];
 
-  function csvEscape(v){
-    v = String(v == null ? "" : v);
-    return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
-  }
+  const csvEscape = CSV_SCHEMA.escape;
   /* 支援引號、跳脫引號、CRLF、BOM 的標準 CSV 解析 */
   function parseCSV(text){
     text = String(text).replace(/^\uFEFF/, "");
@@ -634,17 +657,7 @@
 
   function csvExport(){
     const rows = [CSV_HEADERS.slice()];
-    DATA.forEach(g => g.members.forEach(m => {
-      rows.push([
-        m.number || "", m.name || "", m.title || "", g.code || "", g.name || "",
-        (m.services || []).join("|"), (m.targets || []).join("|"), (m.tagline || []).join("|"),
-        m.company || "", m.business_items || "", m.website || "",
-        /^data:/.test(m.image || "") ? "(內嵌照片)" : (m.image || ""),
-        /^data:/.test(m.card || "") ? "(內嵌名片)" : (m.card || ""),
-        String((m.products || []).length),
-        m.dataIssue ? "是" : "", "",
-      ]);
-    }));
+    DATA.forEach(g => g.members.forEach(m => rows.push(CSV_SCHEMA.memberRow(g, m))));
     const csv = "\uFEFF" + rows.map(r => r.map(csvEscape).join(",")).join("\r\n");   // BOM：讓 Excel 直接開就是正確中文
     const blob = new Blob([csv], { type:"text/csv;charset=utf-8" });
     const a = document.createElement("a");
@@ -1288,69 +1301,24 @@
     else { toast("✘ 連不到這個網址，請確認 Worker 是否已部署、網址是否正確", {warn:true, duration:6000}); }
   }
 
-  /* ---------- Worker 能力偵測 + 發布附件（照片實體檔、分享預覽頁） ----------
-     Worker 升級後 /ping 會回 caps.files=true：發布時把內嵌照片轉成 images/ 實體檔、
-     並為異動過的成員重生 m/ 分享預覽頁，一併交給 Worker 寫入。
-     Worker 未升級時完全維持舊行為（照片內嵌在 data.js 裡）。 */
-  const PUB_SITE_BASE = "https://ivanzhong085.github.io/member-directory/";
+  /* ---------- Worker 能力偵測 + 發布附件（照片實體檔） ----------
+     Worker 升級後 /ping 會回 caps.files=true：發布時把內嵌照片轉成 images/ 實體檔
+     一併交給 Worker 寫入；未升級時完全維持舊行為（照片內嵌在 data.js 裡）。
+     m/ 分享預覽頁一律由 GitHub Action 於發布後 1–2 分鐘重建，
+     唯一產生器是 tools/build-member-pages.mjs（後台不再重生，避免兩份範本要同步）。 */
   let workerCaps = {};
   async function refreshCaps(){
     const res = await workerFetch("/ping");
     workerCaps = (res && res.ok && res.caps) || {};
   }
 
-  function b64EncodeUtf8(str){
-    const bytes = new TextEncoder().encode(str);
-    let bin = "";
-    for(let i = 0; i < bytes.length; i += 0x8000){
-      bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
-    }
-    return btoa(bin);
-  }
   function fileSafeId(id){ return String(id).replace(/[^A-Za-z0-9_-]/g, ""); }
-
-  /* 成員分享預覽頁（og 標籤＋跳轉）。內容需與 tools/build-member-pages.mjs 一致，兩邊要同步改。 */
-  function memberStubHTML(m, g){
-    const descParts = [];
-    if((m.services || []).length) descParts.push("服務項目：" + m.services.join("、"));
-    if((m.targets || []).length) descParts.push("適合引薦：" + m.targets.join("、"));
-    const desc = (descParts.join("；") || "會員名錄成員介紹").slice(0, 150);
-    const title = (m.name || "") + "｜" + (m.title || "");
-    const img = (m.image && !/^data:/.test(m.image)) ? PUB_SITE_BASE + "images/" + encodeURIComponent(m.image) : PUB_SITE_BASE + "og-image.png";
-    const target = "../index.html#/member/" + encodeURIComponent(m.id);
-    const pageUrl = PUB_SITE_BASE + "m/" + encodeURIComponent(m.id) + ".html";
-    return '<!doctype html>\n<html lang="zh-Hant">\n<head>\n<meta charset="UTF-8">\n' +
-      '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n' +
-      "<title>" + esc(title) + "｜會員名錄</title>\n" +
-      '<meta name="description" content="' + esc(desc) + '">\n' +
-      '<meta name="robots" content="noindex">\n' +
-      '<meta property="og:type" content="profile">\n' +
-      '<meta property="og:site_name" content="會員名錄">\n' +
-      '<meta property="og:title" content="' + esc(title) + '">\n' +
-      '<meta property="og:description" content="' + esc(desc) + '">\n' +
-      '<meta property="og:url" content="' + esc(pageUrl) + '">\n' +
-      '<meta property="og:image" content="' + esc(img) + '">\n' +
-      '<meta name="twitter:card" content="summary">\n' +
-      '<link rel="canonical" href="' + esc(PUB_SITE_BASE) + "#/member/" + encodeURIComponent(m.id) + '">\n' +
-      '<meta http-equiv="refresh" content="0;url=' + esc(target) + '">\n' +
-      '<link rel="icon" type="image/svg+xml" href="../favicon.svg">\n' +
-      "</head>\n<body>\n" +
-      "<script>location.replace(" + JSON.stringify(target) + ");<\/script>\n" +
-      '<noscript><p style="font-family:sans-serif;padding:24px;">正在前往 <a href="' + esc(target) + '">' + esc(m.name || "") + " 的介紹頁</a>…</p></noscript>\n" +
-      "</body>\n</html>\n";
-  }
-
-  function stubSig(m){
-    return JSON.stringify([m.name, m.title, m.services, m.targets, /^data:/.test(m.image || "") ? "(inline)" : (m.image || "")]);
-  }
 
   /* 組出這次發布的 data.js 內容與附件清單 */
   function buildPublishPayload(){
     const data = clone(DATA);
     const files = [];
     if(workerCaps.files){
-      const base = new Map();
-      (typeof GROUPS !== "undefined" ? GROUPS : []).forEach(g => g.members.forEach(m => base.set(m.id, stubSig(m))));
       data.forEach(g => g.members.forEach(m => {
         if(/^data:image\/jpeg;base64,/.test(m.image || "")){
           const fname = fileSafeId(m.id) + "_x.jpg";
@@ -1369,9 +1337,6 @@
             if(b64){ files.push({ path: "images/" + fname, contentB64: b64 }); m.products[i] = fname; }
           }
         });
-        if(base.get(m.id) !== stubSig(m)){
-          files.push({ path: "m/" + fileSafeId(m.id) + ".html", contentB64: b64EncodeUtf8(memberStubHTML(m, g)) });
-        }
       }));
     }
     return { content: serialize(data), files };
