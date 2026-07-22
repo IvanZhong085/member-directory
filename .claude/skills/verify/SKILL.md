@@ -36,3 +36,8 @@ python3 -m http.server 8899 --bind 127.0.0.1   # 在 repo 根目錄執行
 
 - 容器 LANG 為空,Playwright `setInputFiles` 會丟棄中文檔名的檔案——改在頁面內用 `DataTransfer` + `new File()` 合成中文檔名再 dispatch change 事件。
 - 殺本機伺服器用 `fuser -k 8899/tcp`;`pkill -f` 的樣式會匹配到自己這條指令而自殺(exit 144)。
+
+拆功能/大範圍刪除後的鐵律:
+
+- 必跑 `node tools/check-dead-code.mjs` 且零疑似死函式才可提交——2026/7 拆批次照片時誤刪 PPT 匯入三函式,語法檢查與頁面載入都抓不到(閉包內的呼叫端只在點擊時爆),這支掃描器 30 秒現形。
+- 被刪功能的「鄰居」要實測一輪:同節區、共用 helper 的功能各跑一次完整流程,不能只看按鈕還在。
