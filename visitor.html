@@ -167,6 +167,7 @@
   <div class="share-row"><button id="btn-share" type="button">🔗 複製本頁連結,邀請朋友</button></div>
 </footer>
 
+<script src="site-config.js?v=1"></script>
 <script src="data.js"></script>
 <script>
 (function(){
@@ -216,7 +217,7 @@
   }
 
   document.getElementById("btn-share").addEventListener("click", function(){
-    var url = "https://ivanzhong085.github.io/member-directory/visitor.html";
+    var url = SITE.SITE_BASE + "visitor.html";
     var btn = this;
     (navigator.clipboard ? navigator.clipboard.writeText(url) : Promise.reject()).then(function(){
       btn.textContent = "已複製 ✓ 貼到 LINE 就能邀請";

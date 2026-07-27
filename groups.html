@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>產業小組表｜會員名錄</title>
+<title>產業小組表｜雲榮鑽石分會</title>
 <meta name="robots" content="noindex">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -159,6 +159,7 @@
   </footer>
 </div>
 
+<script src="site-config.js?v=1"></script>
 <script src="data.js"></script>
 <script src="qrcode.js"></script>
 <script>
@@ -168,7 +169,7 @@
 
   var total = GROUPS.reduce(function(n,g){ return n + g.members.length; }, 0);
   document.getElementById("mast-title").innerHTML =
-    "雲榮鑽石分會<span class=\"accent\">成交破億</span>產業小組團隊<span class=\"count\">(" + total + ")</span>";
+    esc(SITE.ORG_NAME) + "<span class=\"accent\">成交破億</span>產業小組團隊<span class=\"count\">(" + total + ")</span>";
   var d = new Date(), pad = function(n){ return String(n).padStart(2,"0"); };
   document.getElementById("sheet-date").textContent = d.getFullYear() + " /" + pad(d.getMonth()+1) + "/" + pad(d.getDate());
 
@@ -200,7 +201,7 @@
   /* 頁尾 QR:掃描直達名錄 */
   try{
     var qr = qrcode(0, "M");
-    qr.addData("https://ivanzhong085.github.io/member-directory/");
+    qr.addData(SITE.SITE_BASE);
     qr.make();
     var cv = document.getElementById("foot-qr-canvas");
     var ctx = cv.getContext("2d");

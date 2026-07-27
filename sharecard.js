@@ -6,11 +6,11 @@
 window.ShareTools = (function(){
   "use strict";
 
-  /* 站台設定:發布後的正式網址(og 預覽頁、QR、vCard 都以此為準)。
-     BRAND_* 會印在分享卡上;若分會想放名稱,改 BRAND_TITLE 即可。 */
-  const SITE_BASE   = "https://ivanzhong085.github.io/member-directory/";
-  const BRAND_TITLE = "會員名錄";
-  const BRAND_SUB   = "MEMBER DIRECTORY";
+  /* 站台設定:分會名稱與正式網址一律取自 site-config.js(單一來源),
+     og 預覽頁、QR、vCard 與分享卡上的品牌字樣都以此為準。 */
+  const SITE_BASE   = SITE.SITE_BASE;
+  const BRAND_TITLE = SITE.ORG_NAME;
+  const BRAND_SUB   = SITE.BRAND_SUB;
 
   const C = {
     red:"#C8102E", redDark:"#A50D26", redDeep:"#7C0A1D",
@@ -143,6 +143,16 @@ window.ShareTools = (function(){
     const ctx = canvas.getContext("2d");
     const M = 72;                              // 外邊距
 
+    /* 先決定要印哪些內容欄位——照片尺寸與標語框要不要留,都取決於欄位多寡。
+       服務項目／適合引薦對象／我有／我要,有填的才佔版面(四欄全填時版面最擠)。 */
+    const sections = [
+      { label:"服務項目",     items: lines(m.services) },
+      { label:"適合引薦對象", items: lines(m.targets)  },
+      { label:"我有",         items: lines(m.have)     },
+      { label:"我要",         items: lines(m.want)     },
+    ].filter(s => s.items.length);
+    const tight = sections.length > 2;         // 超過兩欄就要排兩列,得先騰出垂直空間
+
     /* 底 */
     ctx.fillStyle = "#FFFFFF";
     ctx.fillRect(0, 0, W, H);
@@ -188,9 +198,9 @@ window.ShareTools = (function(){
     }
     y += markS + 44;
 
-    /* 照片 */
-    const phW = isSquare ? 340 : 430;
-    const phH = isSquare ? 375 : 470;
+    /* 照片(方形卡沒有標語框可省,欄位多時改用小一號的照片騰空間) */
+    const phW = isSquare ? (tight ? 240 : 340) : 430;
+    const phH = isSquare ? (tight ? 264 : 375) : 470;
     const phX = (W - phW) / 2;
     const img = m.image ? await loadImage(imgSrc(m.image)) : null;
     ctx.save();
@@ -235,9 +245,9 @@ window.ShareTools = (function(){
     ctx.textAlign = "left";
     y += isSquare ? 40 : 52;
 
-    /* 標語(紅底圓角框) */
+    /* 標語(紅底圓角框)——欄位排到兩列時讓位給內容,標語在貼文文案裡本來就有 */
     const tags = lines(m.tagline);
-    if(tags.length && !isSquare){
+    if(tags.length && !isSquare && !tight){
       ctx.font = "600 32px " + FONT;
       const boxLines = [];
       tags.forEach(t => wrapText(ctx, t, 760, 2).forEach(l => boxLines.push(l)));
@@ -257,41 +267,57 @@ window.ShareTools = (function(){
       y += isSquare ? 6 : 10;
     }
 
-    /* 服務項目 / 適合引薦對象(雙欄) */
+    /* 內容欄位(雙欄網格)。版面規則:把「目前 y 到頁尾分隔線」的高度平均分給每一列,
+       再回推每格塞得下幾行——因此不論欄位是二、三還是四個,內容都不會壓到底部 QR 區塊。
+       行高在放不下兩行時才等比壓縮(最小 62%,再小就讀不清)。 */
     const footH = 176;                          // 底部 QR 列高度(含間距)
     const colGap = 44;
     const colW = (W - M*2 - colGap) / 2;
     const colX1 = M, colX2 = M + colW + colGap;
-    const maxItems = isSquare ? 3 : 4;
-    const itemFont = "500 29px " + FONT, itemLH = 44;
+    const HEAD_H = 34;                          // 欄位標題列到第一個項目的距離
+    const divY = H - footH - M + 40 - 28;       // 頁尾分隔線的 y,內容不得越過
 
-    function drawCol(x, label, items){
-      let cy = y;
-      ctx.fillStyle = C.red;
-      roundRect(ctx, x, cy - 20, 12, 12, 3); ctx.fill();
-      ctx.fillStyle = C.ink;
-      ctx.font = "800 30px " + FONT;
-      ctx.fillText(label, x + 26, cy - 6);
-      cy += 34;
-      ctx.font = itemFont;
-      ctx.fillStyle = C.muted;
-      let used = 0;
-      for(const it of items.slice(0, maxItems)){
-        const ls = wrapText(ctx, it, colW - 34, 2);
-        for(const l of ls){
-          if(used >= maxItems + 1) return cy;
-          ctx.fillStyle = C.red200;
-          ctx.fillText("・", x, cy + used*itemLH);
-          ctx.fillStyle = "#3A3C45";
-          ctx.fillText(l, x + 30, cy + used*itemLH);
-          used++;
+    if(sections.length){
+      const rows = Math.ceil(sections.length / 2);
+      const rowH = (divY - y - 10) / rows;       // 每列可用高度(等分,先天不會超出)
+      // 每列最後一行下方要留的空間:還有下一列時得容納下一列標題的字高(44),
+      // 最後一列只要留住文字下緣(8)不壓到分隔線即可。少留這段就會出現標題疊字。
+      const reserve = rows > 1 ? 44 : 8;
+      let itemLH = 44, itemPx = 29;
+      const fits = lh => Math.floor((rowH - HEAD_H - reserve) / lh) + 1;
+      if(fits(itemLH) < 2){
+        const k = Math.max(0.62, (rowH - HEAD_H - reserve) / itemLH);
+        itemLH = Math.round(itemLH * k);
+        itemPx = Math.max(20, Math.round(itemPx * k));
+      }
+      const perCol = Math.max(1, Math.min(sections.length <= 2 ? (isSquare ? 3 : 4) : 3, fits(itemLH)));
+
+      /* 畫一格:標題 + 最多 perCol 行項目(單項過長會折成兩行,一樣計入行數上限) */
+      function drawCol(x, top, label, items){
+        let cy = top;
+        ctx.fillStyle = C.red;
+        roundRect(ctx, x, cy - 20, 12, 12, 3); ctx.fill();
+        ctx.fillStyle = C.ink;
+        ctx.font = "800 30px " + FONT;
+        ctx.fillText(label, x + 26, cy - 6);
+        cy += HEAD_H;
+        ctx.font = "500 " + itemPx + "px " + FONT;
+        let used = 0;
+        for(const it of items){
+          for(const l of wrapText(ctx, it, colW - 34, 2)){
+            if(used >= perCol) return;
+            ctx.fillStyle = C.red200;
+            ctx.fillText("・", x, cy + used*itemLH);
+            ctx.fillStyle = "#3A3C45";
+            ctx.fillText(l, x + 30, cy + used*itemLH);
+            used++;
+          }
         }
       }
-      return cy + used*itemLH;
+      sections.forEach((s, i) => {
+        drawCol(i % 2 === 0 ? colX1 : colX2, y + Math.floor(i / 2) * rowH, s.label, s.items);
+      });
     }
-    const b1 = drawCol(colX1, "服務項目", lines(m.services));
-    const b2 = drawCol(colX2, "適合引薦對象", lines(m.targets));
-    y = Math.max(b1, b2);
 
     /* 底部列:QR + 導引文字(固定貼齊底部) */
     const fy = H - footH - M + 40;

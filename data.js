@@ -19,15 +19,21 @@ const GROUPS = [
           "連鎖滷味店/豬腳店",
           "小家庭豬肉箱"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "國產豬肉專門家",
           "品質保證攏抵家"
         ],
         "image": "g3_m1_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g3_m1",
-        "dataIssue": true
+        "dataIssue": true,
+        "updatedAt": ""
       },
       {
         "number": "079",
@@ -42,14 +48,20 @@ const GROUPS = [
           "連鎖燒肉店",
           "連鎖火鍋店"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "牛角牛皮牛毛沒有賣 其他什麼都有不奇怪"
         ],
         "image": "g3_m2_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g3_m2",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "144",
@@ -61,14 +73,20 @@ const GROUPS = [
         "targets": [
           "傳統市場\u000b團膳業者\u000b食品加工廠"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "亮軒的用心值得您放心\u000b只要亮軒在不怕沒鴨買"
         ],
         "image": "g3_m3_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g3_m3",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "136",
@@ -83,15 +101,21 @@ const GROUPS = [
           "小吃業、餐廳、團購",
           "斗六鵝肉張"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "買鵝肉找阿賢",
           "健康安心享年延"
         ],
         "image": "g3_m4_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g3_m4",
-        "dataIssue": true
+        "dataIssue": true,
+        "updatedAt": ""
       },
       {
         "number": "002",
@@ -106,15 +130,21 @@ const GROUPS = [
           "公司福委會",
           "小型餐飲業者"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "甄苡提供好海鮮",
           "餐餐美味最新鮮"
         ],
         "image": "g3_m5_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g3_m5",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "199",
@@ -128,14 +158,20 @@ const GROUPS = [
           "月子中心",
           "鹹酥雞\u000b團購"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "蝦媽專賣泰國蝦\u000b鮮甜肥美人人誇"
         ],
         "image": "g3_m6_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g3_m6",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "205",
@@ -150,20 +186,24 @@ const GROUPS = [
           "外燴團隊 (一隻全羊以上)",
           "冷凍調理包代工廠(MOQ300斤)"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "國產羊肉找阿成",
           "老饕全部都點頭"
         ],
         "image": "g3_m7_x.jpg",
-        "company": "羊來了有限公司來了",
-        "business_items": "活體羊隻批發（除草）、羊肉批發與零售",
-        "id": "g3_m7",
-        "dataIssue": false,
         "card": "g3_m7_card.jpg",
         "products": [
           "g3_m7_p1.jpg",
           "g3_m7_p2.jpg"
-        ]
+        ],
+        "company": "羊來了有限公司來了",
+        "business_items": "活體羊隻批發（除草）、羊肉批發與零售",
+        "website": "",
+        "id": "g3_m7",
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "219",
@@ -176,15 +216,21 @@ const GROUPS = [
           "有興趣加入水禽養殖產業的人",
           "有購買冷鏈鴨肉需求的人"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "水禽食品找津泰",
           "養殖創富一起來"
         ],
         "image": "g3_m8_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g3_m8",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       }
     ],
     "id": "g3",
@@ -211,15 +257,21 @@ const GROUPS = [
           "食品醬料加工廠：愛之味、可果美",
           "中小型餐飲業者：番茄牛肉麵等"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "冷凍蔬果找展鮮",
           "讓你的貨源穩定又新鮮"
         ],
         "image": "g9_m1_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g9_m1",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "156",
@@ -232,15 +284,21 @@ const GROUPS = [
           "餐飲業者/團膳業者/截切業者/",
           "加工業者/有蔬菜原料需求之公司行號及企業"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "有機蔬菜找華興",
           "食在新鮮又安心"
         ],
         "image": "g9_m2_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g9_m2",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "178",
@@ -252,15 +310,21 @@ const GROUPS = [
         "targets": [
           "連鎖火鍋店、婚宴會館、星級飯店、食品加工廠、團膳業者"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "香菇洋菇找大寶",
           "貨源充足沒煩惱"
         ],
         "image": "g9_m3_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g9_m3",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "141",
@@ -276,15 +340,21 @@ const GROUPS = [
           "團購主",
           "公司福利委員會"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "健康美食找豐安",
           "快樂享受又心安"
         ],
         "image": "g9_m4_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g9_m4",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "160",
@@ -299,15 +369,21 @@ const GROUPS = [
           "鳳梨加工合作",
           "團購/零售"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "吃旺萊~好運旺旺來",
           "拜旺萊~財運滾滾來"
         ],
         "image": "g9_m5_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g9_m5",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "149",
@@ -321,14 +397,20 @@ const GROUPS = [
         "targets": [
           "直播主、各大經銷商/通路商、福委會/禮製品單位"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "選擇國產好蜂蜜\u000b味蕾沈浸自然美好旋律"
         ],
         "image": "g9_m6_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g9_m6",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "166",
@@ -344,15 +426,21 @@ const GROUPS = [
           "酒吧 /餐酒館",
           "連鎖餐飲/燒肉店"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "精釀啤酒找鈞政",
           "讓你喝到不會睏"
         ],
         "image": "g9_m7_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g9_m7",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "204",
@@ -365,15 +453,21 @@ const GROUPS = [
           "西北食品/楓康超市/家樂福",
           "團膳業者/餐飲業者"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "金針菇找金城",
           "火鍋煮湯好興奮"
         ],
         "image": "g9_m8_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g9_m8",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "206",
@@ -389,15 +483,21 @@ const GROUPS = [
           "各地區蔬菜盤商",
           "餐飲供應與加工需求"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "蔬菜隨時不斷貨",
           "讓你生意更好做"
         ],
         "image": "g9_m9_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g9_m9",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       }
     ],
     "id": "g9",
@@ -426,15 +526,21 @@ const GROUPS = [
           "連鎖健康餐盒業者",
           "批發團購業者"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "餓貳市場",
           "您餐桌上的米其林"
         ],
         "image": "g12_m1_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g12_m1",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "078",
@@ -446,15 +552,21 @@ const GROUPS = [
         "targets": [
           "冷凍包裝、食材研發"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "湯包水餃九嬸婆",
           "輕鬆美味端上桌"
         ],
         "image": "g12_m2_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g12_m2",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "171",
@@ -468,15 +580,21 @@ const GROUPS = [
           "連鎖麵食餐飲",
           "日式料理餐廳"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "麵的問題找傑夫",
           "簡單健康超快速"
         ],
         "image": "g12_m3_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g12_m3",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "148",
@@ -491,15 +609,21 @@ const GROUPS = [
           "原物料供應商(肉品、菜品)",
           "門市SOP建立"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "包子專治你肚子",
           "餓得發慌快到樂包子"
         ],
         "image": "g12_m4_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g12_m4",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "187",
@@ -512,15 +636,21 @@ const GROUPS = [
         "targets": [
           "團媽/團購主"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "得意中華家鄉味",
           "滷出幸福台灣味"
         ],
         "image": "g12_m5_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g12_m5",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "196",
@@ -533,14 +663,20 @@ const GROUPS = [
           "團購主、KOL",
           "costco採購"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "找俊翔吃蘿蔔糕\u000b讓妳步步糕升事業高"
         ],
         "image": "g12_m6_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g12_m6",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "179",
@@ -555,15 +691,21 @@ const GROUPS = [
           "搭配組合銷售/團購",
           "品牌VIP活動邀約"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "異國香料調味找食色",
           "文化故事風味有特色"
         ],
         "image": "g12_m7_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g12_m7",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       }
     ],
     "id": "g12",
@@ -591,15 +733,21 @@ const GROUPS = [
           "加盟主",
           "批發零售商"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "拆封加熱吃肉圓",
           "加盟就找鄧肉圓"
         ],
         "image": "g7_m1_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g7_m1",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "107",
@@ -614,15 +762,21 @@ const GROUPS = [
           "婚禮顧問及",
           "婚禮相關產業"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "各式宴席找馥瑋",
           "山珍海味都一絕"
         ],
         "image": "g7_m2_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g7_m2",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "142",
@@ -634,14 +788,20 @@ const GROUPS = [
         "targets": [
           "官方line行銷\u000b代工廠\u000b團購、直播主"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "來虎秋\u000b讓聚餐變簡單"
         ],
         "image": "g7_m3_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g7_m3",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "058",
@@ -657,15 +817,21 @@ const GROUPS = [
           "工廠團膳",
           "活動公關公司"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "野獸派健康餐盒",
           "好品味一拍即合"
         ],
         "image": "g7_m4_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g7_m4",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "072",
@@ -679,14 +845,20 @@ const GROUPS = [
         "targets": [
           "生鮮超市賣場 團購通路\u000b實體餐飲業者 跨國物流"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "台灣美食魯肉香\u000b老少閒宜樂洋洋"
         ],
         "image": "g7_m5_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g7_m5",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "202",
@@ -698,15 +870,21 @@ const GROUPS = [
         "targets": [
           "連鎖餐飲/食品團購主\u000b大量OEM/外銷"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "孫開宣做泰味",
           "一吃就想再回味"
         ],
         "image": "g7_m6_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g7_m6",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "211",
@@ -718,15 +896,21 @@ const GROUPS = [
         "targets": [
           "電商\u000b團購主\u000b餐廳"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "胡椒沾醬找懿香",
           "家庭美滿又健康"
         ],
         "image": "g7_m7_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g7_m7",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "213",
@@ -739,15 +923,21 @@ const GROUPS = [
           "團購主、火鍋店",
           "各大餐飲品牌聯名合作"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "成分簡單零負擔",
           "盛夏冰菓不簡單"
         ],
         "image": "g7_m8_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g7_m8",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "220",
@@ -760,14 +950,20 @@ const GROUPS = [
           "餐飲業者、團購主",
           "需優質常溫、加熱即食品的夥伴"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "韭菜盒子找雅怡\u000b香酥飽滿真滿意"
         ],
         "image": "g7_m9_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g7_m9",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       }
     ],
     "id": "g7",
@@ -796,15 +992,21 @@ const GROUPS = [
           "連鎖藥局，營養食品電商",
           "藥師，營養師，骨科醫師"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "養之源幫你輕鬆補鈣",
           "好骨本讓你行動自在"
         ],
         "image": "g10_m1_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g10_m1",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "075",
@@ -820,15 +1022,21 @@ const GROUPS = [
           "保健食品零售商",
           "食品品牌商"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "褐藻醣膠找政佑",
           "病人癌友有保佑"
         ],
         "image": "g10_m2_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g10_m2",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "091",
@@ -843,15 +1051,21 @@ const GROUPS = [
           "醫療院所",
           "診所 日照中心"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "輔具補助找伯運",
           "長輩樂活好省力"
         ],
         "image": "g10_m3_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g10_m3",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "121",
@@ -865,15 +1079,21 @@ const GROUPS = [
           "團購、團購主",
           "企業福委會"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "天然果乾找雅利",
           "健康安心最給力"
         ],
         "image": "g10_m4_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g10_m4",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "099",
@@ -887,15 +1107,21 @@ const GROUPS = [
           "團購網站、母嬰電商",
           "團購主、有機超市"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "有溫度的好米",
           "找玉山碾米"
         ],
         "image": "g10_m5_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g10_m5",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "174",
@@ -910,15 +1136,21 @@ const GROUPS = [
           "身邊掌廚的親朋好友",
           "有送禮需求的企業、福委會等"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "億昌好油",
           "讓您健康無憂"
         ],
         "image": "g10_m6_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g10_m6",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "194",
@@ -933,15 +1165,21 @@ const GROUPS = [
           "親子團購主",
           "營養師、藥局"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "成長果凍找易芩",
           "精準營養最省心"
         ],
         "image": "g10_m7_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g10_m7",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "203",
@@ -956,15 +1194,21 @@ const GROUPS = [
           "冰淇淋製造商",
           "高級甜點店"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "好喝奶找瑋晨",
           "風味營養雙保證"
         ],
         "image": "g10_m8_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g10_m8",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "214",
@@ -977,15 +1221,21 @@ const GROUPS = [
           "自創品牌醬料代工",
           "火鍋連鎖餐飲業者"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "醬料指定海霸王",
           "餐飲行業稱霸王"
         ],
         "image": "g10_m9_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g10_m9",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "217",
@@ -997,15 +1247,21 @@ const GROUPS = [
         "targets": [
           "自全效胜肽精華蛋白飲需求"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "純淨營養找不二",
           "身心舒暢好過日"
         ],
         "image": "g10_m10_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g10_m10",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       }
     ],
     "id": "g10",
@@ -1035,15 +1291,21 @@ const GROUPS = [
         "targets": [
           "食品業/零售業有官方帳號、想要行銷健檢的店家"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "數位轉型找子宏",
           "業績讓您大紫大紅"
         ],
         "image": "g8_m1_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g8_m1",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "036",
@@ -1060,15 +1322,21 @@ const GROUPS = [
           "需要聲音宣傳的廠商",
           "音樂、吉他教室或教師"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "發掘身邊好聲音",
           "自我音樂為中心"
         ],
         "image": "g8_m2_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g8_m2",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "140",
@@ -1082,15 +1350,21 @@ const GROUPS = [
         "targets": [
           "有食記、美食曝光需求的實體餐飲店家"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "網路曝光找禾洺",
           "讓你在網路上很有名"
         ],
         "image": "g8_m3_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g8_m3",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "191",
@@ -1107,15 +1381,21 @@ const GROUPS = [
           "行銷公司",
           "運動賽事"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "溼紙巾代工找育萱",
           "客製服務最周全"
         ],
         "image": "g8_m4_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g8_m4",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "152",
@@ -1132,14 +1412,20 @@ const GROUPS = [
           "農.畜.漁產業、食品業、餐飲業",
           "製造業、設備商、電商"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "龍德貼紙展現您最佳一面   想要貼的更Longder 找龍德"
         ],
         "image": "g8_m5_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g8_m5",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "209",
@@ -1152,15 +1438,21 @@ const GROUPS = [
           "食衣住行育樂品牌",
           "個人IP建置"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "小紅書找鴨鴨",
           "華人客源到你家"
         ],
         "image": "g8_m6_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g8_m6",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "215",
@@ -1173,15 +1465,21 @@ const GROUPS = [
           "新創品牌、餐廳",
           "印刷廠、行銷策劃、平面設計師"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "最佳視覺找Vivy",
           "讓客戶輕鬆記得你"
         ],
         "image": "g8_m7_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g8_m7",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "222",
@@ -1194,15 +1492,21 @@ const GROUPS = [
           "剛創業或二代接班的老闆",
           "想做短影音、社群經營或網路廣告的企業"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "行銷找威力",
           "賺錢很省力"
         ],
         "image": "g8_m8_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g8_m8",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       }
     ],
     "id": "g8",
@@ -1231,14 +1535,20 @@ const GROUPS = [
         "targets": [
           "活動策劃公司\u000b政府補助專案人員\u000b中小企業形象影片"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "活動紀錄找紅內褲\u000b形象廣告讓你超酷"
         ],
         "image": "g5_m1_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g5_m1",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "054",
@@ -1251,15 +1561,21 @@ const GROUPS = [
           "活動公關公司",
           "運動類型產品廠商"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "活動報名找眾點",
           "宣傳行銷有亮點"
         ],
         "image": "g5_m2_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g5_m2",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "083",
@@ -1274,15 +1590,21 @@ const GROUPS = [
           "美妝保養品、保健食品",
           "各式食品業者"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "1638",
           "讓您發發發"
         ],
         "image": "g5_m3_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g5_m3",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "113",
@@ -1300,14 +1622,20 @@ const GROUPS = [
           "農漁業生產及產銷班",
           "個人工作室 (商品貼紙/型錄印刷)"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "平面廣告印刷找紅福效率品質大家都佩服"
         ],
         "image": "g5_m4_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g5_m4",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "154",
@@ -1324,15 +1652,21 @@ const GROUPS = [
           "活動節日周邊服飾商品",
           "KOL品牌服飾周邊"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "客製服飾找濬騰",
           "企業形象定飛騰"
         ],
         "image": "g5_m5_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g5_m5",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "027",
@@ -1348,15 +1682,21 @@ const GROUPS = [
           "大型商演企劃",
           "公益活動規劃"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "活動行銷找愛凝",
           "廠商客戶都愛您"
         ],
         "image": "g5_m6_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g5_m6",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       }
     ],
     "id": "g5",
@@ -1384,15 +1724,21 @@ const GROUPS = [
         "targets": [
           "質感染髮   髮型重建燙髮 形象髮型改造之需求"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "Vita設計好髮型",
           "沒人比你更有型"
         ],
         "image": "g2_m1_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g2_m1",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "116",
@@ -1407,15 +1753,21 @@ const GROUPS = [
           "追求外在精緻復古",
           "手工眼鏡的商務人士"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "驗光配鏡找伯洸",
           "建伯讓您很風光"
         ],
         "image": "g2_m3_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g2_m3",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "120",
@@ -1430,15 +1782,21 @@ const GROUPS = [
           "BMI超過25以上的人夫",
           "健身產業的瑜珈/有氧韻律老師"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "健身來樓擂",
           "人生猴塞擂"
         ],
         "image": "g2_m4_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g2_m4",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "163",
@@ -1455,15 +1813,21 @@ const GROUPS = [
           "銷售髮品的業務人員",
           "想青春再現的愛美人士"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "養髮交給馥茂力",
           "再現青春好魅力"
         ],
         "image": "g2_m5_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g2_m5",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "208",
@@ -1477,14 +1841,20 @@ const GROUPS = [
           "瑜伽會館、健康養生館",
           "禮品業者 \u000bKOL、團購主"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "芳香療癒樂相伴\u000b健康生活找淑媚"
         ],
         "image": "g2_m6_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g2_m6",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       }
     ],
     "id": "g2",
@@ -1518,15 +1888,21 @@ const GROUPS = [
           "工商團體、直播主",
           "房仲業者、企業講師"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "亞洲旅遊找小可",
           "帶你體驗非同小可"
         ],
         "image": "g4_m1_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g4_m1",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "005",
@@ -1541,15 +1917,21 @@ const GROUPS = [
           "公司採購部  福利委員會",
           "農產行老闆  常送禮客戶"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "送禮找小宸",
           "萬事一定成"
         ],
         "image": "g4_m2_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g4_m2",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "131",
@@ -1561,15 +1943,21 @@ const GROUPS = [
         "targets": [
           "月子中心、房仲與保險業務\u000b企業與個人形象拍攝"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "人像攝影找茲菻",
           "最美角度都給您"
         ],
         "image": "g4_m3_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g4_m3",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "048",
@@ -1585,15 +1973,21 @@ const GROUPS = [
           "個人長期飲用/活動邀約",
           "公司福委會/直播主/團購主"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "彤彤咖啡杯杯香氣",
           "激發企業生意有活力"
         ],
         "image": "g4_m4_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g4_m4",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "115",
@@ -1609,15 +2003,21 @@ const GROUPS = [
           "高單價 甜點店、咖啡廳",
           "禮盒、甜點 開發需求"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "巧克力風味職人",
           "開啟對味蕾的想像"
         ],
         "image": "g4_m5_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g4_m5",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "218",
@@ -1631,15 +2031,21 @@ const GROUPS = [
           "想提升員工技能、增強團隊戰力",
           "3-50人的中小企業\u000b(服務業、製造業、批發業等等皆可)"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "小兵一出手",
           "補助培訓全到手！"
         ],
         "image": "g4_m6_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g4_m6",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       }
     ],
     "id": "g4",
@@ -1671,15 +2077,21 @@ const GROUPS = [
           "建設公司、營造廠",
           "室內設計師、同業廠商"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "住宅裝修很多事",
           "富強統包你沒事"
         ],
         "image": "g11_m1_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g11_m1",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "043",
@@ -1694,15 +2106,21 @@ const GROUPS = [
           "土地開發商",
           "有土地開發需求的個人或法人"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "土地開發找全修",
           "讓你美金台幣都全收"
         ],
         "image": "g11_m2_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g11_m2",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "090",
@@ -1718,15 +2136,21 @@ const GROUPS = [
           "建設公司",
           "需要不動產登記的民眾"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "土地登記找承瑋",
           "安全效率又省稅"
         ],
         "image": "g11_m3_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g11_m3",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "033",
@@ -1739,15 +2163,21 @@ const GROUPS = [
         "targets": [
           "中小企業主\u000b家庭理財規劃"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "企業資產保全找松甫",
           "全家安心待就步"
         ],
         "image": "g11_m4_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g11_m4",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "094",
@@ -1760,15 +2190,21 @@ const GROUPS = [
         "targets": [
           "新生兒保單、長照規劃、中小企業團體保險"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "買保險找佩晴",
           "讓你人生很輕盈"
         ],
         "image": "g11_m5_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g11_m5",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "198",
@@ -1783,14 +2219,20 @@ const GROUPS = [
           "建設營建公司、商業水電",
           "燈光規劃設計"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "裕展水電工程行"
         ],
         "image": "g11_m6_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g11_m6",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "024",
@@ -1805,15 +2247,21 @@ const GROUPS = [
           "個人、新房屋主",
           "包租公包租婆"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "選購冷氣找宗霖",
           "省電省錢最聰明"
         ],
         "image": "g11_m7_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g11_m7",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "184",
@@ -1826,15 +2274,21 @@ const GROUPS = [
           "一般住宅閒置屋頂的屋主",
           "廠房老闆、營造公司、水電行業，房仲業者、採光罩廠商"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "太陽公公當長工",
           "累積財富很輕鬆"
         ],
         "image": "g11_m8_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g11_m8",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "207",
@@ -1850,15 +2304,21 @@ const GROUPS = [
           "後場商業廚具",
           "工程統包需求相關業主"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "餐飲裝潢交給毅品",
           "專業省心效果放心"
         ],
         "image": "g11_m9_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g11_m9",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "068",
@@ -1874,15 +2334,21 @@ const GROUPS = [
           "機電工程",
           "消防工程"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "空調顧好，產線不吵",
           "做無塵室，就找璟耀"
         ],
         "image": "g11_m10_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g11_m10",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       }
     ],
     "id": "g11",
@@ -1913,15 +2379,21 @@ const GROUPS = [
           "食品業、製造業",
           "積極成長轉型的中小企業"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "專案管理升級找Steven",
           "業績增長踏油門！"
         ],
         "image": "g6_m1_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g6_m1",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "011",
@@ -1937,15 +2409,21 @@ const GROUPS = [
           "系統硬體軟體規劃",
           "餐飲設備規劃"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "系統設計找育誠",
           "開店流程一定成"
         ],
         "image": "g6_m2_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g6_m2",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "015",
@@ -1959,15 +2437,21 @@ const GROUPS = [
         "targets": [
           "需要法律諮詢、建議、訴訟的個人或企業主"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "法律問題找凱傑",
           "全盤掌握好便捷"
         ],
         "image": "g6_m3_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g6_m3",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "028",
@@ -1981,15 +2465,21 @@ const GROUPS = [
           "有ERP系統更換需求的",
           "中小型企業高階決策者"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "ERP系統找PETER",
           "售後服務最用心"
         ],
         "image": "g6_m4_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g6_m4",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "030",
@@ -2003,15 +2493,21 @@ const GROUPS = [
           "有僱用員工的企業主、企業二代",
           "高階管理者"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "讓小班做你的軍師",
           "勞資雙贏最佳投資"
         ],
         "image": "g6_m5_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g6_m5",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "059",
@@ -2027,15 +2523,21 @@ const GROUPS = [
           "公司人數3人以上",
           "具研發與採購需求之企業"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "研發採購找建緯",
           "創業資金帶你飛"
         ],
         "image": "g6_m6_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g6_m6",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "061",
@@ -2051,15 +2553,21 @@ const GROUPS = [
           "ERP顧問/勞力仲介",
           "中小型公司企業決策者"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "記帳稅務找VIVIAN",
           "財務服務最安心"
         ],
         "image": "g6_m7_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g6_m7",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "159",
@@ -2072,15 +2580,21 @@ const GROUPS = [
         "targets": [
           "資金需求200萬以上的餐飲老闆；擁有1億以上不動產且急需資金企業負責人"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "找俊華債務整合",
           "資金與你一拍即合"
         ],
         "image": "g6_m8_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g6_m8",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       }
     ],
     "id": "g6",
@@ -2112,15 +2626,21 @@ const GROUPS = [
           "工廠、醫院、安養院、學校",
           "大型遊樂園區的垃圾袋需求"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "塑袋找子鈞",
           "讓你環保愛地球"
         ],
         "image": "g1_m1_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g1_m1",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "129",
@@ -2136,15 +2656,21 @@ const GROUPS = [
           "勞資顧問",
           "工業安全顧問"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "員工健康找凱聖",
           "企業事故不發生"
         ],
         "image": "g1_m2_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g1_m2",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "037",
@@ -2159,15 +2685,21 @@ const GROUPS = [
           "製造業工廠、營造業",
           "家庭看護工、農業、養殖業"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "外勞仲介找景文",
           "安定省錢攏穩穩"
         ],
         "image": "g1_m3_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g1_m3",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "151",
@@ -2182,15 +2714,21 @@ const GROUPS = [
           "雞豬鴨場場主",
           "屠宰廠、分切廠商"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "客製飼料找銘燦",
           "營養需求最完善"
         ],
         "image": "g1_m4_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g1_m4",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "169",
@@ -2204,15 +2742,21 @@ const GROUPS = [
           "倉儲管理需求的蔬果商",
           "想優化倉庫管理的廠商"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "生鮮倉儲我管理",
           "流程優化助你贏"
         ],
         "image": "g1_m5_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g1_m5",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "176",
@@ -2229,15 +2773,21 @@ const GROUPS = [
           "民眾有需要弱電監視系統",
           "裝潢、水電、太陽能"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "宜陞科技智慧一生",
           "宜陞監視安全ㄧ世"
         ],
         "image": "g1_m6_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g1_m6",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       },
       {
         "number": "224",
@@ -2250,15 +2800,21 @@ const GROUPS = [
           "2家店以上準備展店的餐飲品牌",
           "食品工廠"
         ],
+        "have": [],
+        "want": [],
         "tagline": [
           "讓每一份包材",
           "都成為品牌的故事"
         ],
         "image": "g1_m7_x.jpg",
+        "card": "",
+        "products": [],
         "company": "",
         "business_items": "",
+        "website": "",
         "id": "g1_m7",
-        "dataIssue": false
+        "dataIssue": false,
+        "updatedAt": ""
       }
     ],
     "id": "g1",

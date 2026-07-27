@@ -21,7 +21,12 @@ python3 -m http.server 8899 --bind 127.0.0.1   # 在 repo 根目錄執行
 
 - 剪貼簿測試要在 context 給 `permissions: ["clipboard-read","clipboard-write"]`。
 - 分享卡 QR 別只看圖,用 `jsqr` + `pngjs` 解碼下載的 PNG 確認網址正確。
+- **分享卡版面一定要看圖,不能只看 QR 解碼**:`have`/`want` 有填時會從雙欄變兩列,
+  排版錯誤(內容壓到頁尾 QR 區)時 QR 照樣解得出來,只有截圖看得見。用 `page.route`
+  攔 `**/data.js` 灌一份 have/want 都有值的資料,portrait 與 square 各截一張比對。
 - 邊界成員:`g3_m7`(照片是 data: URL)、`g3_m1`/`g3_m4`(dataIssue 警示帶)。
+- 時間戳(`updatedAt`)驗法:編輯後從 localStorage 草稿讀該成員的 `updatedAt`,
+  並確認**沒被編輯到的成員仍是空字串**——只驗「有蓋章」會漏掉全體被誤蓋的 bug。
 - 名錄增刪成員後要重跑 `node tools/build-member-pages.mjs`(m/ 頁面才會同步)。
 - 發布用的 Cloudflare Worker(admin 發布、瀏覽數)在本機測不到,靜默失敗屬正常。
 

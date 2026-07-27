@@ -157,6 +157,20 @@
   const groupById = id => DATA.find(g => g.id === id);
   function esc(s){ return (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
   function imgSrc(image){ return /^data:/.test(image) ? image : "images/" + encodeURIComponent(image); }
+
+  /* ---------- 修改時間戳 ----------
+     任何會改到「成員資料內容」的動作都要呼叫 touch(m):逐欄編輯、換照片/名片/商品照、
+     勾選需確認,以及 CSV／表單／PPT 的批次匯入。純粹調整排序不算內容變更,不蓋章。
+     存 ISO 字串(可排序、時區明確),要顯示時才用 fmtStamp 轉成本地格式。 */
+  function touch(m){ if(m) m.updatedAt = new Date().toISOString(); }
+  function fmtStamp(iso, withTime){
+    if(!iso) return "";
+    const d = new Date(iso);
+    if(isNaN(d.getTime())) return "";
+    const pad = n => String(n).padStart(2, "0");
+    const date = d.getFullYear() + "/" + pad(d.getMonth() + 1) + "/" + pad(d.getDate());
+    return withTime ? date + " " + pad(d.getHours()) + ":" + pad(d.getMinutes()) : date;
+  }
   function linesToArr(v){ const a = v.replace(/\u000B/g, "\n").split("\n"); while(a.length && a[a.length-1].trim()==="") a.pop(); return a; }
 
   /* ---------- validation ---------- */
@@ -394,6 +408,7 @@
         <div class="mem-fields">
           <div class="mem-head">
             <span class="mem-idx">第 ${i+1} 位</span>
+            <span class="mem-stamp">${m.updatedAt ? "最後更新 " + esc(fmtStamp(m.updatedAt, true)) : "尚無更新紀錄"}</span>
             <span class="chk"><input type="checkbox" data-f="dataIssue" ${m.dataIssue?"checked":""}> 標記資料需確認</span>
             <span class="mem-tools">
               <button class="icon-btn" data-act="up" title="上移" ${i===0?"disabled":""}>${ICON.up}</button>
@@ -410,6 +425,10 @@
           <div class="row2">
             <div class="field"><label>服務項目<span class="hint">（每行一項）</span></label><textarea data-f="services">${esc((m.services||[]).join("\n"))}</textarea></div>
             <div class="field"><label>適合引薦對象<span class="hint">（每行一項）</span></label><textarea data-f="targets">${esc((m.targets||[]).join("\n"))}</textarea></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label>我有…<span class="hint">（每行一項：手上的資源、專長、人脈）</span></label><textarea data-f="have">${esc((m.have||[]).join("\n"))}</textarea></div>
+            <div class="field"><label>我要…<span class="hint">（每行一項：想被引薦到的對象、需求）</span></label><textarea data-f="want">${esc((m.want||[]).join("\n"))}</textarea></div>
           </div>
           <div class="field"><label>宣傳標語<span class="hint">（每行一句）</span></label><textarea data-f="tagline" style="min-height:56px;">${esc((m.tagline||[]).join("\n"))}</textarea></div>
           <div class="row2">
@@ -439,13 +458,13 @@
     const card = main.querySelector('.mem-card[data-mid="'+cssq(m.id)+'"]');
     if(!card) return;
     ["number","name","title","company","business_items","website"].forEach(f => {
-      wireTextInput(card.querySelector('[data-f="'+f+'"]'), v => { m[f] = v; scheduleSaveAndValidate(); });
+      wireTextInput(card.querySelector('[data-f="'+f+'"]'), v => { m[f] = v; touch(m); scheduleSaveAndValidate(); });
     });
-    ["services","targets","tagline"].forEach(f => {
-      wireTextInput(card.querySelector('[data-f="'+f+'"]'), v => { m[f] = linesToArr(v); scheduleSave(); });
+    ["services","targets","have","want","tagline"].forEach(f => {
+      wireTextInput(card.querySelector('[data-f="'+f+'"]'), v => { m[f] = linesToArr(v); touch(m); scheduleSave(); });
     });
     const chk = card.querySelector('[data-f="dataIssue"]');
-    chk.addEventListener("change", () => { pushUndo(); m.dataIssue = chk.checked; scheduleSave(); });
+    chk.addEventListener("change", () => { pushUndo(); m.dataIssue = chk.checked; touch(m); scheduleSave(); });
 
     const fileInput = card.querySelector('[data-act="file"]');
     card.querySelector('[data-act="photo"]').onclick = () => fileInput.click();
@@ -456,7 +475,7 @@
         const dataUrl = await cropAndResize(file);   // 開啟裁剪視窗；取消回傳 null
         if(dataUrl){
           pushUndo();
-          m.image = dataUrl;
+          m.image = dataUrl; touch(m);
           renderMembers(g); saveDraft(); toast("照片已更新，記得最後按「發布到網站」");
         }
       }catch(e){ toast("照片讀取失敗", {warn:true}); }
@@ -465,7 +484,7 @@
     card.querySelector('[data-act="rmphoto"]').onclick = () => {
       if(!m.image) return;
       pushUndo();
-      m.image = ""; renderMembers(g); saveDraft();
+      m.image = ""; touch(m); renderMembers(g); saveDraft();
     };
     card.querySelector('[data-act="up"]').onclick = () => moveMember(g, i, -1);
     card.querySelector('[data-act="down"]').onclick = () => moveMember(g, i, 1);
@@ -480,12 +499,12 @@
       cardFile.value = "";
       if(!file) return;
       const url = await resizeFlat(file, 1400);
-      if(url){ pushUndo(); m.card = url; renderMembers(g); saveDraft(); toast("名片已更新，記得最後按「發布到網站」"); }
+      if(url){ pushUndo(); m.card = url; touch(m); renderMembers(g); saveDraft(); toast("名片已更新，記得最後按「發布到網站」"); }
       else toast("名片讀取失敗", {warn:true});
     };
     card.querySelector('[data-act="rmcard"]').onclick = () => {
       if(!m.card) return;
-      pushUndo(); m.card = ""; renderMembers(g); saveDraft();
+      pushUndo(); m.card = ""; touch(m); renderMembers(g); saveDraft();
     };
 
     /* 商品照:多選,最多 5 張 */
@@ -506,6 +525,7 @@
           const url = await resizeFlat(f, 1200);
           if(url){ m.products.push(url); ok++; }
         }
+        if(ok) touch(m);
         renderMembers(g); saveDraft();
         toast("已加入 " + ok + " 張商品照" + (files.length > room ? "（超過 5 張上限，其餘略過）" : "") + "，記得最後按「發布到網站」");
       };
@@ -514,7 +534,7 @@
       btn.onclick = () => {
         const idx = parseInt(btn.dataset.i, 10);
         if(!(m.products || [])[idx] && (m.products || [])[idx] !== "") return;
-        pushUndo(); m.products.splice(idx, 1); renderMembers(g); saveDraft();
+        pushUndo(); m.products.splice(idx, 1); touch(m); renderMembers(g); saveDraft();
       };
     });
   }
@@ -556,10 +576,17 @@
     byId("g-code") && byId("g-code").focus();
     toast("已新增分組，請填代號與名稱");
   }
+  /* 新成員的欄位樣板:後台手動新增與 CSV 匯入新增共用同一份,欄位增減只改這裡 */
+  function newMember(gid, name, number){
+    return { id: uid(gid+"_m"), number:number||"", name:name||"", title:"",
+      services:[], targets:[], have:[], want:[], tagline:[],
+      image:"", card:"", products:[], company:"", business_items:"", website:"",
+      dataIssue:false, updatedAt:new Date().toISOString() };
+  }
   function addMember(g, name, opts){
     opts = opts || {};
     pushUndo();
-    const m = { id: uid(g.id+"_m"), number:"", name:name||"", title:"", services:[], targets:[], tagline:[], image:"", company:"", business_items:"", website:"", card:"", products:[], dataIssue:false };
+    const m = newMember(g.id, name);
     g.members.push(m); renderSidebar(); renderMembers(g); scheduleSaveAndValidate();
     if(opts.quick){
       toast("已新增成員" + (name ? "「" + name + "」" : ""));
@@ -574,6 +601,7 @@
     const copy = JSON.parse(JSON.stringify(src));
     copy.id = uid(g.id+"_m");
     copy.name = (src.name || "") + "（複製）";
+    touch(copy);
     g.members.splice(i+1, 0, copy);
     renderSidebar(); renderMembers(g); scheduleSaveAndValidate();
     const card = main.querySelector('.mem-card[data-mid="'+cssq(copy.id)+'"]');
@@ -625,6 +653,8 @@
     { key:"title",          label:"行業職稱",      type:"str" },
     { key:"services",       label:"服務項目",      type:"arr" },
     { key:"targets",        label:"適合引薦對象",  type:"arr" },
+    { key:"have",           label:"我有",          type:"arr" },
+    { key:"want",           label:"我要",          type:"arr" },
     { key:"tagline",        label:"宣傳標語",      type:"arr" },
     { key:"company",        label:"所屬公司",      type:"str" },
     { key:"business_items", label:"主要營業項目",  type:"str" },
@@ -678,6 +708,8 @@
       "分組代號":"gcode", "組別代號":"gcode", "組別":"gcode", "分組":"gcode",
       "分組名稱":"gname", "組名":"gname",
       "服務項目":"services", "適合引薦對象":"targets", "宣傳標語":"tagline",
+      "我有":"have", "我有…":"have", "我有什麼":"have",
+      "我要":"want", "我要…":"want", "我要什麼":"want",
       "所屬公司":"company", "主要營業項目":"business_items",
       "公司網站":"website", "網站":"website",
       "資料需確認":"dataIssue", "刪除":"del",
@@ -829,7 +861,7 @@
         counts.map(c => "<tr><td>" + esc(c.code) + "・" + esc(c.name) + '</td><td>' + c.before + '</td><td class="up">' + c.after + "</td></tr>").join("") +
         "</table></div>";
     }
-    h += '<div class="batch-note">規則：空格＝不變更；填一個 <b>-</b> ＝清空該欄；「服務項目／引薦對象／標語」多項用 <b>|</b> 分隔；要刪人請在「刪除」欄填「是」。照片欄僅供核對，匯入不會動照片（照片請到各成員卡用「更換照片」放入）。</div>';
+    h += '<div class="batch-note">規則：空格＝不變更；填一個 <b>-</b> ＝清空該欄；「服務項目／引薦對象／我有／我要／標語」多項用 <b>|</b> 分隔；要刪人請在「刪除」欄填「是」。照片與「最後更新」欄僅供核對，匯入不會動照片，時間戳由系統自動蓋（照片請到各成員卡用「更換照片」放入）。</div>';
     return h || "<p>沒有偵測到任何變更。</p>";
   }
 
@@ -841,17 +873,17 @@
       DATA.push(g); createdByCode.set(ng.code, g);
     });
     const resolveG = (targetG, key) => key ? createdByCode.get(key) : (targetG ? groupById(targetG.id) : null);
-    plan.updates.forEach(u => u.changes.forEach(c => { u.m[c.key] = c.val; }));
+    plan.updates.forEach(u => { u.changes.forEach(c => { u.m[c.key] = c.val; }); touch(u.m); });
     plan.moves.forEach(mv => {
       const from = groupById(mv.from.id), to = resolveG(mv.to, mv.newGroupKey);
       if(!from || !to || from === to) return;
       const i = from.members.indexOf(mv.m);
-      if(i >= 0){ from.members.splice(i, 1); to.members.push(mv.m); }
+      if(i >= 0){ from.members.splice(i, 1); to.members.push(mv.m); touch(mv.m); }
     });
     plan.adds.forEach(a => {
       const to = resolveG(a.targetG, a.newGroupKey);
       if(!to) return;
-      const m = { id: uid(to.id + "_m"), number: a.number || "", name: a.name || "", title: "", services: [], targets: [], tagline: [], image: "", company: "", business_items: "", website: "", card: "", products: [], dataIssue: false };
+      const m = newMember(to.id, a.name, a.number);
       FIELD_DEFS.forEach(def => { if(def.key in a.fields) m[def.key] = a.fields[def.key]; });
       to.members.push(m);
     });
@@ -1049,11 +1081,11 @@
       total ? async () => {
         toast("套用中(含照片裁切)…", { duration: 60000 });
         pushUndo();
-        plan.updates.forEach(u => u.changes.forEach(c => { u.m[c.key] = c.val; }));
+        plan.updates.forEach(u => { u.changes.forEach(c => { u.m[c.key] = c.val; }); touch(u.m); });
         let photoOk = 0, photoFail = 0;
         for(const p of plan.photos){
           const url = await autoCropResize(p.blob);
-          if(url){ p.m.image = url; photoOk++; } else photoFail++;
+          if(url){ p.m.image = url; touch(p.m); photoOk++; } else photoFail++;
         }
         renderAll(); validate(); saveDraft();
         toast("已套用:欄位 " + plan.updates.length + " 位、照片 " + photoOk + " 位" +
@@ -1086,6 +1118,8 @@
       if(!(m.business_items || "").trim()) miss.push("主要營業項目");
       if(!(m.services || []).filter(s => String(s).trim()).length) miss.push("服務項目");
       if(!(m.targets || []).filter(s => String(s).trim()).length) miss.push("適合引薦對象");
+      if(!(m.have || []).filter(s => String(s).trim()).length) miss.push("我有");
+      if(!(m.want || []).filter(s => String(s).trim()).length) miss.push("我要");
       if(!(m.tagline || []).filter(s => String(s).trim()).length) miss.push("宣傳標語");
       if(miss.length){ items.push({ g, m, miss }); miss.forEach(bump); }
     }));
@@ -1459,6 +1493,8 @@
     if(!el) return;
     const total = DATA.reduce((n, g) => n + g.members.length, 0);
     let noPhoto = 0, hasCard = 0, hasProducts = 0, hasWebsite = 0, recruit = 0, missingMembers = 0;
+    let hasHave = 0, hasWant = 0, recentlyEdited = 0;
+    const WEEK_AGO = Date.now() - 7 * 24 * 60 * 60 * 1000;
     DATA.forEach(g => {
       recruit += (g.recruiting || []).filter(r => String(r).trim()).length;
       g.members.forEach(m => {
@@ -1466,10 +1502,16 @@
         if((m.card || "").trim()) hasCard++;
         if((m.products || []).length) hasProducts++;
         if(/^https?:\/\//.test(m.website || "")) hasWebsite++;
+        if((m.have || []).filter(s => String(s).trim()).length) hasHave++;
+        if((m.want || []).filter(s => String(s).trim()).length) hasWant++;
+        const t = Date.parse(m.updatedAt || "");
+        if(!isNaN(t) && t >= WEEK_AGO) recentlyEdited++;
         const miss = !m.image || !(m.card || "").trim() || !(m.products || []).length ||
           !(m.company || "").trim() || !(m.business_items || "").trim() ||
           !(m.services || []).filter(s => String(s).trim()).length ||
           !(m.targets || []).filter(s => String(s).trim()).length ||
+          !(m.have || []).filter(s => String(s).trim()).length ||
+          !(m.want || []).filter(s => String(s).trim()).length ||
           !(m.tagline || []).filter(s => String(s).trim()).length;
         if(miss) missingMembers++;
       });
@@ -1484,6 +1526,9 @@
       '<div class="dstat"><b>' + hasCard + '<small>／' + total + '</small></b><span>已有名片圖</span></div>' +
       '<div class="dstat"><b>' + hasProducts + '<small>／' + total + '</small></b><span>已有商品照</span></div>' +
       '<div class="dstat"><b>' + hasWebsite + '<small>／' + total + '</small></b><span>已填公司網站</span></div>' +
+      '<div class="dstat"><b>' + hasHave + '<small>／' + total + '</small></b><span>已填「我有」</span></div>' +
+      '<div class="dstat"><b>' + hasWant + '<small>／' + total + '</small></b><span>已填「我要」</span></div>' +
+      '<div class="dstat"><b>' + recentlyEdited + '<small>／' + total + '</small></b><span>近 7 天有更新</span></div>' +
       '<div class="dstat"><b>' + recruit + '</b><span>招募中席位</span></div>';
     const dm = byId("dstat-missing");
     if(dm) dm.onclick = missingReport;

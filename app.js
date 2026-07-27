@@ -94,7 +94,18 @@
     spark: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.581a.5.5 0 0 1 0 .964L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/></svg>',
     idcard: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 10h2"/><path d="M16 14h2"/><path d="M6.17 15a3 3 0 0 1 5.66 0"/><circle cx="9" cy="11" r="2"/><rect x="2" y="5" width="20" height="14" rx="2"/></svg>',
     box: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 8.7 5 8.7-5"/></svg>',
+    hand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 15h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.4.6L3 17"/><path d="m7 21 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-4.4a2 2 0 0 0-2.75-2.91l-4.2 3.9"/><path d="m2 16 6 6"/><circle cx="16" cy="9" r="2.9"/><circle cx="6" cy="5" r="3"/></svg>',
+    megaphone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>',
+    clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
   };
+
+  /* 資料最後更新時間：存的是 ISO 字串，前台只顯示到「年/月/日」 */
+  function fmtStamp(iso){
+    const d = new Date(iso);
+    if(isNaN(d.getTime())) return "";
+    const pad = n => String(n).padStart(2, "0");
+    return d.getFullYear() + "/" + pad(d.getMonth()+1) + "/" + pad(d.getDate());
+  }
 
   function photoCard(m){
     if(m.image){
@@ -225,8 +236,8 @@
           <circle cx="260" cy="60" r="8" fill="var(--red)"/>
           <circle cx="120" cy="180" r="5" fill="var(--red-200)"/>
         </svg>
-        <div class="hero-eyebrow anim" style="--i:0">Member Directory</div>
-        <h1 class="anim" style="--i:1">會員<span class="accent">名錄</span></h1>
+        <div class="hero-eyebrow anim" style="--i:0">${esc(SITE.BRAND_SUB)}</div>
+        <h1 class="anim" style="--i:1">${esc(SITE.ORG_NAME)}<span class="accent">會員名錄</span></h1>
         <p class="hero-sub anim" style="--i:2">依專業分組瀏覽每一位成員的照片、專業項目與引薦資訊，點進個人頁面查看完整介紹。</p>
         <div class="hero-stats anim" style="--i:3">
           <div class="stat"><div class="stat-num">${GROUPS.length}</div><div class="stat-label">專業分組</div></div>
@@ -352,6 +363,14 @@
             <div class="info-head"><span class="info-icon">${I.target}</span><span class="info-label">適合引薦對象</span></div>
             <div class="info-text">${esc(joinLines(m.targets)) || "—"}</div>
           </div>
+          <div class="info-card ${(m.have || []).length ? "" : "placeholder"}">
+            <div class="info-head"><span class="info-icon">${I.hand}</span><span class="info-label">我有…</span>${(m.have || []).length ? "" : '<span class="pending-chip">待補充</span>'}</div>
+            <div class="info-text">${esc(joinLines(m.have)) || "資料尚未提供，補充後將顯示於此。"}</div>
+          </div>
+          <div class="info-card ${(m.want || []).length ? "" : "placeholder"}">
+            <div class="info-head"><span class="info-icon">${I.megaphone}</span><span class="info-label">我要…</span>${(m.want || []).length ? "" : '<span class="pending-chip">待補充</span>'}</div>
+            <div class="info-text">${esc(joinLines(m.want)) || "資料尚未提供，補充後將顯示於此。"}</div>
+          </div>
           <div class="info-card ${m.company ? "" : "placeholder"}">
             <div class="info-head"><span class="info-icon">${I.building}</span><span class="info-label">所屬公司</span>${m.company ? "" : '<span class="pending-chip">待補充</span>'}</div>
             <div class="info-text">${esc(m.company) || "資料尚未提供，補充後將顯示於此。"}</div>
@@ -396,6 +415,7 @@
             </div>
           </div>
         </div>
+        ${fmtStamp(m.updatedAt) ? `<div class="detail-updated">${I.clock}<span>資料最後更新 <b>${esc(fmtStamp(m.updatedAt))}</b></span></div>` : ""}
         <div class="detail-views" id="detail-views" hidden>${I.eye}<span>本頁已被瀏覽 <b>—</b> 次</span></div>
       </article>
       <nav class="detail-nav" aria-label="同組成員導覽">

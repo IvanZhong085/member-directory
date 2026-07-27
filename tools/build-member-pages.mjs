@@ -8,9 +8,10 @@
 import { readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import SITE from "../site-config.js";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
-const SITE_BASE = "https://ivanzhong085.github.io/member-directory/";
+const SITE_BASE = SITE.SITE_BASE;
 const OUT_DIR = join(ROOT, "m");
 
 const src = readFileSync(join(ROOT, "data.js"), "utf8");
@@ -30,6 +31,8 @@ function pageHTML(m, g){
   const descParts = [];
   if((m.services || []).length) descParts.push("服務項目：" + m.services.join("、"));
   if((m.targets || []).length) descParts.push("適合引薦：" + m.targets.join("、"));
+  if((m.have || []).length) descParts.push("我有：" + m.have.join("、"));
+  if((m.want || []).length) descParts.push("我要：" + m.want.join("、"));
   const desc = (descParts.join("；") || "會員名錄成員介紹").slice(0, 150);
   const target = "../index.html#/member/" + encodeURIComponent(m.id);
   const pageUrl = SITE_BASE + "m/" + encodeURIComponent(m.id) + ".html";
@@ -38,11 +41,11 @@ function pageHTML(m, g){
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>${esc(title)}｜會員名錄</title>
+<title>${esc(title)}｜${esc(SITE.ORG_NAME)}</title>
 <meta name="description" content="${esc(desc)}">
 <meta name="robots" content="noindex">
 <meta property="og:type" content="profile">
-<meta property="og:site_name" content="會員名錄">
+<meta property="og:site_name" content="${esc(SITE.ORG_NAME)}">
 <meta property="og:title" content="${esc(title)}">
 <meta property="og:description" content="${esc(desc)}">
 <meta property="og:url" content="${esc(pageUrl)}">

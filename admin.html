@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>會員名錄 · 後台編輯器</title>
+<title>雲榮鑽石分會 · 後台編輯器</title>
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="stylesheet" href="styles.css?v=5">
@@ -74,6 +74,7 @@
   .mem-fields{display:flex; flex-direction:column; gap:12px; min-width:0;}
   .mem-head{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
   .mem-idx{font-size:12px; font-weight:800; color:var(--red); background:var(--red-50); border:1px solid var(--red-100); border-radius:7px; padding:3px 8px;}
+  .mem-stamp{font-size:11px; font-weight:700; color:var(--faint); letter-spacing:.02em; font-variant-numeric:tabular-nums;}
   .mem-tools{margin-left:auto; display:flex; gap:6px;}
   .icon-btn{width:32px; height:32px; border-radius:8px; border:1.5px solid var(--border-2); background:#fff; color:var(--muted); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:.15s;}
   .icon-btn:hover{border-color:var(--red-200); color:var(--red);}
@@ -266,7 +267,7 @@
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
       </span>
-      會員名錄 <span class="adm-badge">後台編輯</span>
+      雲榮鑽石分會 <span class="adm-badge">後台編輯</span>
     </div>
     <a class="btn btn-ghost adm-back" id="btn-back-site" href="index.html" title="回到公開會員名錄">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
@@ -444,6 +445,8 @@
     <li><b>上一步／下一步</b>：左上角兩個箭頭（或 <code>Ctrl+Z</code>／<code>Ctrl+Y</code>），最多可往前回復 10 步。</li>
     <li><b>換照片＋裁剪</b>：點「更換照片」選圖後，會跳出裁剪框，拖曳、縮放把人物放進框內再「套用」。</li>
     <li><b>暫存</b>：按「暫存」把目前進度立即存進這台裝置的瀏覽器（不會發布出去），下次打開還在。</li>
+    <li><b>我有…／我要…</b>：每行一項。「我有」寫手上的資源、專長、人脈；「我要」寫想被引薦到的對象與需求。兩欄都會顯示在成員內頁與分享卡上。</li>
+    <li><b>最後更新時間</b>：任何欄位一改動（含 CSV／表單／PPT 批次匯入）就會自動蓋章，顯示在成員卡標頭、成員內頁與匯出的 CSV；純調整排序不算修改。</li>
     <li><b>分組列</b>：在左側；電腦可用 <code>«</code> 收合、手機點左上 <code>☰</code> 叫出。新增分組用「+ 新增組」或列表下方虛線鈕。</li>
     <li>改完務必按「<b>發布到網站</b>」才會真正更新到公開網站，光改草稿不會。</li>
   </ol>
@@ -451,10 +454,11 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="site-config.js?v=1"></script>
 <script src="data.js"></script>
-<script src="csv-schema.js?v=1"></script>
+<script src="csv-schema.js?v=2"></script>
 <script src="jszip.js"></script>
 <script src="pptimport.js?v=5"></script>
-<script src="admin.js?v=6"></script>
+<script src="admin.js?v=7"></script>
 </body>
 </html>
