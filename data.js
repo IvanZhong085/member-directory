@@ -32,7 +32,7 @@ const GROUPS = [
         "business_items": "",
         "website": "",
         "id": "g3_m1",
-        "dataIssue": true,
+        "dataIssue": false,
         "updatedAt": ""
       },
       {
