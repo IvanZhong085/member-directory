@@ -408,7 +408,7 @@
           <div class="mem-head">
             <span class="mem-idx">第 ${i+1} 位</span>
             <span class="mem-stamp">${m.updatedAt ? "最後更新 " + esc(fmtStamp(m.updatedAt, true)) : "尚無更新紀錄"}</span>
-            <span class="chk"><input type="checkbox" data-f="dataIssue" ${m.dataIssue?"checked":""}> 標記資料需確認</span>
+            <label class="chk"><input type="checkbox" data-f="dataIssue" ${m.dataIssue?"checked":""}> 標記資料需確認</label>
             <span class="mem-tools">
               <button class="icon-btn" data-act="up" title="上移" ${i===0?"disabled":""}>${ICON.up}</button>
               <button class="icon-btn" data-act="down" title="下移" ${i===total-1?"disabled":""}>${ICON.down}</button>
@@ -1152,22 +1152,33 @@
     memWorkerUrl = url;
     try{ localStorage.setItem(WORKER_URL_KEY, url); }catch(e){}
   }
-  function loadSession(){
+  function currentSession(){
     let raw = null; try{ raw = sessionStorage.getItem(SESSION_KEY); }catch(e){}
     if(raw){
       let s; try{ s = JSON.parse(raw); }catch(e){ s = null; }
-      if(s && s.token && s.exp && Date.now() < s.exp) return s.token;
+      if(s && s.token && s.exp && Date.now() < s.exp) return s;
     }
-    if(memSession && memSession.token && Date.now() < memSession.exp) return memSession.token;
+    if(memSession && memSession.token && Date.now() < memSession.exp) return memSession;
     return null;
   }
-  function saveSession(token, expiresInSeconds){
-    memSession = { token, exp: Date.now() + expiresInSeconds*1000 };
+  function loadSession(){ const s = currentSession(); return s ? s.token : null; }
+  function saveSession(token, expiresInSeconds, user){
+    memSession = { token, exp: Date.now() + expiresInSeconds*1000, user: user || "" };
     try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify(memSession)); }catch(e){}
+    showWho();
   }
   function clearSession(){
     memSession = null;
     try{ sessionStorage.removeItem(SESSION_KEY); }catch(e){}
+    showWho();
+  }
+  /* 頂端顯示目前登入者:多帳號時要一眼看得出「現在是誰在改」 */
+  function showWho(){
+    const el = byId("adm-who");
+    if(!el) return;
+    const s = currentSession();
+    if(s && s.user){ el.textContent = "👤 " + s.user; el.hidden = false; }
+    else { el.textContent = ""; el.hidden = true; }
   }
 
   async function workerFetch(path, payload, urlOverride){
@@ -1198,18 +1209,26 @@
   function showLock(){
     const configured = !!loadWorkerUrl();
     byId("lock-lead").textContent = configured
-      ? "輸入管理密碼進入編輯模式。"
+      ? "輸入你的帳號與密碼進入編輯模式。"
       : "尚未設定發布服務。請按下方「連線設定」貼上 Worker 網址。";
+    byId("lock-user-field").style.display = configured ? "" : "none";
     byId("lock-pass-field").style.display = configured ? "" : "none";
     byId("lock-enter").style.display = configured ? "" : "none";
     byId("lock-error").hidden = true;
     byId("lock-overlay").hidden = false;
-    if(configured) byId("lock-pass").focus();
+    if(configured) byId("lock-user").focus();
   }
   function hideLock(){ byId("lock-overlay").hidden = true; }
 
   async function tryUnlock(){
+    const user = byId("lock-user").value.trim();
     const pass = byId("lock-pass").value;
+    if(!user){
+      byId("lock-error").hidden = false;
+      byId("lock-error").textContent = "請先輸入帳號。";
+      byId("lock-user").focus();
+      return;
+    }
     if(!pass){
       byId("lock-error").hidden = false;
       byId("lock-error").textContent = "請先輸入密碼。";
@@ -1219,10 +1238,10 @@
     if(!loadWorkerUrl()){ openSettings(); return; }
     const btn = byId("lock-enter");
     btn.disabled = true; btn.textContent = "確認中…";
-    const res = await workerFetch("/login", { password: pass });
+    const res = await workerFetch("/login", { username: user, password: pass });
     btn.disabled = false; btn.textContent = "進入編輯模式";
     if(res.ok && res.session){
-      saveSession(res.session, res.expiresInSeconds || 1800);
+      saveSession(res.session, res.expiresInSeconds || 1800, res.user || user);
       byId("lock-pass").value = "";
       hideLock();
       hidePermBanner();
@@ -1234,12 +1253,15 @@
     } else if(res.error === "no_worker_url" || res.error === "network"){
       byId("lock-error").hidden = false;
       byId("lock-error").textContent = "連不到發布服務，請檢查「連線設定」裡的網址是否正確。";
+    } else if(res.error === "misconfigured_no_accounts"){
+      byId("lock-error").hidden = false;
+      byId("lock-error").textContent = "發布服務上還沒有設定任何帳號，請管理員到 Cloudflare 檢查 Worker 的 ADMIN_USERS 設定（見 worker/README.md）。";
     } else if(res.error === "rate_limit_unavailable" || res.error === "misconfigured_missing_allowed_origin"){
       byId("lock-error").hidden = false;
       byId("lock-error").textContent = "發布服務尚未設定完成，請管理員檢查 Cloudflare Worker 的設定（見 worker/README.md）。";
     } else {
       byId("lock-error").hidden = false;
-      byId("lock-error").textContent = "密碼不正確，請再試一次。";
+      byId("lock-error").textContent = "帳號或密碼不正確，請再試一次。";
       byId("lock-pass").select();
     }
   }
@@ -1556,7 +1578,9 @@
   byId("s-cancel").onclick = closeSettings;
   byId("s-test").onclick = testConnection;
   byId("lock-enter").onclick = tryUnlock;
+  byId("lock-user").addEventListener("keydown", e => { if(e.key === "Enter") byId("lock-pass").focus(); });
   byId("lock-pass").addEventListener("keydown", e => { if(e.key === "Enter") tryUnlock(); });
+  showWho();
   byId("s-worker-url").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); saveSettings(); } });
   byId("lock-setup").onclick = () => { openSettings(); };
   byId("perm-recheck").onclick = () => { hidePermBanner(); toast("已隱藏提醒，發布時若還有問題會再顯示"); };

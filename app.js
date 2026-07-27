@@ -353,7 +353,7 @@
             ${m.tagline && m.tagline.length ? `<div class="detail-tagline">${I.quote}${esc(joinLines(m.tagline))}</div>` : ""}
           </div>
         </div>
-        ${m.dataIssue ? `<div class="issue-banner">${I.alert}<span>原始投影片此頁內容與另一位成員重複，以下「服務項目／適合引薦對象」可能有誤，待向本人確認後更新。</span></div>` : ""}
+        ${m.dataIssue ? `<div class="issue-banner">${I.alert}<span>這位夥伴的資料正在向本人確認中，以下內容可能有誤或尚未補齊。</span></div>` : ""}
         <div class="detail-body">
           <div class="info-card">
             <div class="info-head"><span class="info-icon">${I.briefcase}</span><span class="info-label">服務項目</span></div>
