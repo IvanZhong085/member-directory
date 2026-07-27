@@ -372,11 +372,12 @@ body.dir-collapsed .dir-label, body.dir-collapsed .dir-count{display:none;}
 .info-text{font-size:14px; white-space:pre-line; color:var(--ink); line-height:1.75;}
 .info-card.placeholder .info-text{color:var(--muted); font-style:italic;}
 
-/* 本頁瀏覽計數 */
-.detail-views{display:flex; align-items:center; justify-content:center; gap:7px; padding:2px 24px 22px; font-size:12.5px; color:var(--muted); font-weight:600;}
-.detail-views svg{width:15px; height:15px; color:var(--faint);}
-.detail-views b{color:var(--red); font-variant-numeric:tabular-nums; font-weight:800; margin:0 1px;}
-.detail-views[hidden]{display:none;}
+/* 本頁瀏覽計數 / 資料最後更新時間 */
+.detail-views, .detail-updated{display:flex; align-items:center; justify-content:center; gap:7px; padding:2px 24px 22px; font-size:12.5px; color:var(--muted); font-weight:600;}
+.detail-views svg, .detail-updated svg{width:15px; height:15px; color:var(--faint);}
+.detail-views b, .detail-updated b{color:var(--red); font-variant-numeric:tabular-nums; font-weight:800; margin:0 1px;}
+.detail-views[hidden], .detail-updated[hidden]{display:none;}
+.detail-updated{padding-bottom:6px;}
 
 /* prev / next */
 .detail-nav{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:18px;}

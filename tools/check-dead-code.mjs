@@ -15,12 +15,14 @@ const read = f => { try { return readFileSync(join(ROOT, f), "utf8"); } catch (e
 
 /* 每個頁面實際載入的檔案組(依各 html 的 <script> 清單維護) */
 const PAGES = {
-  "admin.html":     ["data.js", "csv-schema.js", "jszip.js", "pptimport.js", "admin.js", "admin.html"],
-  "index.html":     ["data.js", "qrcode.js", "sharecard.js", "app.js", "index.html"],
-  "spotlight.html": ["data.js", "qrcode.js", "sharecard.js", "spotlight.js", "spotlight.html"],
+  "admin.html":     ["site-config.js", "data.js", "csv-schema.js", "jszip.js", "pptimport.js", "admin.js", "admin.html"],
+  "index.html":     ["site-config.js", "data.js", "qrcode.js", "sharecard.js", "app.js", "index.html"],
+  "spotlight.html": ["site-config.js", "data.js", "qrcode.js", "sharecard.js", "spotlight.js", "spotlight.html"],
+  "groups.html":    ["site-config.js", "data.js", "qrcode.js", "groups.html"],
+  "visitor.html":   ["site-config.js", "data.js", "visitor.html"],
 };
 /* 只掃第一方程式碼(第三方與資料檔跳過) */
-const SKIP = new Set(["data.js", "jszip.js", "qrcode.js"]);
+const SKIP = new Set(["data.js", "jszip.js", "qrcode.js", "site-config.js"]);
 
 let suspects = 0;
 for (const [page, files] of Object.entries(PAGES)) {
@@ -41,4 +43,4 @@ if (suspects) {
   console.log(`\n共 ${suspects} 個疑似死函式——若確為棄用請一併刪除;若是被誤刪了呼叫端,把功能救回來。`);
   process.exit(1);
 }
-console.log("✓ 掃描完成:三個頁面環境皆無疑似死函式。");
+console.log(`✓ 掃描完成:${Object.keys(PAGES).length} 個頁面環境皆無疑似死函式。`);
