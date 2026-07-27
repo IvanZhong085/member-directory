@@ -11,7 +11,6 @@
      mutations                增刪改(結構性動作先 pushUndo)
      export                   data.js 備份下載
      CSV 匯出/匯入            欄位定義共用 csv-schema.js;空格=不變更
-     抓表單回應               拉 Google 表單「匯入用」CSV 進差異預覽
      照片自動置中裁切         PPT 匯入照片用
      匯入 PPT                 會員專業簡報 → 批次更新(pptimport.js 解析)
      缺資料清單               催收訊息產生器(附表單連結)
@@ -910,7 +909,7 @@
     })();
   }
 
-  /* 一段 CSV 文字 → 差異預覽 → 套用（檔案上傳與「抓表單回應」共用同一條路） */
+  /* 一段 CSV 文字 → 差異預覽 → 套用 */
   function processCsvText(text, sourceLabel){
     const rows = parseCSV(text);
     if(rows.length < 2){ toast((sourceLabel || "CSV") + " 裡沒有資料列（第一列需為欄位名稱）", { warn:true }); return; }
@@ -926,40 +925,6 @@
         toast("已套用 " + total + " 項變更（可用上一步復原）；確認沒問題後記得按「發布到網站」", { duration: 7000 });
       } : null
     );
-  }
-
-  /* ---------- 抓表單回應：直接拉「匯入用」分頁發布的 CSV，免下載免上傳 ---------- */
-  const FORMCSV_KEY = "member-directory-formcsv-url-v1";
-  let memFormCsvUrl = "";
-  function loadFormCsvUrl(){
-    let saved = ""; try{ saved = localStorage.getItem(FORMCSV_KEY) || ""; }catch(e){}
-    return (saved || memFormCsvUrl || "").trim();
-  }
-  function saveFormCsvUrl(url){
-    memFormCsvUrl = url;
-    try{ localStorage.setItem(FORMCSV_KEY, url); }catch(e){}
-  }
-  async function pullFormResponses(){
-    const url = loadFormCsvUrl();
-    if(!url){
-      toast("先到「設定」貼上表單回應的 CSV 發布網址（教學見該欄位說明）", { warn:true, duration: 7000 });
-      openSettings();
-      return;
-    }
-    const btn = byId("btn-pull-form");
-    const orig = btn.textContent;
-    btn.disabled = true; btn.textContent = "拉取中…";
-    try{
-      const res = await fetch(url, { cache: "no-store" });
-      if(!res.ok) throw new Error("HTTP " + res.status);
-      const text = await res.text();
-      if(/<html/i.test(text.slice(0, 300))) throw new Error("not_csv");   // 拿到網頁＝網址不是「發布的 CSV」
-      processCsvText(text, "表單回應");
-    }catch(e){
-      toast("拉不到表單資料：請確認「匯入用」分頁已「發布到網路（CSV）」且網址正確", { warn: true, duration: 8000 });
-    }finally{
-      btn.disabled = false; btn.textContent = orig;
-    }
   }
 
   /* ---------- 照片自動置中裁切(PPT 匯入照片用) ---------- */
@@ -1095,8 +1060,7 @@
   }
 
   /* ---------- 缺資料清單:找出資料不齊的夥伴,產生可直接貼 LINE 的催收訊息 ---------- */
-  /* 外部連結一律取自 site-config.js(與來賓報名表單同一份設定);留空則相關捷徑自動隱藏 */
-  const FORM_URL = SITE.MEMBER_FORM_URL || "";    // 夥伴補資料表單(催收訊息自動附上)
+  /* 外部連結取自 site-config.js;留空則相關捷徑自動隱藏 */
   const SHEET_URL = SITE.ROSTER_SHEET_URL || "";  // Google 名冊試算表(工具列「名冊試算表」捷徑)
   function copyPlain(text){
     return navigator.clipboard.writeText(text).then(() => true).catch(() => {
@@ -1129,7 +1093,7 @@
     const notice = [
       "【會員名錄・資料補齊通知】",
       "以下夥伴的名錄資料還有缺項,麻煩抽空補上,讓你的頁面更有引薦力 💪",
-      FORM_URL ? "補資料表單:" + FORM_URL : "(補資料表單建立後會附上連結)",
+      "請直接把缺的內容回覆給網管,由網管統一更新。",
       "",
     ].concat(lines).join("\n");
     const statHtml = Object.entries(fieldCount).sort((a, b) => b[1] - a[1])
@@ -1302,7 +1266,6 @@
   /* ---------- settings（只有 Worker 網址，不是機密） ---------- */
   function openSettings(){
     byId("s-worker-url").value = loadWorkerUrl();
-    byId("s-formcsv-url").value = loadFormCsvUrl();
     byId("settings-modal").hidden = false;
     byId("s-worker-url").focus();
   }
@@ -1310,9 +1273,6 @@
   function saveSettings(){
     const url = byId("s-worker-url").value.trim().replace(/\/+$/, "");
     if(url && !/^https:\/\//.test(url)){ toast("網址需以 https:// 開頭", {warn:true}); return; }
-    const formCsv = byId("s-formcsv-url").value.trim();
-    if(formCsv && !/^https:\/\//.test(formCsv)){ toast("表單 CSV 網址需以 https:// 開頭", {warn:true}); return; }
-    saveFormCsvUrl(formCsv);
     const changed = url !== loadWorkerUrl();
     saveWorkerUrl(url);
     refreshCaps();   // 換了服務就重新確認它支不支援附件
@@ -1543,7 +1503,7 @@
         '<a class="dtool" href="groups.html" target="_blank" rel="noopener">📋 產業小組表</a>' +
         '<a class="dtool" href="visitor.html" target="_blank" rel="noopener">🤝 來賓報名頁</a>' +
         '<a class="dtool" href="roster.csv" target="_blank" rel="noopener">📄 名冊 CSV</a>';
-      if(FORM_URL) h += '<a class="dtool" href="' + esc(FORM_URL) + '" target="_blank" rel="noopener">📝 夥伴補資料表單</a>';
+      if(SITE.VISITOR_FORM_URL) h += '<a class="dtool" href="' + esc(SITE.VISITOR_FORM_URL) + '" target="_blank" rel="noopener">📝 來賓報名表單</a>';
       if(SHEET_URL) h += '<a class="dtool" href="' + esc(SHEET_URL) + '" target="_blank" rel="noopener">📊 名冊試算表</a>';
       tools.innerHTML = h;
     }
@@ -1578,7 +1538,6 @@
     byId("csv-file").value = "";
     if(f) handleCsvFile(f);
   };
-  byId("btn-pull-form").onclick = pullFormResponses;
   byId("btn-missing").onclick = missingReport;
   byId("btn-ppt").onclick = () => byId("ppt-file").click();
   byId("ppt-file").onchange = () => {
