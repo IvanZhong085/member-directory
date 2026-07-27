@@ -27,7 +27,7 @@ const GROUPS = [
         "company": "",
         "business_items": "",
         "id": "g3_m1",
-        "dataIssue": true
+        "dataIssue": false
       },
       {
         "number": "079",
