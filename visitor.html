@@ -173,9 +173,11 @@
 (function(){
   "use strict";
 
-  /* ── 頁面設定(網管維護):報名表單網址與例會資訊 ── */
+  /* ── 頁面設定(網管維護)──
+     報名表單網址放在 site-config.js(與後台的兩個 Google 連結同一份);
+     例會時間地點只有這一頁用到,留在這裡就好。 */
   var VISITOR = {
-    formUrl: "",                                  // 來賓報名 Google 表單網址(用 google-form.gs 的 createVisitorForm 建立後填入)
+    formUrl: SITE.VISITOR_FORM_URL || "",
     meetTime: "每週四 06:30–09:00",
     meetPlace: "Zoom 線上會議",
   };
