@@ -230,6 +230,31 @@
       "id": "g8_m8",
       "dataIssue": false,
       "updatedAt": ""
+    },
+    {
+      "id": "g8_m_ms4r2mg91w5t",
+      "number": "224",
+      "name": "劉妍庭",
+      "title": "AI 搜尋GEO行銷",
+      "services": [
+        "AI 搜尋GEO行銷"
+      ],
+      "targets": [
+        "需要被ai推薦的企業.店家.品牌"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "AI 搜尋問誰啊？Anna 直接幫你衝第一！"
+      ],
+      "image": "g8_m_ms4r2mg91w5t_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "GEO優化",
+      "website": "",
+      "dataIssue": false,
+      "updatedAt": "2026-07-28T14:37:53.049Z"
     }
   ],
   "recruiting": [
