@@ -28,7 +28,6 @@
 const SESSION_TTL_SECONDS = 30 * 60;     // 登入後 30 分鐘內免重輸密碼
 const MAX_FAILS = 5;                     // 同一個 IP 在下方時間窗內最多錯 5 次（KV 為最終一致性，極端並發下可能略為寬鬆，見下方 MIN_LOGIN_MS）
 const FAIL_WINDOW_SECONDS = 15 * 60;     // 15 分鐘
-const MAX_CONTENT_BYTES = 8 * 1024 * 1024; // 8MB，data.js 內含照片時的安全上限
 const MIN_LOGIN_MS = 300;                // 每次 /login 至少花這麼久才回應，拖慢暴力破解速度（也讓 timingSafeEqual 更難被計時分析）
 const GITHUB_TIMEOUT_MS = 15000;         // 呼叫 GitHub API 的逾時上限，避免請求無限期卡住
 
@@ -37,7 +36,25 @@ const GITHUB_TIMEOUT_MS = 15000;         // 呼叫 GitHub API 的逾時上限，
    權杖雖只授權這個 repo，仍不給「寫任意路徑」的能力。 */
 const MAX_FILES_PER_REQUEST = 25;               // 單次發布的附件上限（編輯頁會自動分批）
 const MAX_FILE_B64_CHARS = 3 * 1024 * 1024;     // 單一附件 base64 上限（約 2.2MB 原始檔）
-const FILE_PATH_RE = /^(images|m)\/[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.(jpg|jpeg|png|webp|html)$/;
+/* 只有 images/ 的圖片。m/ 的成員分享頁是 Action 產生的產出物,沒有人該從瀏覽器直接寫——
+   而它與編輯頁同源,能寫任意 .html 就等於能在站上放一頁自己的 JavaScript 去偷別人的登入
+   憑證。既然前端根本不會送,就不留這個能力。 */
+const FILE_PATH_RE = /^images\/[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.(jpg|jpeg|png|webp)$/;
+/* 分組資料檔:data/_index.json(分會結構)與 data/<代號小寫>.json(各組內容)。
+   ★ 這條路徑規則就是權限本身:組長只被允許寫自己那一組的檔案,見 canWriteDataFile() ★ */
+const DATA_PATH_RE = /^data\/(_index|[a-z0-9]{1,8})\.json$/;
+const MAX_DATA_B64_CHARS = 4 * 1024 * 1024;   // 單一分組檔 base64 上限(約 3MB 原始,含內嵌照片綽綽有餘)
+
+/* 這個 session 可不可以寫這個路徑。
+   總管理員:data/ 底下都可以。
+   組長:只有 data/<自己分組代號>.json——連 _index.json(分會結構)都不行。
+   回傳 true/false;非 data/ 開頭的附件(images、m)不經過這裡,由 FILE_PATH_RE 管。 */
+function canWriteDataFile(sess, path){
+  if(!DATA_PATH_RE.test(path)) return false;
+  if(!sess || sess.r !== "leader") return true;              // owner
+  const group = String(sess.g || "").trim().toLowerCase();
+  return !!group && path === "data/" + group + ".json";
+}
 
 function sleep(ms){ return new Promise(res => setTimeout(res, ms)); }
 async function fetchWithTimeout(url, opts, ms){
@@ -331,8 +348,43 @@ async function ghPutFile(env, headers, path, contentB64, message){
 }
 
 /* base64 基本檢查：字元集合法且長度合理（避免把垃圾塞進 GitHub API 才被打回） */
-function isPlausibleB64(s){
-  return typeof s === "string" && s.length > 0 && s.length <= MAX_FILE_B64_CHARS && /^[A-Za-z0-9+/]+={0,2}$/.test(s);
+function isPlausibleB64(s, max){
+  const cap = max || MAX_FILE_B64_CHARS;
+  return typeof s === "string" && s.length > 0 && s.length <= cap && /^[A-Za-z0-9+/]+={0,2}$/.test(s);
+}
+
+/* ★ 分組資料檔的內容檢查 ★
+   data/*.json 進來之後會被 GitHub Action 拿去合併成 data.js、產生分享頁與名冊。
+   那條產線是「前台會不會更新」的唯一通道：只要有一個檔案壞掉，合併腳本就會拋錯、
+   Action 失敗，data.js 從此停在舊版——全分會的前台一起凍結。所以壞資料要擋在這裡，
+   不能等到產線才發現。同時 id 會被拿去組檔名（m/<id>.html），一定要擋掉路徑穿越。 */
+const MEMBER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const MEMBER_ARRAY_FIELDS = ["services", "targets", "have", "want", "tagline", "products"];
+function checkDataFileBody(path, text){
+  let doc;
+  try{ doc = JSON.parse(text); }catch(e){ return "not_json"; }
+  if(path === "data/_index.json"){
+    if(!Array.isArray(doc)) return "index_not_array";
+    for(const e of doc){
+      if(!e || typeof e !== "object" || Array.isArray(e)) return "index_entry_not_object";
+      if(!GROUPCODE_RE.test(typeof e.code === "string" ? e.code : "")) return "bad_group_code";
+    }
+    return null;
+  }
+  if(!doc || typeof doc !== "object" || Array.isArray(doc)) return "group_not_object";
+  for(const k of ["members", "recruiting"]){
+    if(k in doc && !Array.isArray(doc[k])) return "bad_" + k;
+  }
+  for(const m of (Array.isArray(doc.members) ? doc.members : [])){
+    if(!m || typeof m !== "object" || Array.isArray(m)) return "member_not_object";
+    // id 之後會變成 m/<id>.html 的檔名——"../index" 這種值會蓋掉 repo 裡的其他檔案
+    if(!MEMBER_ID_RE.test(typeof m.id === "string" ? m.id : "")) return "bad_member_id";
+    // 這幾個欄位前台與產線都直接 .join()/.map():型別一錯就整頁(整條產線)拋錯
+    for(const k of MEMBER_ARRAY_FIELDS){
+      if(k in m && m[k] != null && !Array.isArray(m[k])) return "bad_member_field:" + k;
+    }
+  }
+  return null;
 }
 
 async function handlePublish(request, env){
@@ -346,49 +398,80 @@ async function handlePublish(request, env){
   const grp = String(sess.g || "").slice(0, 8);
   const by = who ? "（" + who + (grp ? "・" + grp : "") + "）" : "";
 
-  const hasContent = typeof content === "string" && content.length > 0;
+  /* data.js 現在是由 GitHub Action 從 data/*.json 合併產生的產出物,沒有人該直接寫它。
+     舊版編輯頁(還開著沒重新整理的分頁)會送 content;明確擋下並請他重新整理,
+     否則那份整檔內容會蓋掉分組檔剛發布的結果。 */
+  if(typeof content === "string" && content.length > 0){
+    return json(env, { ok:false, error:"content_not_accepted" }, 409);
+  }
   const fileList = Array.isArray(files) ? files : [];
-  if(!hasContent && fileList.length === 0) return json(env, { ok:false, error:"empty_content" }, 400);
-  if(hasContent && content.length > MAX_CONTENT_BYTES) return json(env, { ok:false, error:"too_large" }, 413);
+  if(fileList.length === 0) return json(env, { ok:false, error:"empty_content" }, 400);
 
-  // 附件驗證：數量、路徑白名單、base64 合法性——先全部驗完才動 GitHub，避免寫到一半才發現壞資料
+  // 附件驗證：數量、路徑白名單、寫入權限、base64 合法性
+  // ——先全部驗完才動 GitHub，避免寫到一半才發現壞資料或越權
   if(fileList.length > MAX_FILES_PER_REQUEST) return json(env, { ok:false, error:"too_many_files", max:MAX_FILES_PER_REQUEST }, 413);
   for(const f of fileList){
-    if(!f || typeof f.path !== "string" || !FILE_PATH_RE.test(f.path) || f.path.includes("..")){
+    if(!f || typeof f.path !== "string" || f.path.includes("..")){
       return json(env, { ok:false, error:"bad_file_path", path: f && f.path }, 400);
     }
-    if(!isPlausibleB64(f.contentB64)) return json(env, { ok:false, error:"bad_file_content", path: f.path }, 400);
+    const isData = f.path.startsWith("data/");
+    if(isData){
+      // ★ 真正的權限檢查:組長送出別組的檔案會在這裡被擋下,前端怎麼改都沒用 ★
+      if(!canWriteDataFile(sess, f.path)){
+        return json(env, { ok:false, error:"forbidden_path", path: f.path, role: sess.r || "owner", group: sess.g || "" }, 403);
+      }
+      if(!isPlausibleB64(f.contentB64, MAX_DATA_B64_CHARS)){
+        return json(env, { ok:false, error:"bad_file_content", path: f.path }, 400);
+      }
+      let text;
+      try{ text = new TextDecoder("utf-8", { fatal:true }).decode(b64ToBytes(f.contentB64)); }
+      catch(e){ return json(env, { ok:false, error:"bad_file_content", path: f.path }, 400); }
+      const why = checkDataFileBody(f.path, text);
+      if(why) return json(env, { ok:false, error:"bad_data_file", path: f.path, reason: why }, 400);
+    } else {
+      if(!FILE_PATH_RE.test(f.path)) return json(env, { ok:false, error:"bad_file_path", path: f.path }, 400);
+      if(!isPlausibleB64(f.contentB64)) return json(env, { ok:false, error:"bad_file_content", path: f.path }, 400);
+    }
   }
 
   const headers = await ghHeaders(env);
 
-  // 版本落後偵測:草稿的來源版本與現行檔案不符 → 擋下,避免覆蓋別人剛發布的內容。
-  // 只在有帶 baseHash 且這次要寫 data.js 時檢查;讀不到現行檔案就放行(見 currentFileHash)。
-  const baseHash = typeof body.baseHash === "string" ? body.baseHash : "";
-  if(hasContent && baseHash){
-    const cur = await currentFileHash(env, headers, env.GH_PATH || "data.js");
-    if(cur && cur !== baseHash){
-      return json(env, { ok:false, error:"stale_base", currentHash: cur }, 409);
+  /* 版本落後偵測(逐檔):baseHashes 是 {路徑: 這份草稿的來源版本雜湊}。
+     只要有一個分組檔在編輯期間被別人改過就整批擋下,不做部分寫入——
+     寧可要求重來,也不要留下一半新一半舊的狀態。
+     讀不到現行檔案(不存在、網路問題)就跳過該檔的比對,見 currentFileHash。 */
+  const baseHashes = (body && typeof body.baseHashes === "object" && body.baseHashes) || {};
+  for(const f of fileList){
+    if(!f.path.startsWith("data/")) continue;
+    const want = baseHashes[f.path];
+    if(typeof want !== "string" || !want) continue;
+    const cur = await currentFileHash(env, headers, f.path);
+    if(cur && cur !== want){
+      return json(env, { ok:false, error:"stale_base", path:f.path, currentHash: cur }, 409);
     }
   }
 
-  // 先寫附件、最後寫 data.js：任何附件失敗就中止，公開網站不會出現「資料檔指向不存在照片」的狀態
+  /* 先寫照片等附件、最後寫分組資料檔:任何一步失敗就中止,
+     公開網站不會出現「資料檔指向不存在照片」的狀態。 */
+  const dataFiles = fileList.filter(f => f.path.startsWith("data/"));
+  const assetFiles = fileList.filter(f => !f.path.startsWith("data/"));
   let written = 0;
-  for(const f of fileList){
+  const newHashes = {};
+
+  for(const f of assetFiles){
     const r = await ghPutFile(env, headers, f.path, f.contentB64, "更新會員名錄（附件）" + by);
     if(!r.ok) return json(env, { ok:false, error:r.error, path:f.path, filesWritten:written, status:r.status }, 502);
     written++;
   }
-
-  if(hasContent){
-    const bytes = new TextEncoder().encode(content);
-    let bin = ""; for(const b of bytes) bin += String.fromCharCode(b);
-    const r = await ghPutFile(env, headers, (env.GH_PATH || "data.js"), btoa(bin), "更新會員名錄" + by);
-    if(!r.ok) return json(env, { ok:false, error:r.error, filesWritten:written, status:r.status }, 502);
-    // 回傳這次寫入內容的雜湊,編輯頁接著用它當新的 baseHash,不必重新整理就能再次發布
-    return json(env, { ok:true, filesWritten:written, newHash: await sha256Hex(bytes) });
+  for(const f of dataFiles){
+    const label = f.path === "data/_index.json" ? "分會結構" : f.path.replace(/^data\/|\.json$/g, "").toUpperCase() + " 組";
+    const r = await ghPutFile(env, headers, f.path, f.contentB64, "更新會員名錄・" + label + by);
+    if(!r.ok) return json(env, { ok:false, error:r.error, path:f.path, filesWritten:written, status:r.status }, 502);
+    // 回傳新版本雜湊,編輯頁接著用它當新的 baseHash,不必重新整理就能再次發布
+    newHashes[f.path] = await sha256Hex(b64ToBytes(f.contentB64));
+    written++;
   }
-  return json(env, { ok:true, filesWritten:written });
+  return json(env, { ok:true, filesWritten:written, newHashes });
 }
 
 /* 公開的訪客瀏覽計數：不需要密碼、不佔登入錯誤額度。

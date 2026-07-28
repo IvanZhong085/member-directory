@@ -24,7 +24,9 @@
 (function(){
   "use strict";
 
-  const DRAFT_KEY = "member-directory-draft-v1";
+  /* 草稿鍵含角色範圍:組長只握有自己那組,不能跟總管理員的整份草稿混用 */
+  const DRAFT_PREFIX = "member-directory-draft-v2:";
+  function draftKey(){ return DRAFT_PREFIX + (isLeader() ? myGroupCode().toLowerCase() : "all"); }
   const glist = document.getElementById("glist");
   const main = document.getElementById("adm-main");
   const saveState = document.getElementById("save-state");
@@ -43,7 +45,62 @@
 
   /* ---------- state ---------- */
   const clone = o => JSON.parse(JSON.stringify(o));
-  let DATA = clone(typeof GROUPS !== "undefined" ? GROUPS : []);
+  /* ---------- 資料來源:data/ 底下的分組檔 ----------
+     真實來源是 data/_index.json(分會結構)與 data/<代號>.json(各組內容);
+     根目錄的 data.js 只是給前台用的產出物,由 GitHub Action 合併產生,後台不讀也不寫。
+     組長只會載入自己那一組,總管理員載入全部。 */
+  let DATA = [];
+  let INDEX = [];              // [{code,name,id}...],決定分組順序
+  const loadedBody = {};       // 路徑 → 載入當下的檔案內容(用來判斷「這組有沒有被改過」)
+  const baseHashes = {};       // 路徑 → 載入當下的 SHA-256(發布時給 Worker 做版本落後偵測)
+
+  const dataPathOf = code => "data/" + String(code).trim().toLowerCase() + ".json";
+  const GROUP_BODY_KEYS = ["leader", "room", "members", "recruiting"];
+  /* 分組物件的鍵順序要與 tools/build-data.mjs 一致,否則合併出來的 data.js 會有無意義的差異 */
+  function groupBody(g){
+    const o = {};
+    for(const k of GROUP_BODY_KEYS) o[k] = g[k] ?? (k === "members" || k === "recruiting" ? [] : "");
+    return o;
+  }
+  const serializeBody = body => JSON.stringify(body, null, 2) + "\n";
+
+  function utf8ToB64(str){
+    const bytes = new TextEncoder().encode(str);
+    let bin = ""; for(const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin);
+  }
+  async function sha256Hex(bytes){
+    const d = await crypto.subtle.digest("SHA-256", bytes);
+    return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, "0")).join("");
+  }
+  async function fetchData(path){
+    const res = await fetch(path + "?ts=" + Date.now(), { cache: "no-store" });
+    if(!res.ok) throw new Error(path + " HTTP " + res.status);
+    const buf = await res.arrayBuffer();
+    const text = new TextDecoder().decode(buf);
+    return { json: JSON.parse(text), text, hash: await sha256Hex(buf) };
+  }
+  /* 依角色載入:總管理員 13 個檔,組長 2 個(結構 + 自己那組) */
+  async function loadData(){
+    const idx = await fetchData("data/_index.json");
+    INDEX = idx.json;
+    baseHashes["data/_index.json"] = idx.hash;
+    loadedBody["data/_index.json"] = idx.text;
+
+    const code = myGroupCode().trim().toLowerCase();
+    const wanted = isLeader() ? INDEX.filter(e => String(e.code).trim().toLowerCase() === code) : INDEX;
+    const next = [];
+    for(const e of wanted){
+      const path = dataPathOf(e.code);
+      const f = await fetchData(path);
+      baseHashes[path] = f.hash;
+      loadedBody[path] = serializeBody(groupBody(f.json));
+      next.push({ code: e.code, name: e.name, leader: f.json.leader ?? "", room: f.json.room ?? "",
+                  members: f.json.members ?? [], id: e.id, recruiting: f.json.recruiting ?? [] });
+    }
+    DATA = next;
+    fixSelected();
+  }
   let selected = DATA.length ? DATA[0].id : null;
   let saveTimer = null;
   let hasDraft = false;
@@ -94,7 +151,7 @@
   function showDraftBanner(on){ draftBanner.classList.toggle("show", !!on); }
   function saveDraft(){
     try{
-      localStorage.setItem(DRAFT_KEY, JSON.stringify({ savedAt: Date.now(), data: DATA }));
+      localStorage.setItem(draftKey(), JSON.stringify({ savedAt: Date.now(), data: DATA }));
       saveState.textContent = "已自動儲存 " + new Date().toLocaleTimeString("zh-Hant",{hour:"2-digit",minute:"2-digit"});
       showDraftBanner(true);
       dirty = false;
@@ -112,7 +169,7 @@
 
   // Silently continue from any saved draft (no scary modal); a banner shows there are unpublished changes.
   function tryLoadDraft(){
-    let raw; try{ raw = localStorage.getItem(DRAFT_KEY); }catch(e){ return; }
+    let raw; try{ raw = localStorage.getItem(draftKey()); }catch(e){ return; }
     if(!raw) return;
     let parsed; try{ parsed = JSON.parse(raw); }catch(e){ return; }
     if(!parsed || !Array.isArray(parsed.data) || !parsed.data.length) return;
@@ -124,11 +181,11 @@
     if(!confirm("捨棄尚未發布的變更，改回目前公開網站的內容？")) return;
     clearTimeout(saveTimer);
     dirty = false;
-    try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
-    DATA = clone(typeof GROUPS !== "undefined" ? GROUPS : []);
-    selected = DATA.length ? DATA[0].id : null;
-    showDraftBanner(false);
-    renderAll(); validate(); toast("已捨棄變更");
+    try{ localStorage.removeItem(draftKey()); }catch(e){}
+    loadData().then(() => {
+      showDraftBanner(false);
+      renderAll(); validate(); toast("已捨棄變更，已重新載入目前線上的內容");
+    }).catch(() => toast("重新載入失敗，請重新整理頁面", { warn: true }));
   }
 
   /* ---------- toast (optional action button, e.g. undo) ---------- */
@@ -157,7 +214,7 @@
   /* ---------- helpers ---------- */
   const groupById = id => DATA.find(g => g.id === id);
   function esc(s){ return (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-  function imgSrc(image){ return /^data:/.test(image) ? image : "images/" + encodeURIComponent(image); }
+  function imgSrc(image){ return /^data:image\//.test(image) ? image : "images/" + encodeURIComponent(image); }
 
   /* ---------- 修改時間戳 ----------
      任何會改到「成員資料內容」的動作都要呼叫 touch(m):逐欄編輯、換照片/名片/商品照、
@@ -898,7 +955,7 @@
       byId("lock-pass").value = "";
       hideLock();
       hidePermBanner();
-      fixSelected(); renderAll(); validate();   // 角色決定看得到哪幾組,登入後要重畫
+      await bootData();                          // 角色決定載入哪幾組,登入後才取資料
       toast(isLeader() ? "已進入編輯模式（只會顯示你負責的分組）" : "已進入編輯模式");
       checkHealth(res.session);   // 登入後順便確認伺服器上的 GitHub 權杖還能不能寫入
     } else if(res.error === "too_many_attempts"){
@@ -985,7 +1042,8 @@
 
   function fileSafeId(id){ return String(id).replace(/[^A-Za-z0-9_-]/g, ""); }
 
-  /* 組出這次發布的 data.js 內容與附件清單 */
+  /* 組出這次發布要寫的檔案:照片附件 + 「內容真的有變」的分組檔。
+     沒改到的組完全不送,才不會在別組組長同時編輯時互相踩到。 */
   function buildPublishPayload(){
     const data = clone(DATA);
     const files = [];
@@ -1010,22 +1068,18 @@
         });
       }));
     }
-    return { content: serialize(data), files };
-  }
-
-  /* ---------- 版本落後偵測 ----------
-     發布時要告訴 Worker「這份草稿是根據哪個版本改的」。做法是開頁時抓一份 data.js 原文
-     算 SHA-256;Worker 比對現行檔案,不符就擋下,避免蓋掉別人剛發布的內容。
-     算不出來(離線、CDN 異常)就留空 → Worker 跳過比對,維持舊行為。 */
-  let baseHash = "";
-  async function loadBaseHash(){
-    try{
-      const res = await fetch("data.js?ts=" + Date.now(), { cache: "no-store" });
-      if(!res.ok) return;
-      const buf = await res.arrayBuffer();
-      const digest = await crypto.subtle.digest("SHA-256", buf);
-      baseHash = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
-    }catch(e){ /* 抓不到就不帶,不影響發布 */ }
+    // 分組檔:與載入時的內容逐字比對,只送真的有差異的
+    data.forEach(g => {
+      const path = dataPathOf(g.code);
+      const body = serializeBody(groupBody(g));
+      if(body !== loadedBody[path]) files.push({ path, contentB64: utf8ToB64(body) });
+    });
+    // 分會結構(順序/代號/組名)只有總管理員能寫,同樣有變才送
+    if(!isLeader()){
+      const idx = JSON.stringify(DATA.map(g => ({ code: g.code, name: g.name, id: g.id })), null, 2) + "\n";
+      if(idx !== loadedBody["data/_index.json"]) files.push({ path: "data/_index.json", contentB64: utf8ToB64(idx) });
+    }
+    return { files };
   }
 
   let publishing = false;
@@ -1045,29 +1099,36 @@
     btn.disabled = true; btn.textContent = "發布中…";
     try{
       const payload = buildPublishPayload();
-      const CHUNK = 20;   // 單次請求附件上限（Worker 限 25，留餘裕）；照片多時自動分批
+      if(!payload.files.length){
+        toast("沒有偵測到任何變更，不需要發布");
+        return false;
+      }
+      /* 照片與分組檔一起送:Worker 會先寫照片、再寫分組檔,任一步失敗就整批中止,
+         公開網站不會出現「資料檔指向不存在照片」的狀態。單次上限 25 檔,
+         12 組 + 結構檔 + 照片極少同時超過,超過時由 Worker 明確回報 too_many_files。 */
+      const CHUNK = 20;
       const chunks = [];
       for(let i = 0; i < payload.files.length; i += CHUNK) chunks.push(payload.files.slice(i, i + CHUNK));
-      if(!chunks.length) chunks.push([]);
       let res = { ok:false, error:"network" };
       let sent = 0;
-      for(let i = 0; i < chunks.length; i++){
-        const isLast = i === chunks.length - 1;
+      for(const chunk of chunks){
         if(payload.files.length > CHUNK){
-          sent += chunks[i].length;
+          sent += chunk.length;
           btn.textContent = "發布中…（檔案 " + sent + "/" + payload.files.length + "）";
         }
-        // data.js 一定放在最後一批：附件先全部就位，公開網站才不會指到不存在的照片
-        res = await workerFetch("/publish", isLast
-          ? { session, content: payload.content, files: chunks[i], baseHash }
-          : { session, files: chunks[i] });
+        res = await workerFetch("/publish", { session, files: chunk, baseHashes });
         if(!res.ok) break;
       }
       if(res.ok){
-        if(res.newHash) baseHash = res.newHash;   // 接上新版本,不必重新整理就能再發布一次
+        // 接上新版本,不必重新整理就能再發布一次;同時把「已載入內容」對齊,避免重複送同一份
+        Object.assign(baseHashes, res.newHashes || {});
+        payload.files.forEach(f => {
+          if(f.path.startsWith("data/")) loadedBody[f.path] = new TextDecoder().decode(
+            Uint8Array.from(atob(f.contentB64), c => c.charCodeAt(0)));
+        });
         clearTimeout(saveTimer);
         dirty = false;
-        try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
+        try{ localStorage.removeItem(draftKey()); }catch(e){}
         showDraftBanner(false);
         hidePermBanner();
         ok = true;
@@ -1082,9 +1143,21 @@
       } else if(res.error === "token_forbidden"){
         toast("發布服務目前無法寫入 GitHub，這次修改「沒有」上線（草稿都還在）。", {warn:true, duration:7000});
         showPermBanner("Worker 上設定的 GitHub 權杖沒有寫入權限或已失效，請管理員到 Cloudflare 檢查 Worker 的 GH_TOKEN 設定（需要 Contents: Read and write）。");
+      } else if(res.error === "content_not_accepted"){
+        toast("這個編輯頁是舊版本，請重新整理頁面後再改一次（你的草稿仍在）", {warn:true, duration:9000});
+      } else if(res.error === "bad_file_path" && String(res.path || "").startsWith("data/")){
+        // 反過來的情況:網站已經更新成分組檔,但 Cloudflare 上的 Worker 還是舊版,
+        // 它的路徑白名單只認得 images/ 與 m/,所以整批被擋。給出明確指示,
+        // 否則組長只會看到「發布失敗」而一直重試。
+        toast("發布服務還是舊版本，尚未支援分組資料檔，這次修改「沒有」上線（草稿都還在）。", {warn:true, duration:9000});
+        showPermBanner("Cloudflare 上的 Worker 還沒更新到最新版。請總管理員到 Cloudflare → Worker → Edit code，貼上 repo 裡最新的 worker/publish-relay.js 後 Deploy，再發布一次即可。");
+      } else if(res.error === "forbidden_path"){
+        toast("你沒有修改「" + String(res.path || "").replace(/^data\/|\.json$/g, "").toUpperCase() +
+              "」的權限，這次修改沒有上線。若你認為這是設定錯誤，請聯繫總管理員。", {warn:true, duration:9000});
       } else if(res.error === "stale_base"){
         // 別人在你編輯期間發布過:硬送出去會把對方的修改蓋掉,所以擋在這裡
-        toast("有其他人在你編輯期間發布過新版本，這次「沒有」上線。請先「下載備份」保留你的修改，" +
+        toast("「" + String(res.path || "").replace(/^data\/|\.json$/g, "").toUpperCase() +
+              "」在你編輯期間被其他人發布過，這次「沒有」上線。請先「下載備份」保留你的修改，" +
               "重新整理頁面取得最新資料後再改一次。", {warn:true, duration:12000});
       } else if(res.error === "conflict"){
         toast("版本衝突，請重新整理頁面後再發布一次", {warn:true, duration:6000});
@@ -1218,7 +1291,21 @@
     localStorage.removeItem("member-directory-gh-token-enc-v1");
     localStorage.removeItem("member-directory-gh-settings-v1");
   }catch(e){}
-  tryLoadDraft();
+  /* 資料要等登入後才載入(組長只能拿自己那組,載入範圍取決於角色) */
+  async function bootData(){
+    try{
+      await loadData();
+    }catch(e){
+      main.innerHTML = '<div class="adm-card">載入資料失敗，請重新整理頁面。<br><small>' + esc(String(e && e.message || e)) + '</small></div>';
+      return;
+    }
+    tryLoadDraft();
+    fixSelected();
+    renderAll(); validate();
+    // 登入當下資料還沒抓回來,組長的組名查不到(會顯示「找不到此組」),載完要再寫一次
+    showWho();
+    showDraftBanner(hasDraft);
+  }
   renderAll();
   validate();
   showDraftBanner(hasDraft);
@@ -1240,7 +1327,7 @@
   byId("batch-apply").onclick = () => { const fn = batchApplyFn; closeBatchModal(); if(fn) fn(); };
   byId("batch-modal").addEventListener("click", e => { if(e.target.id === "batch-modal") closeBatchModal(); });
   refreshCaps();   // 問一次 Worker 是否支援附件（照片實體檔）；失敗就當不支援，行為同舊版
-  loadBaseHash();  // 記下「這份草稿是根據哪個版本改的」，發布時用來擋掉覆蓋別人的情況
+  if(loadSession()) bootData();   // 已有有效 session（重新整理頁面）就直接載入
   byId("btn-undo").onclick = undo;
   byId("btn-redo").onclick = redo;
   byId("s-save").onclick = saveSettings;

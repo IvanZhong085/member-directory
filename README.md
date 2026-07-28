@@ -11,7 +11,8 @@ member-site/            ← 這個資料夾的內容 = 網站根目錄
 ├─ app.js
 ├─ admin.html    編輯頁（密碼登入、改資料、換照片、增刪成員、一鍵發布）
 ├─ admin.js
-├─ data.js       ★ 全部資料都在這一個檔（分組與成員，人數隨增刪變動）
+├─ data/         ★ 資料的真實來源：_index.json（分會結構）+ 各組一個 json
+├─ data.js       ⚙ 由 data/ 自動合併產生的產出物，前台載入這一個（請勿手改）
 ├─ images/       成員照片
 ├─ site-config.js ★ 分會名稱、正式網址與外部連結的單一來源（各頁與 Node 工具共用）
 ├─ spotlight.html / spotlight.js   夥伴聚光燈產生器（貼文文案＋分享卡）
@@ -21,6 +22,7 @@ member-site/            ← 這個資料夾的內容 = 網站根目錄
 ├─ roster.csv    名冊鏡像（給 Google 試算表連結，發布後自動更新）
 ├─ tools/build-member-pages.mjs    分享預覽頁產生器
 ├─ tools/extract-inline-photos.mjs 內嵌照片轉實體檔
+├─ tools/build-data.mjs            data/ → data.js 合併器
 ├─ tools/build-roster.mjs          名冊鏡像產生器
 ├─ .github/workflows/sync.yml      發布後自動執行上述三支（不用手動跑）
 ├─ worker/       發布中介服務（Cloudflare Worker）程式碼與部署教學，見 worker/README.md
@@ -68,9 +70,9 @@ member-site/            ← 這個資料夾的內容 = 網站根目錄
 
 帳號綁定的是**組別代號**（A1、B2…）而非姓名，組長換人時只要改密碼與備註，帳號不用動。
 
-> ⚠️ **請務必了解**：組長的範圍限制是**介面層級**的（防止誤觸），不是伺服器端的寫入權限。發布時瀏覽器仍送出整份 `data.js`，懂開發者工具的人可以繞過。詳見 `worker/README.md` 的「權限的真實邊界」。把組長帳號給誰，等同於信任那個人。
+> ✅ **這是伺服器端的真實權限**：資料按分組拆成 `data/<代號>.json`，Worker 只允許組長寫自己那一個檔案。就算改前端、開開發者工具，送出別組的檔案一樣會被拒絕（`forbidden_path`）。
 >
-> 另外，多人同時編輯時會有**版本落後偵測**：若別人在你編輯期間發布過，你這次發布會被擋下並提示重新整理，避免蓋掉對方的修改。
+> 多人同時編輯還有**版本落後偵測**：若別人在你編輯期間發布過同一組，你這次發布會被擋下並提示重新整理，避免蓋掉對方的修改。不同組之間互不影響，可以同時編輯發布。
 
 ---
 
@@ -184,7 +186,19 @@ https://ivanzhong085.github.io/member-directory/roster.csv
 
 ---
 
-## 資料欄位（data.js）
+## 資料存放方式
+
+**真實來源是 `data/` 資料夾**，不是根目錄的 `data.js`：
+
+```
+data/_index.json    分會結構：分組順序、代號、組名（只有總管理員能寫）
+data/a1.json        A1 組的組長、招募席位、成員（A1 組長 + 總管理員能寫）
+data/a2.json …      其餘 11 組
+```
+
+`data.js` 是 GitHub Action 從上面合併產生的**產出物**，給前台載入用；直接手改會在下次合併時被蓋掉。這樣拆的好處有兩個：**各組組長同時編輯互不干擾**（碰不到同一個檔），以及**權限變成路徑比對**（Worker 直接拒絕越權寫入）。
+
+## 資料欄位
 
 每個分組：`code`（代號）、`name`（名稱）、`leader`（組長）、`members`（成員陣列）。
 

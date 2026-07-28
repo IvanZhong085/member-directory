@@ -1,0 +1,244 @@
+{
+  "leader": "沈益昌",
+  "room": "小房間",
+  "members": [
+    {
+      "number": "164",
+      "name": "沈益昌",
+      "title": "專案管理顧問",
+      "services": [
+        "企業經營診斷/流程優化",
+        "敏捷開發/目標管理培訓",
+        "數位轉型"
+      ],
+      "targets": [
+        "食品業、製造業",
+        "積極成長轉型的中小企業"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "專案管理升級找Steven",
+        "業績增長踏油門！"
+      ],
+      "image": "g6_m1_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g6_m1",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "011",
+      "name": "張育誠",
+      "title": "餐飲零售POS系統",
+      "services": [
+        "POS餐飲主機零售",
+        "點餐系統硬體設備",
+        "點餐管理系統"
+      ],
+      "targets": [
+        "開店需要POS系統",
+        "系統硬體軟體規劃",
+        "餐飲設備規劃"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "系統設計找育誠",
+        "開店流程一定成"
+      ],
+      "image": "g6_m2_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g6_m2",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "015",
+      "name": "許凱傑",
+      "title": "民事律師",
+      "services": [
+        "法律層面評估與規劃",
+        "訴訟、非訟諮詢與建議",
+        "其他法律相關"
+      ],
+      "targets": [
+        "需要法律諮詢、建議、訴訟的個人或企業主"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "法律問題找凱傑",
+        "全盤掌握好便捷"
+      ],
+      "image": "g6_m3_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g6_m3",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "028",
+      "name": "王瑞敏",
+      "title": "ERP 資源整合供應商",
+      "services": [
+        "中小企業用ERP資訊系統",
+        "全方位輔導-系統解決方案"
+      ],
+      "targets": [
+        "有ERP系統更換需求的",
+        "中小型企業高階決策者"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "ERP系統找PETER",
+        "售後服務最用心"
+      ],
+      "image": "g6_m4_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g6_m4",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "030",
+      "name": "謝雅竹",
+      "title": "勞資顧問",
+      "services": [
+        "企業勞動法務健檢及規劃",
+        "工作規則/勞動契約/薪資結構調整/勞資會議/職災轉嫁/人事成本計算/勞資溝通/爭議預防/教育訓練"
+      ],
+      "targets": [
+        "有僱用員工的企業主、企業二代",
+        "高階管理者"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "讓小班做你的軍師",
+        "勞資雙贏最佳投資"
+      ],
+      "image": "g6_m5_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g6_m5",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "059",
+      "name": "呂建緯",
+      "title": "ESG永續發展輔導顧問",
+      "services": [
+        "創新政府補助申請",
+        "平台及軟體開發",
+        "創業補助  國際行銷補助"
+      ],
+      "targets": [
+        "資本額100萬以上",
+        "公司人數3人以上",
+        "具研發與採購需求之企業"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "研發採購找建緯",
+        "創業資金帶你飛"
+      ],
+      "image": "g6_m6_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g6_m6",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "061",
+      "name": "陳慈潔",
+      "title": "記帳士",
+      "services": [
+        "公司帳務處理/諮詢.申報",
+        "工商登記 /內外帳整合",
+        "提供解決建議"
+      ],
+      "targets": [
+        "勞資顧問/企管顧問",
+        "ERP顧問/勞力仲介",
+        "中小型公司企業決策者"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "記帳稅務找VIVIAN",
+        "財務服務最安心"
+      ],
+      "image": "g6_m7_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g6_m7",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "159",
+      "name": "邱俊華",
+      "title": "企業債務整合",
+      "services": [
+        "信貸、車貸、房土貸、企業貸款",
+        "財債務階梯式規劃"
+      ],
+      "targets": [
+        "資金需求200萬以上的餐飲老闆；擁有1億以上不動產且急需資金企業負責人"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "找俊華債務整合",
+        "資金與你一拍即合"
+      ],
+      "image": "g6_m8_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g6_m8",
+      "dataIssue": false,
+      "updatedAt": ""
+    }
+  ],
+  "recruiting": [
+    "八字命理師",
+    "風水堪輿",
+    "商標專利",
+    "企業長租車輛",
+    "新車/商務車銷售業",
+    "中古車買賣"
+  ]
+}

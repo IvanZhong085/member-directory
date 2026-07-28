@@ -1,0 +1,159 @@
+{
+  "leader": "陳姿吟",
+  "room": "小房間",
+  "members": [
+    {
+      "number": "097",
+      "name": "陳姿吟",
+      "title": "髮質重建燙染造型師",
+      "services": [
+        "頭髮重建燙髮、染髮護理",
+        "燙染造型設計"
+      ],
+      "targets": [
+        "質感染髮   髮型重建燙髮 形象髮型改造之需求"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "Vita設計好髮型",
+        "沒人比你更有型"
+      ],
+      "image": "g2_m1_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g2_m1",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "116",
+      "name": "陳建伯",
+      "title": "時尚配鏡驗光業",
+      "services": [
+        "眼鏡專門  時尚眼鏡穿搭",
+        "度數檢查  眼鏡維修",
+        "驗光老花  近視遠視  驗光諮詢"
+      ],
+      "targets": [
+        "追求外在精緻復古",
+        "手工眼鏡的商務人士"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "驗光配鏡找伯洸",
+        "建伯讓您很風光"
+      ],
+      "image": "g2_m3_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g2_m3",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "120",
+      "name": "李品瑩",
+      "title": "樓擂健身俱樂部",
+      "services": [
+        "私人健身教練",
+        "免費體驗  健身減脂菜單"
+      ],
+      "targets": [
+        "想健身減重的上班族",
+        "BMI超過25以上的人夫",
+        "健身產業的瑜珈/有氧韻律老師"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "健身來樓擂",
+        "人生猴塞擂"
+      ],
+      "image": "g2_m4_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g2_m4",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "163",
+      "name": "謝美任",
+      "title": "頭皮活化養護商品",
+      "services": [
+        "生髮產品：馥茂力 髮.賦活系列",
+        "產品官網：www.bimwvip.com",
+        "醫美療程：",
+        "米蘭時尚診所高雄館及台中館"
+      ],
+      "targets": [
+        "各縣市美髮院老闆",
+        "銷售髮品的業務人員",
+        "想青春再現的愛美人士"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "養髮交給馥茂力",
+        "再現青春好魅力"
+      ],
+      "image": "g2_m5_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g2_m5",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "208",
+      "name": "楊淑媚",
+      "title": "芳療精油批發零售",
+      "services": [
+        "精油批發零售\u000b芳療相關商品供應\u000b芳療課程教學\u000b禮贈品組合"
+      ],
+      "targets": [
+        "美容院 / SPA館 業者",
+        "瑜伽會館、健康養生館",
+        "禮品業者 \u000bKOL、團購主"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "芳香療癒樂相伴\u000b健康生活找淑媚"
+      ],
+      "image": "g2_m6_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g2_m6",
+      "dataIssue": false,
+      "updatedAt": ""
+    }
+  ],
+  "recruiting": [
+    "醫美產業",
+    "珠寶業",
+    "美甲師",
+    "美睫師",
+    "身心靈",
+    "健身教練",
+    "美體美容",
+    "整脊按摩"
+  ]
+}

@@ -1,0 +1,258 @@
+{
+  "leader": "鄧義騰",
+  "room": "大廳",
+  "members": [
+    {
+      "number": "157",
+      "name": "鄧義騰",
+      "title": "鄧肉圓餐飲加盟",
+      "services": [
+        "工廠批發代工肉圓",
+        "冷藏真空包\u000b肉圓開封直接炸\u000b鄧肉圓餐飲加盟"
+      ],
+      "targets": [
+        "團媽",
+        "加盟主",
+        "批發零售商"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "拆封加熱吃肉圓",
+        "加盟就找鄧肉圓"
+      ],
+      "image": "g7_m1_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g7_m1",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "107",
+      "name": "游馥瑋",
+      "title": "中式宴席料理",
+      "services": [
+        "婚禮流水席",
+        "婚禮場地提供"
+      ],
+      "targets": [
+        "30桌以上婚禮宴席",
+        "婚禮顧問及",
+        "婚禮相關產業"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "各式宴席找馥瑋",
+        "山珍海味都一絕"
+      ],
+      "image": "g7_m2_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g7_m2",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "142",
+      "name": "蔡宏毅",
+      "title": "虎秋文昌雞港式料理",
+      "services": [
+        "家禽類熟食販售\u000b文昌雞、豉油雞、醉雞、滷水鴨、各式小菜、三牲拜拜、切盤"
+      ],
+      "targets": [
+        "官方line行銷\u000b代工廠\u000b團購、直播主"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "來虎秋\u000b讓聚餐變簡單"
+      ],
+      "image": "g7_m3_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g7_m3",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "058",
+      "name": "謝承倫",
+      "title": "健康餐盒",
+      "services": [
+        "健康餐盒販售",
+        "團體餐盒配送",
+        "客製化訂餐盒"
+      ],
+      "targets": [
+        "學校行政各科室",
+        "工廠團膳",
+        "活動公關公司"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "野獸派健康餐盒",
+        "好品味一拍即合"
+      ],
+      "image": "g7_m4_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g7_m4",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "072",
+      "name": "劉儿馜",
+      "title": "常溫肉燥調理包",
+      "services": [
+        "排骨酥湯調理包",
+        "冷凍古早味米糕",
+        "批發零售"
+      ],
+      "targets": [
+        "生鮮超市賣場 團購通路\u000b實體餐飲業者 跨國物流"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "台灣美食魯肉香\u000b老少閒宜樂洋洋"
+      ],
+      "image": "g7_m5_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g7_m5",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "202",
+      "name": "孫開宣",
+      "title": "泰式調理包研發銷售",
+      "services": [
+        "泰式料理客製、研發、代工\u000b(打拋豬/檸檬魚醬汁/泰式奶茶)\u000b泰式奶茶代工/銷售"
+      ],
+      "targets": [
+        "連鎖餐飲/食品團購主\u000b大量OEM/外銷"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "孫開宣做泰味",
+        "一吃就想再回味"
+      ],
+      "image": "g7_m6_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g7_m6",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "211",
+      "name": "林岳達",
+      "title": "四川蒜蓉醬批發零售",
+      "services": [
+        "四川蒜蓉醬製造批發\u000b蒜蓉醬代工\u000b手工胡椒鹽＆辣油"
+      ],
+      "targets": [
+        "電商\u000b團購主\u000b餐廳"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "胡椒沾醬找懿香",
+        "家庭美滿又健康"
+      ],
+      "image": "g7_m7_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g7_m7",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "213",
+      "name": "簡士芸",
+      "title": "手工冰淇淋批發銷售",
+      "services": [
+        "冰淇淋批發銷售\u000bＯＥＭ\u000bＯＤＭ"
+      ],
+      "targets": [
+        "團購主、火鍋店",
+        "各大餐飲品牌聯名合作"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "成分簡單零負擔",
+        "盛夏冰菓不簡單"
+      ],
+      "image": "g7_m8_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g7_m8",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "220",
+      "name": "韓雅怡",
+      "title": "韭菜盒批發零售",
+      "services": [
+        "韭菜盒、高麗菜盒、蔥油餅、紅豆餅、豆渣餅"
+      ],
+      "targets": [
+        "餐飲業者、團購主",
+        "需優質常溫、加熱即食品的夥伴"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "韭菜盒子找雅怡\u000b香酥飽滿真滿意"
+      ],
+      "image": "g7_m9_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g7_m9",
+      "dataIssue": false,
+      "updatedAt": ""
+    }
+  ],
+  "recruiting": [
+    "精品水果禮盒",
+    "烘焙蛋糕店",
+    "羊肉爐",
+    "薑母鴨",
+    "燒肉餐館"
+  ]
+}

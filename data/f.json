@@ -1,0 +1,187 @@
+{
+  "leader": "賴可儒",
+  "room": "小房間",
+  "members": [
+    {
+      "number": "137",
+      "name": "賴可儒",
+      "title": "客製化亞洲國家旅遊",
+      "services": [
+        "企業.家族團體旅遊",
+        "代訂機票.代辦護照.簽證",
+        "遊覽車租借"
+      ],
+      "targets": [
+        "工商團體、直播主",
+        "房仲業者、企業講師"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "亞洲旅遊找小可",
+        "帶你體驗非同小可"
+      ],
+      "image": "g4_m1_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g4_m1",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "005",
+      "name": "陳子宸",
+      "title": "喜喪禮品鮮花業",
+      "services": [
+        "開幕盆景／鮮花禮盒",
+        "喪用蓮花塔／蘭花致意",
+        "罐頭塔／米塔"
+      ],
+      "targets": [
+        "公司採購部  福利委員會",
+        "農產行老闆  常送禮客戶"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "送禮找小宸",
+        "萬事一定成"
+      ],
+      "image": "g4_m2_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g4_m2",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "131",
+      "name": "蕭茲菻",
+      "title": "人像攝影",
+      "services": [
+        "哈囉映相AI自助攝影\u000b孕婦寫真、新生兒寫真\u000b商務形象照"
+      ],
+      "targets": [
+        "月子中心、房仲與保險業務\u000b企業與個人形象拍攝"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "人像攝影找茲菻",
+        "最美角度都給您"
+      ],
+      "image": "g4_m3_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g4_m3",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "048",
+      "name": "張彤彤",
+      "title": "精品咖啡烘豆零售",
+      "services": [
+        "客製化咖啡烘焙",
+        "濾掛/咖啡豆/手沖咖啡活動",
+        "年節禮盒/企業送禮",
+        "中西式宴會Candy BAR服務"
+      ],
+      "targets": [
+        "個人長期飲用/活動邀約",
+        "公司福委會/直播主/團購主"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "彤彤咖啡杯杯香氣",
+        "激發企業生意有活力"
+      ],
+      "image": "g4_m4_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g4_m4",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "115",
+      "name": "鄭凱元",
+      "title": "手工客製化巧克力",
+      "services": [
+        "客製化風味巧克力",
+        "可可茶",
+        "食農教育、巧克力風味講座"
+      ],
+      "targets": [
+        "食品電商通路",
+        "高單價 甜點店、咖啡廳",
+        "禮盒、甜點 開發需求"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "巧克力風味職人",
+        "開啟對味蕾的想像"
+      ],
+      "image": "g4_m5_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g4_m5",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "218",
+      "name": "古婉廷",
+      "title": "員工教育訓練補助",
+      "services": [
+        "員工教育訓練補助、企業培訓大小人提計劃",
+        "運動好人才計劃、企業團建"
+      ],
+      "targets": [
+        "想提升員工技能、增強團隊戰力",
+        "3-50人的中小企業\u000b(服務業、製造業、批發業等等皆可)"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "小兵一出手",
+        "補助培訓全到手！"
+      ],
+      "image": "g4_m6_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g4_m6",
+      "dataIssue": false,
+      "updatedAt": ""
+    }
+  ],
+  "recruiting": [
+    "永生花花藝",
+    "威士忌批發零售",
+    "殯葬業/生前契約",
+    "民宿/旅宿業者",
+    "觀光工廠",
+    "飯店業",
+    "露營業者"
+  ]
+}

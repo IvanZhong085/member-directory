@@ -1,0 +1,185 @@
+{
+  "leader": "鄒芳育",
+  "room": "小房間",
+  "members": [
+    {
+      "number": "161",
+      "name": "鄒芳育",
+      "title": "商業動態錄影",
+      "services": [
+        "商業動態錄影\u000b紀錄片\u000b企業形象廣告"
+      ],
+      "targets": [
+        "活動策劃公司\u000b政府補助專案人員\u000b中小企業形象影片"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "活動紀錄找紅內褲\u000b形象廣告讓你超酷"
+      ],
+      "image": "g5_m1_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g5_m1",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "054",
+      "name": "周冠佐",
+      "title": "戶外運動活動行銷",
+      "services": [
+        "活動報名、金流、路跑晶片執行賽事服務"
+      ],
+      "targets": [
+        "活動公關公司",
+        "運動類型產品廠商"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "活動報名找眾點",
+        "宣傳行銷有亮點"
+      ],
+      "image": "g5_m2_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g5_m2",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "083",
+      "name": "高麗媛",
+      "title": "生活保健商品團購主",
+      "services": [
+        "團購商品(不限類別)，例如：",
+        "生活用品、保健食品、餅乾、零食、飲料、冷凍、冷藏食品等"
+      ],
+      "targets": [
+        "生活用品",
+        "美妝保養品、保健食品",
+        "各式食品業者"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "1638",
+        "讓您發發發"
+      ],
+      "image": "g5_m3_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g5_m3",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "113",
+      "name": "易紅福",
+      "title": "平面廣告宣傳品印刷",
+      "services": [
+        "商品標籤彩色貼紙",
+        "DM廣告宣傳單/公司商品型錄/說明書",
+        "廣告大圖帆布.手舉牌.人形立牌.X展架/海報",
+        "複寫聯單/面紙包/選舉宣傳禮贈品商品"
+      ],
+      "targets": [
+        "餐飲業(商品貼紙/DM型錄印刷)",
+        "中小企業製造業(商品貼紙/DM型錄印刷)",
+        "農漁業生產及產銷班",
+        "個人工作室 (商品貼紙/型錄印刷)"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "平面廣告印刷找紅福效率品質大家都佩服"
+      ],
+      "image": "g5_m4_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g5_m4",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "154",
+      "name": "林濬騰",
+      "title": "客製化運動服飾",
+      "services": [
+        "客製化運動服飾代表",
+        "年生產破萬件客製化服飾",
+        "毛巾、襪子、帽子等"
+      ],
+      "targets": [
+        "機關團體制服、團體服",
+        "健身運動周邊服飾商品",
+        "活動節日周邊服飾商品",
+        "KOL品牌服飾周邊"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "客製服飾找濬騰",
+        "企業形象定飛騰"
+      ],
+      "image": "g5_m5_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g5_m5",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "027",
+      "name": "楊愛凝",
+      "title": "活動策畫統籌",
+      "services": [
+        "政府機關活動行銷",
+        "公益活動行銷售票",
+        "平面設計標案規劃"
+      ],
+      "targets": [
+        "活動舉辦需要行銷",
+        "大型商演企劃",
+        "公益活動規劃"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "活動行銷找愛凝",
+        "廠商客戶都愛您"
+      ],
+      "image": "g5_m6_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g5_m6",
+      "dataIssue": false,
+      "updatedAt": ""
+    }
+  ],
+  "recruiting": [
+    "海外行銷通路商",
+    "紙箱設計量產",
+    "食品通路商",
+    "外送平台"
+  ]
+}

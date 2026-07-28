@@ -1,0 +1,235 @@
+{
+  "leader": "曾俊凱",
+  "room": "小房間",
+  "members": [
+    {
+      "number": "001",
+      "name": "曾俊凱",
+      "title": "豬肉屠宰批發零售",
+      "services": [
+        "冷藏/凍豬肉原料批發",
+        "豬肉絲/丁/片/塊精切"
+      ],
+      "targets": [
+        "連鎖滷味店/豬腳店",
+        "小家庭豬肉箱"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "國產豬肉專門家",
+        "品質保證攏抵家"
+      ],
+      "image": "g3_m1_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g3_m1",
+      "dataIssue": true,
+      "updatedAt": "2026-07-28T02:19:28.762Z"
+    },
+    {
+      "number": "079",
+      "name": "黃育騏",
+      "title": "進口牛肉分切批發",
+      "services": [
+        "日本進口牛肉",
+        "美國進口牛肉",
+        "牛肉分切批發"
+      ],
+      "targets": [
+        "連鎖燒肉店",
+        "連鎖火鍋店"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "牛角牛皮牛毛沒有賣 其他什麼都有不奇怪"
+      ],
+      "image": "g3_m2_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g3_m2",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "144",
+      "name": "林芳綾",
+      "title": "鴨肉分切批發零售",
+      "services": [
+        "鴨肉分切批發"
+      ],
+      "targets": [
+        "傳統市場\u000b團膳業者\u000b食品加工廠"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "亮軒的用心值得您放心\u000b只要亮軒在不怕沒鴨買"
+      ],
+      "image": "g3_m3_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g3_m3",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "136",
+      "name": "黃俊賢",
+      "title": "鵝屠宰批發零售",
+      "services": [
+        "生鮮/冷凍鵝肉批發零售",
+        "鵝代工屠宰",
+        "鵝肉貢丸/茶鵝"
+      ],
+      "targets": [
+        "小吃業、餐廳、團購",
+        "斗六鵝肉張"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "買鵝肉找阿賢",
+        "健康安心享年延"
+      ],
+      "image": "g3_m4_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g3_m4",
+      "dataIssue": true,
+      "updatedAt": ""
+    },
+    {
+      "number": "002",
+      "name": "徐甄苡",
+      "title": "海鮮團購",
+      "services": [
+        "活海鮮",
+        "冷凍海鮮",
+        "海鮮禮盒"
+      ],
+      "targets": [
+        "公司福委會",
+        "小型餐飲業者"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "甄苡提供好海鮮",
+        "餐餐美味最新鮮"
+      ],
+      "image": "g3_m5_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g3_m5",
+      "dataIssue": true,
+      "updatedAt": "2026-07-27T22:19:50.061Z"
+    },
+    {
+      "number": "199",
+      "name": "彭玉卿",
+      "title": "泰國蝦批發零售宅配",
+      "services": [
+        "泰國蝦批發"
+      ],
+      "targets": [
+        "餐飲業",
+        "月子中心",
+        "鹹酥雞\u000b團購"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "蝦媽專賣泰國蝦\u000b鮮甜肥美人人誇"
+      ],
+      "image": "g3_m6_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g3_m6",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "205",
+      "name": "鐘文成",
+      "title": "國產羊肉批發",
+      "services": [
+        "國產羊肉批發零售",
+        "活羊批發零售"
+      ],
+      "targets": [
+        "火鍋餐廳(願意嘗試國產羊肉火鍋餐廳)",
+        "外燴團隊 (一隻全羊以上)",
+        "冷凍調理包代工廠(MOQ300斤)"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "國產羊肉找阿成",
+        "老饕全部都點頭"
+      ],
+      "image": "g3_m7_x.jpg",
+      "card": "g3_m7_card.jpg",
+      "products": [
+        "g3_m7_p1.jpg",
+        "g3_m7_p2.jpg"
+      ],
+      "company": "羊來了有限公司來了",
+      "business_items": "活體羊隻批發（除草）、羊肉批發與零售",
+      "website": "",
+      "id": "g3_m7",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "219",
+      "name": "王冠凱",
+      "title": "水禽契約養殖",
+      "services": [
+        "水禽養殖、銷售"
+      ],
+      "targets": [
+        "有興趣加入水禽養殖產業的人",
+        "有購買冷鏈鴨肉需求的人"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "水禽食品找津泰",
+        "養殖創富一起來"
+      ],
+      "image": "g3_m8_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g3_m8",
+      "dataIssue": false,
+      "updatedAt": ""
+    }
+  ],
+  "recruiting": [
+    "雞肉加工批發零售",
+    "鮑魚批發零售"
+  ]
+}

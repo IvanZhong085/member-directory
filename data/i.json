@@ -1,0 +1,218 @@
+{
+  "leader": "林子鈞",
+  "room": "小房間",
+  "members": [
+    {
+      "number": "170",
+      "name": "林子鈞",
+      "title": "PE再生塑膠袋製造批發",
+      "services": [
+        "塑膠袋、垃圾袋製造批發",
+        "PE再生塑膠粒製造",
+        "PE塑膠袋回收"
+      ],
+      "targets": [
+        "工廠、醫院、安養院、學校",
+        "大型遊樂園區的垃圾袋需求"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "塑袋找子鈞",
+        "讓你環保愛地球"
+      ],
+      "image": "g1_m1_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g1_m1",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "129",
+      "name": "張凱聖",
+      "title": "職醫職護特約服務",
+      "services": [
+        "職業安全衛生法之法規要求",
+        "特約職場醫師、護理師聘僱",
+        "健康講座"
+      ],
+      "targets": [
+        "50人以上300人以下任何企業",
+        "勞資顧問",
+        "工業安全顧問"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "員工健康找凱聖",
+        "企業事故不發生"
+      ],
+      "image": "g1_m2_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g1_m2",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "037",
+      "name": "胡景文",
+      "title": "工廠外勞人力仲介",
+      "services": [
+        "業界唯一外勞逃逸送雇主LV",
+        "家提高企業工廠外勞比例",
+        "節省就業安定費支出=淨利"
+      ],
+      "targets": [
+        "製造業工廠、營造業",
+        "家庭看護工、農業、養殖業"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "外勞仲介找景文",
+        "安定省錢攏穩穩"
+      ],
+      "image": "g1_m3_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g1_m3",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "151",
+      "name": "王銘燦",
+      "title": "家畜禽飼料製造批發零售",
+      "services": [
+        "家禽家畜飼料提供",
+        "客製化配方飼料",
+        "畜牧場代工代養服務"
+      ],
+      "targets": [
+        "雞豬鴨場場主",
+        "屠宰廠、分切廠商"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "客製飼料找銘燦",
+        "營養需求最完善"
+      ],
+      "image": "g1_m4_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g1_m4",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "169",
+      "name": "吳雨軒",
+      "title": "物流倉儲系統規劃",
+      "services": [
+        "物流倉儲管理系統",
+        "倉儲流程顧問"
+      ],
+      "targets": [
+        "倉儲管理需求的蔬果商",
+        "想優化倉庫管理的廠商"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "生鮮倉儲我管理",
+        "流程優化助你贏"
+      ],
+      "image": "g1_m5_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g1_m5",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "176",
+      "name": "吳國華",
+      "title": "弱電監視管理系統整合",
+      "services": [
+        "監視及弱電通訊工程",
+        "AI人臉識別門禁考勤",
+        "網路架設通訊工程",
+        "車道管理/總機/廣播"
+      ],
+      "targets": [
+        "建設公司、各大企業廠房廠辦",
+        "民眾有需要弱電監視系統",
+        "裝潢、水電、太陽能"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "宜陞科技智慧一生",
+        "宜陞監視安全ㄧ世"
+      ],
+      "image": "g1_m6_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g1_m6",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "224",
+      "name": "楊喜巖",
+      "title": "餐飲包材客製化",
+      "services": [
+        "餐飲包材整合服務"
+      ],
+      "targets": [
+        "2家店以上準備展店的餐飲品牌",
+        "食品工廠"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "讓每一份包材",
+        "都成為品牌的故事"
+      ],
+      "image": "g1_m7_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g1_m7",
+      "dataIssue": false,
+      "updatedAt": ""
+    }
+  ],
+  "recruiting": [
+    "工程人力派遣",
+    "工廠廢棄物清運",
+    "鋼構廠房建置",
+    "食品檢驗業者",
+    "食品粉料加工",
+    "寢具製造",
+    "居家廠房清潔"
+  ]
+}
