@@ -15,7 +15,7 @@ const read = f => { try { return readFileSync(join(ROOT, f), "utf8"); } catch (e
 
 /* 每個頁面實際載入的檔案組(依各 html 的 <script> 清單維護) */
 const PAGES = {
-  "admin.html":     ["site-config.js", "data.js", "csv-schema.js", "admin.js", "admin.html"],
+  "admin.html":     ["site-config.js", "csv-schema.js", "admin.js", "admin.html"],
   "index.html":     ["site-config.js", "data.js", "qrcode.js", "sharecard.js", "app.js", "index.html"],
   "spotlight.html": ["site-config.js", "data.js", "qrcode.js", "sharecard.js", "spotlight.js", "spotlight.html"],
   "groups.html":    ["site-config.js", "data.js", "qrcode.js", "groups.html"],

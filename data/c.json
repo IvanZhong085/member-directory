@@ -1,0 +1,295 @@
+{
+  "leader": "蔣譯鋒",
+  "room": "大廳",
+  "members": [
+    {
+      "number": "016",
+      "name": "蔣譯鋒",
+      "title": "活性離子鈣營養食品製造批發",
+      "services": [
+        "活性離子鈣營養產品\u000b製造批發"
+      ],
+      "targets": [
+        "連鎖藥局，營養食品電商",
+        "藥師，營養師，骨科醫師"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "養之源幫你輕鬆補鈣",
+        "好骨本讓你行動自在"
+      ],
+      "image": "g10_m1_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g10_m1",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "075",
+      "name": "陳政佑",
+      "title": "褐藻糖膠營養輔助食品批發",
+      "services": [
+        "褐藻醣膠批發",
+        "營養輔助食品批發、開發",
+        "調理食品開發"
+      ],
+      "targets": [
+        "保健食品品牌商",
+        "保健食品零售商",
+        "食品品牌商"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "褐藻醣膠找政佑",
+        "病人癌友有保佑"
+      ],
+      "image": "g10_m2_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g10_m2",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "091",
+      "name": "林伯運",
+      "title": "樂活長照輔具批發零售",
+      "services": [
+        "長照輔具、耗材",
+        "醫療設備"
+      ],
+      "targets": [
+        "安養機構",
+        "醫療院所",
+        "診所 日照中心"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "輔具補助找伯運",
+        "長輩樂活好省力"
+      ],
+      "image": "g10_m3_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g10_m3",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "121",
+      "name": "陳雅利",
+      "title": "天然無添加果乾",
+      "services": [
+        "新鮮果乾",
+        "果乾茶包"
+      ],
+      "targets": [
+        "團購、團購主",
+        "企業福委會"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "天然果乾找雅利",
+        "健康安心最給力"
+      ],
+      "image": "g10_m4_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g10_m4",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "099",
+      "name": "廖偉志",
+      "title": "食米加工製造批發",
+      "services": [
+        "各式米食及其加工食品",
+        "白米、糙米、胚芽米等各式產品"
+      ],
+      "targets": [
+        "團購網站、母嬰電商",
+        "團購主、有機超市"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "有溫度的好米",
+        "找玉山碾米"
+      ],
+      "image": "g10_m5_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g10_m5",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "174",
+      "name": "蔡孟璋",
+      "title": "麻油製作販售",
+      "services": [
+        "冷壓黑白麻油",
+        "冷壓苦茶油",
+        "黑白麻醬、花生醬"
+      ],
+      "targets": [
+        "身邊掌廚的親朋好友",
+        "有送禮需求的企業、福委會等"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "億昌好油",
+        "讓您健康無憂"
+      ],
+      "image": "g10_m6_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g10_m6",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "194",
+      "name": "吳易芩",
+      "title": "兒童成長果凍銷售",
+      "services": [
+        "兒童成長果凍銷售",
+        "兒童精準營養品",
+        "兒童成長（長高）衛教講座"
+      ],
+      "targets": [
+        "親子團購主",
+        "營養師、藥局"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "成長果凍找易芩",
+        "精準營養最省心"
+      ],
+      "image": "g10_m7_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g10_m7",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "203",
+      "name": "李瑋晨",
+      "title": "鮮乳製品批發零售",
+      "services": [
+        "生乳批發、低溫殺菌鮮奶",
+        "鮮奶茶、乳製品製作銷售"
+      ],
+      "targets": [
+        "烘焙業",
+        "冰淇淋製造商",
+        "高級甜點店"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "好喝奶找瑋晨",
+        "風味營養雙保證"
+      ],
+      "image": "g10_m8_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g10_m8",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "214",
+      "name": "王俊淇",
+      "title": "醬料代工製造批發",
+      "services": [
+        "客製化醬料代工"
+      ],
+      "targets": [
+        "自創品牌醬料代工",
+        "火鍋連鎖餐飲業者"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "醬料指定海霸王",
+        "餐飲行業稱霸王"
+      ],
+      "image": "g10_m9_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g10_m9",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "217",
+      "name": "王綉鈁",
+      "title": "全效胜肽精華蛋白飲",
+      "services": [
+        "全效胜肽精華蛋白飲健康零時、營養師諮詢、頌缽療癒"
+      ],
+      "targets": [
+        "自全效胜肽精華蛋白飲需求"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "純淨營養找不二",
+        "身心舒暢好過日"
+      ],
+      "image": "g10_m10_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g10_m10",
+      "dataIssue": false,
+      "updatedAt": ""
+    }
+  ],
+  "recruiting": [
+    "營養師/藥師",
+    "食品安全輔導顧問",
+    "物理治療師",
+    "月子中心/母嬰用品",
+    "日照中心"
+  ]
+}

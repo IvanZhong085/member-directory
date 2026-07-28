@@ -1,0 +1,264 @@
+{
+  "leader": "鍾宇軒",
+  "room": "大廳",
+  "members": [
+    {
+      "number": "112",
+      "name": "鍾宇軒",
+      "title": "冷凍蔬果加工",
+      "services": [
+        "急速冷凍蔬果/代工：牛番茄/酪梨/芒果",
+        "番茄加工品：番茄泥/冰釀番茄"
+      ],
+      "targets": [
+        "食品醬料加工廠：愛之味、可果美",
+        "中小型餐飲業者：番茄牛肉麵等"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "冷凍蔬果找展鮮",
+        "讓你的貨源穩定又新鮮"
+      ],
+      "image": "g9_m1_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g9_m1",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "156",
+      "name": "廖怡溱",
+      "title": "有機葉菜生產批發",
+      "services": [
+        "提供有機驗證通過之葉菜原料，品項達20種以上，全年生產供應"
+      ],
+      "targets": [
+        "餐飲業者/團膳業者/截切業者/",
+        "加工業者/有蔬菜原料需求之公司行號及企業"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "有機蔬菜找華興",
+        "食在新鮮又安心"
+      ],
+      "image": "g9_m2_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g9_m2",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "178",
+      "name": "賴泓名",
+      "title": "菇類批發銷售",
+      "services": [
+        "各式新鮮、乾貨菇類進口乾貨的批發銷售"
+      ],
+      "targets": [
+        "連鎖火鍋店、婚宴會館、星級飯店、食品加工廠、團膳業者"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "香菇洋菇找大寶",
+        "貨源充足沒煩惱"
+      ],
+      "image": "g9_m3_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g9_m3",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "141",
+      "name": "吳豐安",
+      "title": "客製化多口味毛豆",
+      "services": [
+        "多種口味毛豆批發零售",
+        "冷凍宅配",
+        "市集、夜市擺攤"
+      ],
+      "targets": [
+        "各大通路",
+        "團購主",
+        "公司福利委員會"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "健康美食找豐安",
+        "快樂享受又心安"
+      ],
+      "image": "g9_m4_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g9_m4",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "160",
+      "name": "藍春生",
+      "title": "鳳梨生產批發零售",
+      "services": [
+        "鳳梨種植生產批發/零售",
+        "鳳梨契作合作"
+      ],
+      "targets": [
+        "水果批發/中盤商",
+        "鳳梨加工合作",
+        "團購/零售"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "吃旺萊~好運旺旺來",
+        "拜旺萊~財運滾滾來"
+      ],
+      "image": "g9_m5_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g9_m5",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "149",
+      "name": "李宜燁",
+      "title": "蜂蜜生產批發零售",
+      "services": [
+        "蜂蜜自產自銷、100%純蜂蜜",
+        "天然花粉/蜂王乳",
+        "蜂蜜醋/蜂膠/蜂蜜蛋糕"
+      ],
+      "targets": [
+        "直播主、各大經銷商/通路商、福委會/禮製品單位"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "選擇國產好蜂蜜\u000b味蕾沈浸自然美好旋律"
+      ],
+      "image": "g9_m6_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g9_m6",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "166",
+      "name": "張鈞政",
+      "title": "精釀啤酒",
+      "services": [
+        "瓶裝/桶裝啤酒",
+        "客製貼標/生產",
+        "PARTY生啤機"
+      ],
+      "targets": [
+        "品牌代工",
+        "酒吧 /餐酒館",
+        "連鎖餐飲/燒肉店"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "精釀啤酒找鈞政",
+        "讓你喝到不會睏"
+      ],
+      "image": "g9_m7_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g9_m7",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "204",
+      "name": "陳儒賢",
+      "title": "金針菇生產批發",
+      "services": [
+        "金針菇供應"
+      ],
+      "targets": [
+        "西北食品/楓康超市/家樂福",
+        "團膳業者/餐飲業者"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "金針菇找金城",
+        "火鍋煮湯好興奮"
+      ],
+      "image": "g9_m8_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g9_m8",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "206",
+      "name": "蔡柏泉",
+      "title": "蔬菜進出口貿易",
+      "services": [
+        "各式保鮮蔬菜進出口",
+        "各式冷凍蔬菜進出口",
+        "可客制化接單、源頭掌控管理"
+      ],
+      "targets": [
+        "食品加工廠",
+        "各地區蔬菜盤商",
+        "餐飲供應與加工需求"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "蔬菜隨時不斷貨",
+        "讓你生意更好做"
+      ],
+      "image": "g9_m9_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g9_m9",
+      "dataIssue": false,
+      "updatedAt": ""
+    }
+  ],
+  "recruiting": [
+    "黑木耳生產銷售",
+    "南北雜貨批發銷售"
+  ]
+}

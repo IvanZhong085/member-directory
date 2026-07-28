@@ -1,0 +1,243 @@
+{
+  "leader": "鄭子宏",
+  "room": "大廳",
+  "members": [
+    {
+      "number": "125",
+      "name": "鄭子宏",
+      "title": "LINE@行銷建置",
+      "services": [
+        "LINE行銷講師",
+        "LINE@官方帳號優化升級",
+        "Google 搜尋曝光優化"
+      ],
+      "targets": [
+        "食品業/零售業有官方帳號、想要行銷健檢的店家"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "數位轉型找子宏",
+        "業績讓您大紫大紅"
+      ],
+      "image": "g8_m1_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g8_m1",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "036",
+      "name": "吳嘉銘",
+      "title": "商用錄音製作",
+      "services": [
+        "商業用宣傳錄音",
+        "素人單曲MV製作",
+        "Podcast 錄製後製",
+        "吉他、小提琴等樂器錄音"
+      ],
+      "targets": [
+        "喜愛唱歌的素人",
+        "需要聲音宣傳的廠商",
+        "音樂、吉他教室或教師"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "發掘身邊好聲音",
+        "自我音樂為中心"
+      ],
+      "image": "g8_m2_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g8_m2",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "140",
+      "name": "張禾洺",
+      "title": "美食短影音行銷",
+      "services": [
+        "雲林食記",
+        "美食推廣",
+        "曝光實體店家，增加流量"
+      ],
+      "targets": [
+        "有食記、美食曝光需求的實體餐飲店家"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "網路曝光找禾洺",
+        "讓你在網路上很有名"
+      ],
+      "image": "g8_m3_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g8_m3",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "191",
+      "name": "李育萱",
+      "title": "濕紙巾製造代工",
+      "services": [
+        "濕紙巾製造(純水、寵物、抗菌、酒精及廣告文銷等功能性)",
+        "肯尼士品牌濕紙巾系列銷售",
+        "OEM禮贈品文宣廣告客製"
+      ],
+      "targets": [
+        "品牌商 (婦嬰市場、寵物通路)",
+        "大盤及經銷商、團購主",
+        "行銷公司",
+        "運動賽事"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "溼紙巾代工找育萱",
+        "客製服務最周全"
+      ],
+      "image": "g8_m4_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g8_m4",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "152",
+      "name": "施姿妃",
+      "title": "標籤吊牌製造印刷",
+      "services": [
+        "訂製貼紙設計&製作",
+        "產銷履歷、有機標籤、A4電腦標籤",
+        "熱感、銅版、珠光等各式條碼貼紙",
+        "條碼機 、 碳帶、熱感紙卷及電子發票",
+        "DM、目錄印刷"
+      ],
+      "targets": [
+        "農.畜.漁產業、食品業、餐飲業",
+        "製造業、設備商、電商"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "龍德貼紙展現您最佳一面   想要貼的更Longder 找龍德"
+      ],
+      "image": "g8_m5_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g8_m5",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "209",
+      "name": "王乙雅",
+      "title": "小紅書行銷建置",
+      "services": [
+        "小紅書口碑行銷開店\u000bAi行銷建置（開發）\u000b全台最大小紅書社群"
+      ],
+      "targets": [
+        "食衣住行育樂品牌",
+        "個人IP建置"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "小紅書找鴨鴨",
+        "華人客源到你家"
+      ],
+      "image": "g8_m6_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g8_m6",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "215",
+      "name": "王薇",
+      "title": "品牌行銷設計",
+      "services": [
+        "品牌規劃設計"
+      ],
+      "targets": [
+        "新創品牌、餐廳",
+        "印刷廠、行銷策劃、平面設計師"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "最佳視覺找Vivy",
+        "讓客戶輕鬆記得你"
+      ],
+      "image": "g8_m7_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g8_m7",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "222",
+      "name": "曾威龍",
+      "title": "網路整合行銷企劃",
+      "services": [
+        "網路整合行銷企劃"
+      ],
+      "targets": [
+        "剛創業或二代接班的老闆",
+        "想做短影音、社群經營或網路廣告的企業"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "行銷找威力",
+        "賺錢很省力"
+      ],
+      "image": "g8_m8_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g8_m8",
+      "dataIssue": false,
+      "updatedAt": ""
+    }
+  ],
+  "recruiting": [
+    "平面設計",
+    "商品攝影",
+    "seo網站優化",
+    "社群行銷",
+    "直播主",
+    "網站設計"
+  ]
+}

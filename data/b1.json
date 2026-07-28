@@ -1,0 +1,205 @@
+{
+  "leader": "陳品亦",
+  "room": "大廳",
+  "members": [
+    {
+      "number": "004",
+      "name": "陳品亦",
+      "title": "舒肥產品製造販售",
+      "services": [
+        "各式肉品舒肥加工",
+        "雞/豬/牛/魚",
+        "熟成/冷凍/真空"
+      ],
+      "targets": [
+        "有舒肥肉品需求的：",
+        "連鎖健康餐盒業者",
+        "批發團購業者"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "餓貳市場",
+        "您餐桌上的米其林"
+      ],
+      "image": "g12_m1_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g12_m1",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "078",
+      "name": "張茹瀅",
+      "title": "冷凍湯包水餃批發",
+      "services": [
+        "湯包水餃宅配、批發"
+      ],
+      "targets": [
+        "冷凍包裝、食材研發"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "湯包水餃九嬸婆",
+        "輕鬆美味端上桌"
+      ],
+      "image": "g12_m2_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g12_m2",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "171",
+      "name": "薛仲書",
+      "title": "冷凍熟麵批發銷售",
+      "services": [
+        "讚岐烏龍麵  \u000b各式冷凍熟麵"
+      ],
+      "targets": [
+        "南北雜貨盤商",
+        "連鎖麵食餐飲",
+        "日式料理餐廳"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "麵的問題找傑夫",
+        "簡單健康超快速"
+      ],
+      "image": "g12_m3_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g12_m3",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "148",
+      "name": "簡子浩",
+      "title": "包子饅頭零售",
+      "services": [
+        "中式點心包子",
+        "饅頭製作"
+      ],
+      "targets": [
+        "品牌行銷公司、人資顧問",
+        "原物料供應商(肉品、菜品)",
+        "門市SOP建立"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "包子專治你肚子",
+        "餓得發慌快到樂包子"
+      ],
+      "image": "g12_m4_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g12_m4",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "187",
+      "name": "陳秀卿",
+      "title": "常溫調理食品製造代工",
+      "services": [
+        "滷味、海味",
+        "銀髮友善調理包"
+      ],
+      "targets": [
+        "團媽/團購主"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "得意中華家鄉味",
+        "滷出幸福台灣味"
+      ],
+      "image": "g12_m5_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g12_m5",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "196",
+      "name": "曾俊翔",
+      "title": "蘿蔔糕批發零售",
+      "services": [
+        "蘿蔔糕批發零售"
+      ],
+      "targets": [
+        "團購主、KOL",
+        "costco採購"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "找俊翔吃蘿蔔糕\u000b讓妳步步糕升事業高"
+      ],
+      "image": "g12_m6_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g12_m6",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "179",
+      "name": "楊惠萱",
+      "title": "異國香料批發零售業",
+      "services": [
+        "配方香料零售包/1kg業務用包",
+        "客製化香料配方研發/企業贈禮",
+        "香料熱紅酒、香料奶茶教學/VIP活動"
+      ],
+      "targets": [
+        "搭配組合銷售/團購",
+        "品牌VIP活動邀約"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "異國香料調味找食色",
+        "文化故事風味有特色"
+      ],
+      "image": "g12_m7_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g12_m7",
+      "dataIssue": false,
+      "updatedAt": ""
+    }
+  ],
+  "recruiting": [
+    "植物肉批發零售",
+    "蛋商"
+  ]
+}

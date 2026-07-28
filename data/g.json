@@ -1,0 +1,298 @@
+{
+  "leader": "黃富強",
+  "room": "大廳",
+  "members": [
+    {
+      "number": "128",
+      "name": "黃富強",
+      "title": "室內裝修規劃設計",
+      "services": [
+        "建築設計、室內規劃",
+        "工程統包、系統傢俱"
+      ],
+      "targets": [
+        "建設公司、營造廠",
+        "室內設計師、同業廠商"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "住宅裝修很多事",
+        "富強統包你沒事"
+      ],
+      "image": "g11_m1_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g11_m1",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "043",
+      "name": "劉全修",
+      "title": "大地技師",
+      "services": [
+        "山坡地開發水土保持規劃設計",
+        "農舍、農業設施、休閒農場規劃設計/非都市土地變更編定/都市計畫農業區保護區土地開發利用"
+      ],
+      "targets": [
+        "建設公司",
+        "土地開發商",
+        "有土地開發需求的個人或法人"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "土地開發找全修",
+        "讓你美金台幣都全收"
+      ],
+      "image": "g11_m2_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g11_m2",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "090",
+      "name": "周承瑋",
+      "title": "地政士",
+      "services": [
+        "不動產過戶設定抵押",
+        "贈與繼承等不動產登記",
+        "不動產稅務規劃"
+      ],
+      "targets": [
+        "房屋仲介",
+        "建設公司",
+        "需要不動產登記的民眾"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "土地登記找承瑋",
+        "安全效率又省稅"
+      ],
+      "image": "g11_m3_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g11_m3",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "033",
+      "name": "盧松甫",
+      "title": "家族財富規劃顧問",
+      "services": [
+        "預留稅源/合法繼承",
+        "財產支配/資產保全"
+      ],
+      "targets": [
+        "中小企業主\u000b家庭理財規劃"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "企業資產保全找松甫",
+        "全家安心待就步"
+      ],
+      "image": "g11_m4_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g11_m4",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "094",
+      "name": "郭佩晴",
+      "title": "人壽保險",
+      "services": [
+        "醫療儲蓄規劃",
+        "醫護諮詢服務"
+      ],
+      "targets": [
+        "新生兒保單、長照規劃、中小企業團體保險"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "買保險找佩晴",
+        "讓你人生很輕盈"
+      ],
+      "image": "g11_m5_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g11_m5",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "198",
+      "name": "張哲偉",
+      "title": "商辦水電工程",
+      "services": [
+        "水電工程維護養護",
+        "建物興建承包、工程建物養護施工",
+        "裝潢水電工程、燈光規劃"
+      ],
+      "targets": [
+        "建設營建公司、商業水電",
+        "燈光規劃設計"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "裕展水電工程行"
+      ],
+      "image": "g11_m6_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g11_m6",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "024",
+      "name": "李宗霖",
+      "title": "冷氣家電買賣裝修",
+      "services": [
+        "冷氣家電買賣",
+        "安裝、維修"
+      ],
+      "targets": [
+        "需要冷氣家電的：",
+        "個人、新房屋主",
+        "包租公包租婆"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "選購冷氣找宗霖",
+        "省電省錢最聰明"
+      ],
+      "image": "g11_m7_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g11_m7",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "184",
+      "name": "徐玉真",
+      "title": "太陽光電建置",
+      "services": [
+        "太陽光電規劃建置"
+      ],
+      "targets": [
+        "一般住宅閒置屋頂的屋主",
+        "廠房老闆、營造公司、水電行業，房仲業者、採光罩廠商"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "太陽公公當長工",
+        "累積財富很輕鬆"
+      ],
+      "image": "g11_m8_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g11_m8",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "207",
+      "name": "杜成駿",
+      "title": "商空裝修工程統籌",
+      "services": [
+        "專門處理店面裝潢工程大小事",
+        "提供餐飲業設備及工程統包服務",
+        "打造流暢的後場動線限期完工提升老闆變現力"
+      ],
+      "targets": [
+        "需要店面裝潢的餐飲業老闆",
+        "後場商業廚具",
+        "工程統包需求相關業主"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "餐飲裝潢交給毅品",
+        "專業省心效果放心"
+      ],
+      "image": "g11_m9_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g11_m9",
+      "dataIssue": false,
+      "updatedAt": ""
+    },
+    {
+      "number": "068",
+      "name": "王泓傑",
+      "title": "中央空調系統規劃建置",
+      "services": [
+        "無塵室規劃施工",
+        "空調系統規劃設計（含空壓系統）",
+        "工廠設備二次配"
+      ],
+      "targets": [
+        "廠房營造業",
+        "機電工程",
+        "消防工程"
+      ],
+      "have": [],
+      "want": [],
+      "tagline": [
+        "空調顧好，產線不吵",
+        "做無塵室，就找璟耀"
+      ],
+      "image": "g11_m10_x.jpg",
+      "card": "",
+      "products": [],
+      "company": "",
+      "business_items": "",
+      "website": "",
+      "id": "g11_m10",
+      "dataIssue": false,
+      "updatedAt": ""
+    }
+  ],
+  "recruiting": [
+    "建築師",
+    "建案代銷",
+    "木作工程",
+    "營造商",
+    "房屋仲介"
+  ]
+}

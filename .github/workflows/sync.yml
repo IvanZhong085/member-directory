@@ -1,14 +1,25 @@
-# 每次 data.js 發布後自動:內嵌照片轉實體檔 → 重建成員分享頁 → 更新名冊 roster.csv
+# data/ 底下的分組檔一有變動就自動:
+#   內嵌照片轉實體檔 → 由 data/ 合併出 data.js → 重建成員分享頁 → 更新名冊 roster.csv
 # 由 GITHUB_TOKEN 提交,不會觸發其他 workflow(GitHub 預設防迴圈)。
+#
+# ⚠ 這個 workflow 是前台更新的必經之路:data.js 是它產生的產出物,它失敗前台就不會更新。
+#   12 位組長各自發布時很容易在同一分鐘內連續推送,先前就發生過「算完要推送時 main 已前進 →
+#   推送被拒 → 整個同步失敗」。下方的重試迴圈就是為此:被拒時重抓最新的 main、重新產生
+#   產出物再試(產出物完全由 data/ 決定,所以重算永遠安全,也不會有合併衝突)。
 name: 同步網站資料
 on:
   push:
     branches: [main]
-    paths: [data.js]
+    paths: ['data/**']
   workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  # 同一時間只跑一個,後來的排隊等前一個做完(不取消:每次發布的結果都要被算進去)
+  group: sync-site-data
+  cancel-in-progress: false
 
 jobs:
   sync:
@@ -16,23 +27,36 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: 內嵌照片轉實體圖檔
-        run: node tools/extract-inline-photos.mjs
-
-      - name: 重建成員分享預覽頁
-        run: node tools/build-member-pages.mjs
-
-      - name: 更新名冊 roster.csv
-        run: node tools/build-roster.mjs
-
-      - name: 有變更才提交
+      - name: 產生產出物並提交（推送被拒就重抓 main 重算再試）
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -A
-          if git diff --cached --quiet; then
-            echo "沒有變更,不需提交。"
-          else
-            git commit -m "自動同步:照片正規化/分享頁/名冊 CSV"
-            git push
-          fi
+
+          generate() {
+            node tools/extract-inline-photos.mjs
+            node tools/build-data.mjs
+            node tools/build-member-pages.mjs
+            node tools/build-roster.mjs
+          }
+
+          for attempt in 1 2 3 4 5; do
+            generate
+            git add -A
+            if git diff --cached --quiet; then
+              echo "沒有變更,不需提交。"
+              exit 0
+            fi
+            git commit -m "自動同步:照片正規化/data.js/分享頁/名冊 CSV"
+            if git push; then
+              echo "已同步(第 $attempt 次嘗試)。"
+              exit 0
+            fi
+            echo "::warning::推送被拒(第 $attempt 次)——main 已被其他發布推進,重抓後重算再試"
+            git fetch origin main
+            git reset --hard origin/main
+            sleep $((attempt * 3))
+          done
+
+          echo "::error::推送重試 5 次仍失敗,前台可能未更新。請檢查是否有大量併發發布。"
+          exit 1
