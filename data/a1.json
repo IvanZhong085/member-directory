@@ -27,8 +27,8 @@
       "business_items": "",
       "website": "",
       "id": "g3_m1",
-      "dataIssue": true,
-      "updatedAt": "2026-07-28T02:19:28.762Z"
+      "dataIssue": false,
+      "updatedAt": "2026-07-28T07:14:10.402Z"
     },
     {
       "number": "079",
@@ -181,11 +181,16 @@
         "外燴團隊 (一隻全羊以上)",
         "冷凍調理包代工廠(MOQ300斤)"
       ],
-      "have": [],
-      "want": [],
+      "have": [
+        "我有國產羊肉爐資源"
+      ],
+      "want": [
+        "找到羊肉特色小吃店（羊肉湯、羊肉店）",
+        "肉舖"
+      ],
       "tagline": [
         "國產羊肉找阿成",
-        "老饕全部都點頭"
+        "羊肉絕對鮮又嫩"
       ],
       "image": "g3_m7_x.jpg",
       "card": "g3_m7_card.jpg",
@@ -198,7 +203,7 @@
       "website": "",
       "id": "g3_m7",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "2026-07-28T07:15:20.654Z"
     },
     {
       "number": "219",
