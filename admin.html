@@ -196,7 +196,7 @@
   }
   @media (min-width:821px){ .drawer-backdrop{display:none !important;} }
 
-  /* CSV／PPT 匯入預覽視窗 */
+  /* 批次預覽視窗（缺資料清單用） */
   .batch-body{max-height:52vh; overflow:auto; display:flex; flex-direction:column; gap:12px; font-size:13px;}
   .batch-sec{border:1px solid var(--border); border-radius:10px; padding:12px 14px;}
   .batch-sec h4{margin:0 0 8px; font-size:13px; font-weight:800; display:flex; align-items:center; gap:8px;}
@@ -294,11 +294,7 @@
       </button>
       <button class="btn adm-hide-mobile" id="btn-logout" type="button" title="登出">登出</button>
       <button class="btn" id="btn-csv-export" type="button" title="下載全會名冊 CSV（Excel 可開，含分組與人數）">匯出 CSV</button>
-      <button class="btn" id="btn-csv-import" type="button" title="上傳改好的 CSV，批次更新組別與欄位（會先顯示差異預覽）">匯入 CSV</button>
-      <input type="file" id="csv-file" accept=".csv,text/csv" hidden>
       <button class="btn" id="btn-missing" type="button" title="列出資料不齊的夥伴，一鍵產生催收訊息">缺資料</button>
-      <button class="btn" id="btn-ppt" type="button" title="上傳會員專業簡報(.pptx)，自動抽出欄位與照片批次更新">匯入 PPT</button>
-      <input type="file" id="ppt-file" accept=".pptx" hidden>
       <a class="btn adm-hide-mobile" id="sheet-link" href="#" target="_blank" rel="noopener" hidden title="開啟 Google 名冊試算表">名冊試算表 ↗</a>
       <a class="btn" href="groups.html" target="_blank" rel="noopener" title="一頁式 組別+姓名+專業別,可直接列印或存 PDF">產業小組表</a>
       <button class="btn adm-hide-mobile" id="btn-export" type="button" title="下載一份備份檔">下載備份</button>
@@ -426,7 +422,7 @@
   </div>
 </div>
 
-<!-- CSV／PPT 匯入：差異預覽視窗（套用前的最後防線） -->
+<!-- 批次預覽視窗（目前由「缺資料」清單使用） -->
 <div class="modal-overlay" id="batch-modal" hidden>
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="batch-title" style="width:min(680px,100%);">
     <h3 id="batch-title">變更預覽</h3>
@@ -451,7 +447,7 @@
     <li><b>換照片＋裁剪</b>：點「更換照片」選圖後，會跳出裁剪框，拖曳、縮放把人物放進框內再「套用」。</li>
     <li><b>暫存</b>：按「暫存」把目前進度立即存進這台裝置的瀏覽器（不會發布出去），下次打開還在。</li>
     <li><b>我有…／我要…</b>：每行一項。「我有」寫手上的資源、專長、人脈；「我要」寫想被引薦到的對象與需求。兩欄都會顯示在成員內頁與分享卡上。</li>
-    <li><b>最後更新時間</b>：任何欄位一改動（含 CSV／表單／PPT 批次匯入）就會自動蓋章，顯示在成員卡標頭、成員內頁與匯出的 CSV；純調整排序不算修改。</li>
+    <li><b>最後更新時間</b>：任何欄位一改動就會自動蓋章，顯示在成員卡標頭、成員內頁與匯出的 CSV；純調整排序不算修改。</li>
     <li><b>分組列</b>：在左側；電腦可用 <code>«</code> 收合、手機點左上 <code>☰</code> 叫出。新增分組用「+ 新增組」或列表下方虛線鈕。</li>
     <li>改完務必按「<b>發布到網站</b>」才會真正更新到公開網站，光改草稿不會。</li>
   </ol>
@@ -462,8 +458,6 @@
 <script src="site-config.js?v=1"></script>
 <script src="data.js"></script>
 <script src="csv-schema.js?v=2"></script>
-<script src="jszip.js"></script>
-<script src="pptimport.js?v=5"></script>
-<script src="admin.js?v=7"></script>
+<script src="admin.js?v=8"></script>
 </body>
 </html>

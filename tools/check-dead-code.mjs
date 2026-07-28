@@ -15,14 +15,14 @@ const read = f => { try { return readFileSync(join(ROOT, f), "utf8"); } catch (e
 
 /* 每個頁面實際載入的檔案組(依各 html 的 <script> 清單維護) */
 const PAGES = {
-  "admin.html":     ["site-config.js", "data.js", "csv-schema.js", "jszip.js", "pptimport.js", "admin.js", "admin.html"],
+  "admin.html":     ["site-config.js", "data.js", "csv-schema.js", "admin.js", "admin.html"],
   "index.html":     ["site-config.js", "data.js", "qrcode.js", "sharecard.js", "app.js", "index.html"],
   "spotlight.html": ["site-config.js", "data.js", "qrcode.js", "sharecard.js", "spotlight.js", "spotlight.html"],
   "groups.html":    ["site-config.js", "data.js", "qrcode.js", "groups.html"],
   "visitor.html":   ["site-config.js", "data.js", "visitor.html"],
 };
 /* 只掃第一方程式碼(第三方與資料檔跳過) */
-const SKIP = new Set(["data.js", "jszip.js", "qrcode.js", "site-config.js"]);
+const SKIP = new Set(["data.js", "qrcode.js", "site-config.js"]);
 
 let suspects = 0;
 for (const [page, files] of Object.entries(PAGES)) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* 從 data.js 產生名冊鏡像 roster.csv(給 Google 試算表 IMPORTDATA 連結用)。
-   欄位與後台「匯出 CSV」完全相同(共用 csv-schema.js),改好也能直接回灌後台「匯入 CSV」。
+   欄位與後台「匯出 CSV」完全相同(共用 csv-schema.js)。本站無匯入功能,此檔僅供核對與製表。
    注意:這個檔不含 BOM(Google 試算表取向);要用 Excel 開請改用後台的「匯出 CSV」。
 
    用法:在 repo 根目錄執行  node tools/build-roster.mjs
