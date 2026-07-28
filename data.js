@@ -32,8 +32,8 @@ const GROUPS = [
         "business_items": "",
         "website": "",
         "id": "g3_m1",
-        "dataIssue": false,
-        "updatedAt": ""
+        "dataIssue": true,
+        "updatedAt": "2026-07-28T02:19:28.762Z"
       },
       {
         "number": "079",
