@@ -1145,6 +1145,12 @@
         showPermBanner("Worker 上設定的 GitHub 權杖沒有寫入權限或已失效，請管理員到 Cloudflare 檢查 Worker 的 GH_TOKEN 設定（需要 Contents: Read and write）。");
       } else if(res.error === "content_not_accepted"){
         toast("這個編輯頁是舊版本，請重新整理頁面後再改一次（你的草稿仍在）", {warn:true, duration:9000});
+      } else if(res.error === "bad_file_path" && String(res.path || "").startsWith("data/")){
+        // 反過來的情況:網站已經更新成分組檔,但 Cloudflare 上的 Worker 還是舊版,
+        // 它的路徑白名單只認得 images/ 與 m/,所以整批被擋。給出明確指示,
+        // 否則組長只會看到「發布失敗」而一直重試。
+        toast("發布服務還是舊版本，尚未支援分組資料檔，這次修改「沒有」上線（草稿都還在）。", {warn:true, duration:9000});
+        showPermBanner("Cloudflare 上的 Worker 還沒更新到最新版。請總管理員到 Cloudflare → Worker → Edit code，貼上 repo 裡最新的 worker/publish-relay.js 後 Deploy，再發布一次即可。");
       } else if(res.error === "forbidden_path"){
         toast("你沒有修改「" + String(res.path || "").replace(/^data\/|\.json$/g, "").toUpperCase() +
               "」的權限，這次修改沒有上線。若你認為這是設定錯誤，請聯繫總管理員。", {warn:true, duration:9000});
@@ -1296,6 +1302,8 @@
     tryLoadDraft();
     fixSelected();
     renderAll(); validate();
+    // 登入當下資料還沒抓回來,組長的組名查不到(會顯示「找不到此組」),載完要再寫一次
+    showWho();
     showDraftBanner(hasDraft);
   }
   renderAll();
