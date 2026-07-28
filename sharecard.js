@@ -25,7 +25,7 @@ window.ShareTools = (function(){
   function shareUrl(m){ return SITE_BASE + "m/" + encodeURIComponent(m.id) + ".html"; }
   function hashUrl(m){ return SITE_BASE + "#/member/" + encodeURIComponent(m.id); }
   function displayUrl(m){ return shareUrl(m).replace(/^https?:\/\//,""); }
-  function imgSrc(image){ return /^data:/.test(image) ? image : "images/" + encodeURIComponent(image); }
+  function imgSrc(image){ return /^data:image\//.test(image) ? image : "images/" + encodeURIComponent(image); }
 
   function loadImage(src){
     return new Promise((resolve) => {

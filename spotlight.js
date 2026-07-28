@@ -23,7 +23,7 @@
   function esc(s){
     return (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
   }
-  function imgSrc(image){ return /^data:/.test(image) ? image : "images/" + encodeURIComponent(image); }
+  function imgSrc(image){ return /^data:image\//.test(image) ? image : "images/" + encodeURIComponent(image); }
 
   /* ---------- 選單 ---------- */
   function fillGroups(){

@@ -65,11 +65,19 @@ function pageHTML(m, g){
 
 mkdirSync(OUT_DIR, { recursive: true });
 
+/* id 直接拿來當檔名,所以只收安全字元:"../index" 這種值會讓 join() 跳出 m/,
+   把產生出來的頁面寫進 repo 其他地方(例如蓋掉首頁)。Worker 已擋在入口,這裡再擋一次,
+   涵蓋直接改 repo 的情況。 */
+const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
 const wanted = new Set();
 let count = 0;
 for(const g of GROUPS){
   for(const m of g.members){
     if(!m.id){ console.warn("略過沒有 id 的成員:", m.name); continue; }
+    if(!ID_RE.test(String(m.id))){
+      throw new Error(`成員 id 含不合法字元,拒絕產生分享頁:${JSON.stringify(m.id)}(${m.name})`);
+    }
     const file = m.id + ".html";
     wanted.add(file);
     writeFileSync(join(OUT_DIR, file), pageHTML(m, g));

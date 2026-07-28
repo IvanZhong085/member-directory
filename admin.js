@@ -214,7 +214,7 @@
   /* ---------- helpers ---------- */
   const groupById = id => DATA.find(g => g.id === id);
   function esc(s){ return (s||"").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
-  function imgSrc(image){ return /^data:/.test(image) ? image : "images/" + encodeURIComponent(image); }
+  function imgSrc(image){ return /^data:image\//.test(image) ? image : "images/" + encodeURIComponent(image); }
 
   /* ---------- 修改時間戳 ----------
      任何會改到「成員資料內容」的動作都要呼叫 touch(m):逐欄編輯、換照片/名片/商品照、

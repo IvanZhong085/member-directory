@@ -66,8 +66,10 @@
   function isSearchHash(h){ return (h||"").startsWith("#/search/"); }
   function scrollTop(){ window.scrollTo({top:0, left:0, behavior:"instant"}); }
   /* photos may be a filename (images/…) or an inline data: URL from the editor */
+  /* 只認 data:image/... —— 內嵌照片是合法用法,但 data:text/html 之類的值會被塞進
+     <a href> 變成一頁可導覽的內容,不給這個空間。 */
   function imgSrc(image){
-    return /^data:/.test(image) ? image : "images/" + encodeURIComponent(image);
+    return /^data:image\//.test(image) ? image : "images/" + encodeURIComponent(image);
   }
 
   /* ---------- inline SVG icons (Lucide) ---------- */

@@ -36,7 +36,10 @@ const GITHUB_TIMEOUT_MS = 15000;         // 呼叫 GitHub API 的逾時上限，
    權杖雖只授權這個 repo，仍不給「寫任意路徑」的能力。 */
 const MAX_FILES_PER_REQUEST = 25;               // 單次發布的附件上限（編輯頁會自動分批）
 const MAX_FILE_B64_CHARS = 3 * 1024 * 1024;     // 單一附件 base64 上限（約 2.2MB 原始檔）
-const FILE_PATH_RE = /^(images|m)\/[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.(jpg|jpeg|png|webp|html)$/;
+/* 只有 images/ 的圖片。m/ 的成員分享頁是 Action 產生的產出物,沒有人該從瀏覽器直接寫——
+   而它與編輯頁同源,能寫任意 .html 就等於能在站上放一頁自己的 JavaScript 去偷別人的登入
+   憑證。既然前端根本不會送,就不留這個能力。 */
+const FILE_PATH_RE = /^images\/[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.(jpg|jpeg|png|webp)$/;
 /* 分組資料檔:data/_index.json(分會結構)與 data/<代號小寫>.json(各組內容)。
    ★ 這條路徑規則就是權限本身:組長只被允許寫自己那一組的檔案,見 canWriteDataFile() ★ */
 const DATA_PATH_RE = /^data\/(_index|[a-z0-9]{1,8})\.json$/;
@@ -345,8 +348,43 @@ async function ghPutFile(env, headers, path, contentB64, message){
 }
 
 /* base64 基本檢查：字元集合法且長度合理（避免把垃圾塞進 GitHub API 才被打回） */
-function isPlausibleB64(s){
-  return typeof s === "string" && s.length > 0 && s.length <= MAX_FILE_B64_CHARS && /^[A-Za-z0-9+/]+={0,2}$/.test(s);
+function isPlausibleB64(s, max){
+  const cap = max || MAX_FILE_B64_CHARS;
+  return typeof s === "string" && s.length > 0 && s.length <= cap && /^[A-Za-z0-9+/]+={0,2}$/.test(s);
+}
+
+/* ★ 分組資料檔的內容檢查 ★
+   data/*.json 進來之後會被 GitHub Action 拿去合併成 data.js、產生分享頁與名冊。
+   那條產線是「前台會不會更新」的唯一通道：只要有一個檔案壞掉，合併腳本就會拋錯、
+   Action 失敗，data.js 從此停在舊版——全分會的前台一起凍結。所以壞資料要擋在這裡，
+   不能等到產線才發現。同時 id 會被拿去組檔名（m/<id>.html），一定要擋掉路徑穿越。 */
+const MEMBER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+const MEMBER_ARRAY_FIELDS = ["services", "targets", "have", "want", "tagline", "products"];
+function checkDataFileBody(path, text){
+  let doc;
+  try{ doc = JSON.parse(text); }catch(e){ return "not_json"; }
+  if(path === "data/_index.json"){
+    if(!Array.isArray(doc)) return "index_not_array";
+    for(const e of doc){
+      if(!e || typeof e !== "object" || Array.isArray(e)) return "index_entry_not_object";
+      if(!GROUPCODE_RE.test(typeof e.code === "string" ? e.code : "")) return "bad_group_code";
+    }
+    return null;
+  }
+  if(!doc || typeof doc !== "object" || Array.isArray(doc)) return "group_not_object";
+  for(const k of ["members", "recruiting"]){
+    if(k in doc && !Array.isArray(doc[k])) return "bad_" + k;
+  }
+  for(const m of (Array.isArray(doc.members) ? doc.members : [])){
+    if(!m || typeof m !== "object" || Array.isArray(m)) return "member_not_object";
+    // id 之後會變成 m/<id>.html 的檔名——"../index" 這種值會蓋掉 repo 裡的其他檔案
+    if(!MEMBER_ID_RE.test(typeof m.id === "string" ? m.id : "")) return "bad_member_id";
+    // 這幾個欄位前台與產線都直接 .join()/.map():型別一錯就整頁(整條產線)拋錯
+    for(const k of MEMBER_ARRAY_FIELDS){
+      if(k in m && m[k] != null && !Array.isArray(m[k])) return "bad_member_field:" + k;
+    }
+  }
+  return null;
 }
 
 async function handlePublish(request, env){
@@ -382,9 +420,14 @@ async function handlePublish(request, env){
       if(!canWriteDataFile(sess, f.path)){
         return json(env, { ok:false, error:"forbidden_path", path: f.path, role: sess.r || "owner", group: sess.g || "" }, 403);
       }
-      if(!isPlausibleB64(f.contentB64) || f.contentB64.length > MAX_DATA_B64_CHARS){
+      if(!isPlausibleB64(f.contentB64, MAX_DATA_B64_CHARS)){
         return json(env, { ok:false, error:"bad_file_content", path: f.path }, 400);
       }
+      let text;
+      try{ text = new TextDecoder("utf-8", { fatal:true }).decode(b64ToBytes(f.contentB64)); }
+      catch(e){ return json(env, { ok:false, error:"bad_file_content", path: f.path }, 400); }
+      const why = checkDataFileBody(f.path, text);
+      if(why) return json(env, { ok:false, error:"bad_data_file", path: f.path, reason: why }, 400);
     } else {
       if(!FILE_PATH_RE.test(f.path)) return json(env, { ok:false, error:"bad_file_path", path: f.path }, 400);
       if(!isPlausibleB64(f.contentB64)) return json(env, { ok:false, error:"bad_file_content", path: f.path }, 400);
