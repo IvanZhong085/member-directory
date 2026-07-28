@@ -55,6 +55,10 @@
   const baseHashes = {};       // 路徑 → 載入當下的 SHA-256(發布時給 Worker 做版本落後偵測)
 
   const dataPathOf = code => "data/" + String(code).trim().toLowerCase() + ".json";
+  /* 分組代號只能是英數字:它同時是檔名(data/<代號>.json)與權限的判定依據。
+     新增分組時預設代號是「新」,沒改就發布會被 Worker 擋下,所以檢查表要先講。 */
+  const GROUPCODE_RE = /^[A-Za-z0-9]{1,8}$/;
+  const DATA_PATH_RE = /^data\/(_index|[a-z0-9]{1,8})\.json$/;
   const GROUP_BODY_KEYS = ["leader", "room", "members", "recruiting"];
   /* 分組物件的鍵順序要與 tools/build-data.mjs 一致,否則合併出來的 data.js 會有無意義的差異 */
   function groupBody(g){
@@ -238,6 +242,9 @@
     const nums = new Map();
     visibleGroups().forEach(g => {
       if(!g.name.trim()) problems.push("有分組沒有名稱（" + (g.code||"?") + "）");
+      if(!GROUPCODE_RE.test(String(g.code||"").trim())){
+        problems.push("分組代號「" + (g.code||"(空白)") + "」不合法：只能用英文字母或數字、最多 8 個字（例如 A1、B2、C），改好才能發布");
+      }
       g.members.forEach(m => {
         ids.set(m.id, (ids.get(m.id)||0)+1);
         if(!m.name.trim()) problems.push("「" + (g.code||"?") + "」組有成員未填姓名");
@@ -646,7 +653,8 @@
   function addGroup(){
     pushUndo();
     const g = { id: uid("g"), code:"新", name:"新分組", leader:"", room:"", members:[] };
-    DATA.push(g); selected = g.id; renderAll(); scheduleSave();
+    // 預設代號是中文的「新」,發布一定會被擋——立刻跑一次檢查表把話講在前面
+    DATA.push(g); selected = g.id; renderAll(); scheduleSaveAndValidate();
     byId("g-code") && byId("g-code").focus();
     toast("已新增分組，請填代號與名稱");
   }
@@ -1145,10 +1153,17 @@
         showPermBanner("Worker 上設定的 GitHub 權杖沒有寫入權限或已失效，請管理員到 Cloudflare 檢查 Worker 的 GH_TOKEN 設定（需要 Contents: Read and write）。");
       } else if(res.error === "content_not_accepted"){
         toast("這個編輯頁是舊版本，請重新整理頁面後再改一次（你的草稿仍在）", {warn:true, duration:9000});
+      } else if(res.error === "bad_file_path" && !DATA_PATH_RE.test(String(res.path || ""))){
+        // 路徑本身就不合法,幾乎都是分組代號打了中文或符號(新增分組的預設代號是「新」)
+        toast("分組代號「" + String(res.path || "").replace(/^data\/|\.json$/g, "") +
+              "」不合法，這次修改「沒有」上線。代號只能用英文字母或數字，改好再發布一次（草稿都還在）。",
+              {warn:true, duration:10000});
+      } else if(res.error === "bad_data_file"){
+        toast("資料內容不符合規則（" + String(res.reason || "") + "），這次修改「沒有」上線。" +
+              "請先「下載備份」，再把該筆資料改回正常值（草稿都還在）。", {warn:true, duration:10000});
       } else if(res.error === "bad_file_path" && String(res.path || "").startsWith("data/")){
-        // 反過來的情況:網站已經更新成分組檔,但 Cloudflare 上的 Worker 還是舊版,
-        // 它的路徑白名單只認得 images/ 與 m/,所以整批被擋。給出明確指示,
-        // 否則組長只會看到「發布失敗」而一直重試。
+        // 路徑是合法的分組檔卻被說格式錯 → 對方是舊版 Worker,它的白名單只認得 images/ 與 m/。
+        // 不講清楚的話,組長只會看到「發布失敗」而一直重試。
         toast("發布服務還是舊版本，尚未支援分組資料檔，這次修改「沒有」上線（草稿都還在）。", {warn:true, duration:9000});
         showPermBanner("Cloudflare 上的 Worker 還沒更新到最新版。請總管理員到 Cloudflare → Worker → Edit code，貼上 repo 裡最新的 worker/publish-relay.js 後 Deploy，再發布一次即可。");
       } else if(res.error === "forbidden_path"){
