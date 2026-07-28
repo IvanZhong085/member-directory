@@ -8,8 +8,14 @@
  * 1. 到 https://dash.cloudflare.com → Workers & Pages → Create → Create Worker
  * 2. 開啟編輯器，把這個檔案的內容整個貼進去、Deploy。
  * 3. 到該 Worker 的 Settings → Variables：
- *    - 加密變數（Secret）：ADMIN_PASSWORD（你的管理密碼）、SESSION_SECRET（隨機亂碼，見下方）、
+ *    - 加密變數（Secret）：ADMIN_USERS（帳號密碼表，見下方）、SESSION_SECRET（隨機亂碼，見下方）、
  *      GH_TOKEN（你的 GitHub fine-grained 權杖，Contents: Read and write）
+ *
+ * ADMIN_USERS 的格式是一段 JSON，一個帳號一組「帳號":"密碼"」：
+ *     {"ivan":"密碼1","amy":"密碼2","shufen":"密碼3"}
+ * 要新增／刪除人或改密碼，就改這一格字串再 Deploy，不必動程式碼。
+ * 帳號不分大小寫（Ivan 與 ivan 視為同一人），密碼分大小寫。
+ * 相容性：沒有設定 ADMIN_USERS 時，仍會沿用舊的單一 ADMIN_PASSWORD，此時帳號固定為 admin。
  *    - 一般變數：GH_OWNER=IvanZhong085、GH_REPO=member-directory、GH_BRANCH=main、GH_PATH=data.js、
  *      ALLOWED_ORIGIN=https://ivanzhong085.github.io
  * 4. 到 Settings → Bindings → 新增 KV Namespace binding：Variable name 填 RATE_LIMIT，
@@ -72,26 +78,114 @@ function b64urlDecode(str){
 async function hmacKey(secret){
   return crypto.subtle.importKey("raw", new TextEncoder().encode(secret), {name:"HMAC", hash:"SHA-256"}, false, ["sign","verify"]);
 }
-async function makeSession(secret){
-  const payload = JSON.stringify({ exp: Date.now() + SESSION_TTL_SECONDS*1000 });
+/* session 帶上登入者帳號(u)、角色(r)與分組(g):發布時要記進 commit 訊息,
+   編輯頁也靠它決定顯示哪些功能。payload 有簽章保護,竄改會讓驗證失敗。 */
+async function makeSession(secret, acc){
+  const payload = JSON.stringify({
+    exp: Date.now() + SESSION_TTL_SECONDS*1000,
+    u: (acc && acc.name) || "", r: (acc && acc.role) || "owner", g: (acc && acc.group) || "",
+  });
   const payloadB64 = b64urlEncode(new TextEncoder().encode(payload));
   const key = await hmacKey(secret);
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payloadB64));
   return payloadB64 + "." + b64urlEncode(new Uint8Array(sig));
 }
+/* 通過回傳 payload 物件({exp,u,r,g}),失敗回傳 null——呼叫端一律用真假值判斷 */
 async function verifySession(token, secret){
-  if(!token || typeof token !== "string" || token.indexOf(".") === -1) return false;
+  if(!token || typeof token !== "string" || token.indexOf(".") === -1) return null;
   const parts = token.split(".");
-  if(parts.length !== 2) return false;
+  if(parts.length !== 2) return null;
   const [payloadB64, sigB64] = parts;
   try{
     const key = await hmacKey(secret);
     const ok = await crypto.subtle.verify("HMAC", key, b64urlDecode(sigB64), new TextEncoder().encode(payloadB64));
-    if(!ok) return false;
+    if(!ok) return null;
     const payload = JSON.parse(new TextDecoder().decode(b64urlDecode(payloadB64)));
-    return typeof payload.exp === "number" && Date.now() < payload.exp;
-  }catch(e){ return false; }
+    if(typeof payload.exp !== "number" || Date.now() >= payload.exp) return null;
+    return payload;
+  }catch(e){ return null; }
 }
+/* ── 帳號表 ────────────────────────────────────────────────────────────
+   來源是 ADMIN_USERS 這一個加密變數,內容為 JSON。一筆帳號兩種寫法都吃:
+     "ivan": "密碼"                                          → 總管理員(舊格式,相容)
+     "a1": {"password":"密碼","role":"leader","group":"A1"}   → 組長,綁定分組代號
+   沒設定 ADMIN_USERS 時沿用舊的單一 ADMIN_PASSWORD(帳號固定 admin)。
+   回傳 Map(帳號小寫 → {password,role,group});設定壞掉回傳 null,由呼叫端明確報錯。 */
+const USERNAME_RE = /^[^\s\u0000-\u001f\u007f]{1,32}$/;   // 不含空白與控制字元,長度 1–32
+const GROUPCODE_RE = /^[A-Za-z0-9]{1,8}$/;
+
+/* 一筆帳號設定 → {password, role, group}。role 只認 "leader",其餘一律視為 owner;
+   組長沒綁合法分組代號就回傳 null(設定錯誤的帳號不生效,不會變成隱形的總管理員)。 */
+function normalizeAccount(val){
+  if(typeof val === "string") return val ? { password: val, role: "owner", group: "" } : null;
+  if(!val || typeof val !== "object" || Array.isArray(val)) return null;
+  const password = typeof val.password === "string" ? val.password : "";
+  if(!password) return null;                       // 空密碼的帳號一律不生效
+  if(val.role !== "leader") return { password, role: "owner", group: "" };
+  const group = typeof val.group === "string" ? val.group.trim() : "";
+  if(!GROUPCODE_RE.test(group)) return null;
+  return { password, role: "leader", group };
+}
+function loadUsers(env){
+  const users = new Map();
+  if(env.ADMIN_USERS){
+    let parsed;
+    try{ parsed = JSON.parse(env.ADMIN_USERS); }catch(e){ return null; }
+    if(!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    for(const [name, val] of Object.entries(parsed)){
+      const key = String(name).trim().toLowerCase();
+      if(!USERNAME_RE.test(key)) continue;         // 帳號名不合規就跳過,不讓它進 commit 訊息
+      const acc = normalizeAccount(val);
+      if(acc) users.set(key, acc);
+    }
+    return users.size ? users : null;
+  }
+  if(env.ADMIN_PASSWORD) users.set("admin", { password: env.ADMIN_PASSWORD, role: "owner", group: "" });
+  return users.size ? users : null;
+}
+/* 驗證帳密。帳號不存在時仍走一次完整比對,讓「查無帳號」與「密碼錯」耗時一致,
+   不會因為回應快慢而洩漏哪些帳號真的存在。通過回傳 {name,role,group},否則 null。 */
+function verifyCredentials(users, username, password){
+  const key = String(username == null ? "" : username).trim().toLowerCase();
+  const acc = users.get(key);
+  const expected = acc === undefined ? "\u0000\u0000no-such-account\u0000\u0000" : acc.password;
+  const match = timingSafeEqual(String(password == null ? "" : password), expected);
+  return (acc !== undefined && match) ? { name: key, role: acc.role, group: acc.group } : null;
+}
+
+/* ⚠️ 角色只做「介面分權」,不是伺服器端的寫入權限 ⚠️
+   組長的發布請求與總管理員走完全同一條路:整份 data.js 照收照寫。編輯頁會依角色
+   隱藏全域功能、只顯示自己那組,但那是防呆,不是防駭——會用開發者工具的人仍可
+   送出任意內容。這是部署者知情下的取捨,見 worker/README.md「權限的真實邊界」。
+   要變成真的權限,做法是在 handlePublish 抓現行 data.js、只採用該帳號那一組。 */
+
+/* ── 版本落後偵測(與權限無關,是多人同時編輯的正確性問題)──────────────
+   每位組長的瀏覽器都握著「整份」草稿,誰後發布誰就會覆蓋別人先發布的內容。
+   發布時帶上「這份草稿是根據哪個版本改的」雜湊,與現行檔案不符就擋下,
+   請他重新整理後再改一次,不讓別人的修改被無聲蓋掉。 */
+async function sha256Hex(bytes){
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+function b64ToBytes(b64){
+  const bin = atob(String(b64).replace(/\s+/g, ""));
+  const out = new Uint8Array(bin.length);
+  for(let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+  return out;
+}
+/* 現行檔案內容的 SHA-256。讀不到(檔案不存在、網路問題)回傳 null＝跳過比對:
+   寧可放行,也不要因為一次讀取失敗就擋住所有人發布。 */
+async function currentFileHash(env, headers, path){
+  try{
+    const url = contentsUrlFor(env, path) + "?ref=" + encodeURIComponent(env.GH_BRANCH || "main");
+    const r = await fetchWithTimeout(url, { headers }, GITHUB_TIMEOUT_MS);
+    if(!r.ok) return null;
+    const d = await r.json();
+    if(!d || typeof d.content !== "string") return null;
+    return await sha256Hex(b64ToBytes(d.content));
+  }catch(e){ return null; }
+}
+
 /* constant-time-ish string compare — avoids leaking password length/content via response timing */
 function timingSafeEqual(a, b){
   const ea = new TextEncoder().encode(String(a));
@@ -158,20 +252,25 @@ async function handleLogin(request, env){
   if(rl.blocked) return json(env, { ok:false, error:"too_many_attempts", retryAfter: rl.retryAfter }, 429);
 
   let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
-  const password = (body && body.password) || "";
-  const isCorrect = !!env.ADMIN_PASSWORD && !!password && timingSafeEqual(password, env.ADMIN_PASSWORD);
+  const users = loadUsers(env);
+  if(!users){
+    // 帳號表沒設定或 JSON 壞掉:寧可全部登不進去並明講,也不要在無人把關的狀態下放行
+    return json(env, { ok:false, error:"misconfigured_no_accounts" }, 500);
+  }
+  const acc = verifyCredentials(users, body && body.username, body && body.password);
 
   // 每次 /login 至少花 MIN_LOGIN_MS，拖慢大量平行嘗試的有效速率（也讓時間分析更難）
   const elapsed = Date.now() - startedAt;
   if(elapsed < MIN_LOGIN_MS) await sleep(MIN_LOGIN_MS - elapsed);
 
-  if(!isCorrect){
+  if(!acc){
     await recordFail(env, ip, rl.count);
-    return json(env, { ok:false, error:"wrong_password" }, 401);
+    return json(env, { ok:false, error:"wrong_password" }, 401);   // 不區分帳號錯/密碼錯,避免探測帳號
   }
   await clearFail(env, ip);
-  const session = await makeSession(env.SESSION_SECRET);
-  return json(env, { ok:true, session, expiresInSeconds: SESSION_TTL_SECONDS });
+  const session = await makeSession(env.SESSION_SECRET, acc);
+  return json(env, { ok:true, session, user: acc.name, role: acc.role, group: acc.group,
+    expiresInSeconds: SESSION_TTL_SECONDS });
 }
 
 async function ghHeaders(env){
@@ -185,8 +284,8 @@ async function ghHeaders(env){
 /* 讓管理員在設定 Worker 後可以自我檢查：密碼登入成功、且 GitHub 權杖確實可寫入 */
 async function handleHealth(request, env){
   let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
-  const valid = await verifySession(body && body.session, env.SESSION_SECRET);
-  if(!valid) return json(env, { ok:false, error:"session_expired" }, 401);
+  const sess = await verifySession(body && body.session, env.SESSION_SECRET);
+  if(!sess) return json(env, { ok:false, error:"session_expired" }, 401);
   try{
     const r = await fetchWithTimeout(`https://api.github.com/repos/${encodeURIComponent(env.GH_OWNER)}/${encodeURIComponent(env.GH_REPO)}`, { headers: await ghHeaders(env) }, GITHUB_TIMEOUT_MS);
     if(r.status === 401 || r.status === 403) return json(env, { ok:true, github:"invalid_token" });
@@ -239,8 +338,13 @@ function isPlausibleB64(s){
 async function handlePublish(request, env){
   let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
   const { session, content, files } = body || {};
-  const valid = await verifySession(session, env.SESSION_SECRET);
-  if(!valid) return json(env, { ok:false, error:"session_expired" }, 401);
+  const sess = await verifySession(session, env.SESSION_SECRET);
+  if(!sess) return json(env, { ok:false, error:"session_expired" }, 401);
+  // 誰發布的:記進 commit 訊息。帳號在登入時已過 USERNAME_RE(無空白/控制字元)且長度受限,
+  // 這裡再截一次長度,確保任何情況下都不會把奇怪的東西寫進 git 歷史。
+  const who = String(sess.u || "").slice(0, 32);
+  const grp = String(sess.g || "").slice(0, 8);
+  const by = who ? "（" + who + (grp ? "・" + grp : "") + "）" : "";
 
   const hasContent = typeof content === "string" && content.length > 0;
   const fileList = Array.isArray(files) ? files : [];
@@ -258,10 +362,20 @@ async function handlePublish(request, env){
 
   const headers = await ghHeaders(env);
 
+  // 版本落後偵測:草稿的來源版本與現行檔案不符 → 擋下,避免覆蓋別人剛發布的內容。
+  // 只在有帶 baseHash 且這次要寫 data.js 時檢查;讀不到現行檔案就放行(見 currentFileHash)。
+  const baseHash = typeof body.baseHash === "string" ? body.baseHash : "";
+  if(hasContent && baseHash){
+    const cur = await currentFileHash(env, headers, env.GH_PATH || "data.js");
+    if(cur && cur !== baseHash){
+      return json(env, { ok:false, error:"stale_base", currentHash: cur }, 409);
+    }
+  }
+
   // 先寫附件、最後寫 data.js：任何附件失敗就中止，公開網站不會出現「資料檔指向不存在照片」的狀態
   let written = 0;
   for(const f of fileList){
-    const r = await ghPutFile(env, headers, f.path, f.contentB64, "更新會員名錄（附件）");
+    const r = await ghPutFile(env, headers, f.path, f.contentB64, "更新會員名錄（附件）" + by);
     if(!r.ok) return json(env, { ok:false, error:r.error, path:f.path, filesWritten:written, status:r.status }, 502);
     written++;
   }
@@ -269,8 +383,10 @@ async function handlePublish(request, env){
   if(hasContent){
     const bytes = new TextEncoder().encode(content);
     let bin = ""; for(const b of bytes) bin += String.fromCharCode(b);
-    const r = await ghPutFile(env, headers, (env.GH_PATH || "data.js"), btoa(bin), "更新會員名錄");
+    const r = await ghPutFile(env, headers, (env.GH_PATH || "data.js"), btoa(bin), "更新會員名錄" + by);
     if(!r.ok) return json(env, { ok:false, error:r.error, filesWritten:written, status:r.status }, 502);
+    // 回傳這次寫入內容的雜湊,編輯頁接著用它當新的 baseHash,不必重新整理就能再次發布
+    return json(env, { ok:true, filesWritten:written, newHash: await sha256Hex(bytes) });
   }
   return json(env, { ok:true, filesWritten:written });
 }

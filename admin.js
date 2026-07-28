@@ -72,7 +72,11 @@
     pendingSnap = null;
     updateHistoryButtons();
   }
-  function fixSelected(){ if(!DATA.some(g => g.id === selected)) selected = DATA.length ? DATA[0].id : null; }
+  /* 選到的分組必須是「這個角色看得到的」——組長被指派的組被刪或改代號時會退回無選取 */
+  function fixSelected(){
+    const groups = visibleGroups();
+    if(!groups.some(g => g.id === selected)) selected = groups.length ? groups[0].id : null;
+  }
   function undo(){
     if(!undoStack.length) return;
     redoStack.push(clone(DATA));
@@ -177,7 +181,7 @@
     const problems = [];
     const ids = new Map();
     const nums = new Map();
-    DATA.forEach(g => {
+    visibleGroups().forEach(g => {
       if(!g.name.trim()) problems.push("有分組沒有名稱（" + (g.code||"?") + "）");
       g.members.forEach(m => {
         ids.set(m.id, (ids.get(m.id)||0)+1);
@@ -295,48 +299,61 @@
 
   /* ---------- render: sidebar ---------- */
   function renderSidebar(){
-    glist.innerHTML = DATA.map(g => `
+    const groups = visibleGroups();
+    glist.innerHTML = groups.map(g => `
       <div class="gitem ${g.id===selected?"active":""}" data-gid="${esc(g.id)}" title="${esc(g.code||"?")}・${esc(g.name||"（未命名）")}">
         <span class="gitem-code">${esc(g.code||"?")}</span>
         <span class="gitem-name">${esc(g.name||"（未命名）")}</span>
         <span class="gitem-count">${g.members.length}</span>
       </div>`).join("") +
-      `<button class="gadd-tile" id="gadd-tile" type="button">＋ 新增分組</button>`;
+      (isLeader() ? "" : `<button class="gadd-tile" id="gadd-tile" type="button">＋ 新增分組</button>`);
     glist.querySelectorAll(".gitem").forEach(el => {
       el.addEventListener("click", () => {
         selected = el.dataset.gid; renderAll();
         closeDrawerIfMobile();
       });
     });
-    byId("gadd-tile").onclick = () => { addGroup(); closeDrawerIfMobile(); };
+    const addTile = byId("gadd-tile");
+    if(addTile) addTile.onclick = () => { addGroup(); closeDrawerIfMobile(); };
   }
   function closeDrawerIfMobile(){ document.body.classList.remove("drawer-open"); }
 
   /* ---------- render: main ---------- */
   function renderMain(){
     const g = groupById(selected);
-    if(!g){ main.innerHTML = `<div class="adm-card">尚無分組，請按左上「+ 新增組」。</div>`; return; }
+    if(!g){
+      main.innerHTML = isLeader()
+        ? `<div class="adm-card">找不到你被指派的分組（代號 <b>${esc(myGroupCode())}</b>）。<br>
+             可能是代號被改過，或帳號設定有誤，請聯繫總管理員。</div>`
+        : `<div class="adm-card">尚無分組，請按左上「+ 新增組」。</div>`;
+      return;
+    }
+    if(!canEditGroup(g)){   // 保險:選到不該編輯的組就不渲染表單
+      main.innerHTML = `<div class="adm-card">你沒有編輯「${esc(g.code)}・${esc(g.name)}」的權限。</div>`;
+      return;
+    }
     const gi = DATA.indexOf(g);
+    const leader = isLeader();
 
     main.innerHTML = `
       <div class="adm-card">
         <div class="adm-group-head">
           <div class="field" style="width:120px;">
-            <label>組別代號</label>
-            <input id="g-code" value="${esc(g.code)}" placeholder="如 A1">
+            <label>組別代號${leader ? '<span class="hint">（不可改）</span>' : ""}</label>
+            <input id="g-code" value="${esc(g.code)}" placeholder="如 A1" ${leader ? "disabled" : ""}>
           </div>
           <div class="field grow">
-            <label>分組名稱</label>
-            <input id="g-name" value="${esc(g.name)}" placeholder="如 健康營養照護組">
+            <label>分組名稱${leader ? '<span class="hint">（不可改）</span>' : ""}</label>
+            <input id="g-name" value="${esc(g.name)}" placeholder="如 健康營養照護組" ${leader ? "disabled" : ""}>
           </div>
           <div class="field" style="width:150px;">
             <label>組長</label>
             <input id="g-leader" value="${esc(g.leader||"")}" placeholder="組長姓名">
           </div>
-          <div style="display:flex; gap:6px; align-self:flex-end; padding-bottom:1px;">
+          ${leader ? "" : `<div style="display:flex; gap:6px; align-self:flex-end; padding-bottom:1px;">
             <button class="icon-btn" id="g-up" title="分組上移" ${gi===0?"disabled":""}>${ICON.up}</button>
             <button class="icon-btn" id="g-down" title="分組下移" ${gi===DATA.length-1?"disabled":""}>${ICON.down}</button>
-          </div>
+          </div>`}
         </div>
         <div class="field" style="margin-top:12px;">
           <label>招募席位<span class="hint">（每行一項；會以紅字顯示在「產業小組表」該組名單下方）</span></label>
@@ -358,12 +375,15 @@
       </div>`;
 
     // group field bindings（focus 先拍照、第一次輸入才計為一步）
-    bindTextField("g-code", v => { g.code = v; renderSidebar(); scheduleSaveAndValidate(); });
-    bindTextField("g-name", v => { g.name = v; renderSidebar(); scheduleSaveAndValidate(); });
+    // 組長不綁代號與組名:代號是他自己的綁定鍵,改了會把自己鎖在外面
+    if(!leader){
+      bindTextField("g-code", v => { g.code = v; renderSidebar(); scheduleSaveAndValidate(); });
+      bindTextField("g-name", v => { g.name = v; renderSidebar(); scheduleSaveAndValidate(); });
+      byId("g-up").onclick = () => moveGroup(gi, -1);
+      byId("g-down").onclick = () => moveGroup(gi, 1);
+    }
     bindTextField("g-leader", v => { g.leader = v; scheduleSaveAndValidate(); });
     bindTextField("g-recruit", v => { g.recruiting = linesToArr(v); scheduleSave(); });
-    byId("g-up").onclick = () => moveGroup(gi, -1);
-    byId("g-down").onclick = () => moveGroup(gi, 1);
     byId("add-mem").onclick = () => addMember(g);
 
     // quick add by name (Enter or button) — stays focused for rapid entry
@@ -408,7 +428,7 @@
           <div class="mem-head">
             <span class="mem-idx">第 ${i+1} 位</span>
             <span class="mem-stamp">${m.updatedAt ? "最後更新 " + esc(fmtStamp(m.updatedAt, true)) : "尚無更新紀錄"}</span>
-            <span class="chk"><input type="checkbox" data-f="dataIssue" ${m.dataIssue?"checked":""}> 標記資料需確認</span>
+            <label class="chk"><input type="checkbox" data-f="dataIssue" ${m.dataIssue?"checked":""}> 標記資料需確認</label>
             <span class="mem-tools">
               <button class="icon-btn" data-act="up" title="上移" ${i===0?"disabled":""}>${ICON.up}</button>
               <button class="icon-btn" data-act="down" title="下移" ${i===total-1?"disabled":""}>${ICON.down}</button>
@@ -685,8 +705,9 @@
   }
 
   function csvExport(){
+    const scope = visibleGroups();          // 組長只匯出自己那組
     const rows = [CSV_HEADERS.slice()];
-    DATA.forEach(g => g.members.forEach(m => rows.push(CSV_SCHEMA.memberRow(g, m))));
+    scope.forEach(g => g.members.forEach(m => rows.push(CSV_SCHEMA.memberRow(g, m))));
     const csv = "\uFEFF" + rows.map(r => r.map(csvEscape).join(",")).join("\r\n");   // BOM：讓 Excel 直接開就是正確中文
     const blob = new Blob([csv], { type:"text/csv;charset=utf-8" });
     const a = document.createElement("a");
@@ -695,8 +716,8 @@
     a.download = "會員名錄_" + d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + ".csv";
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
-    const total = DATA.reduce((n, g) => n + g.members.length, 0);
-    toast("已匯出名冊：" + DATA.length + " 組、" + total + " 位成員");
+    const total = scope.reduce((n, g) => n + g.members.length, 0);
+    toast("已匯出名冊：" + scope.length + " 組、" + total + " 位成員");
   }
 
   /* ---------- 匯入：欄位對應（容忍常見別名） ---------- */
@@ -1074,7 +1095,8 @@
     const items = [];
     const fieldCount = {};
     const bump = k => { fieldCount[k] = (fieldCount[k] || 0) + 1; };
-    DATA.forEach(g => g.members.forEach(m => {
+    const scope = visibleGroups();          // 組長只看自己那組的缺項
+    scope.forEach(g => g.members.forEach(m => {
       const miss = [];
       if(!m.image) miss.push("形象照");
       if(!(m.card || "").trim()) miss.push("名片圖檔");
@@ -1088,7 +1110,7 @@
       if(!(m.tagline || []).filter(s => String(s).trim()).length) miss.push("宣傳標語");
       if(miss.length){ items.push({ g, m, miss }); miss.forEach(bump); }
     }));
-    const total = DATA.reduce((n, g) => n + g.members.length, 0);
+    const total = scope.reduce((n, g) => n + g.members.length, 0);
     const lines = items.map(it => "・" + it.m.name + "(" + (it.g.code || "?") + "):缺 " + it.miss.join("、"));
     const notice = [
       "【會員名錄・資料補齊通知】",
@@ -1152,22 +1174,64 @@
     memWorkerUrl = url;
     try{ localStorage.setItem(WORKER_URL_KEY, url); }catch(e){}
   }
-  function loadSession(){
+  function currentSession(){
     let raw = null; try{ raw = sessionStorage.getItem(SESSION_KEY); }catch(e){}
     if(raw){
       let s; try{ s = JSON.parse(raw); }catch(e){ s = null; }
-      if(s && s.token && s.exp && Date.now() < s.exp) return s.token;
+      if(s && s.token && s.exp && Date.now() < s.exp) return s;
     }
-    if(memSession && memSession.token && Date.now() < memSession.exp) return memSession.token;
+    if(memSession && memSession.token && Date.now() < memSession.exp) return memSession;
     return null;
   }
-  function saveSession(token, expiresInSeconds){
-    memSession = { token, exp: Date.now() + expiresInSeconds*1000 };
+  function loadSession(){ const s = currentSession(); return s ? s.token : null; }
+  function saveSession(token, expiresInSeconds, user, role, group){
+    memSession = { token, exp: Date.now() + expiresInSeconds*1000,
+      user: user || "", role: role || "owner", group: group || "" };
     try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify(memSession)); }catch(e){}
+    showWho();
   }
+  /* ⚠️ 這裡的角色判斷只用來「隱藏介面」,不是真的權限:發布時整份 data.js 仍照送,
+     會開發者工具的人可以繞過(Worker 端目前不做範圍檢查,見 worker/publish-relay.js)。
+     它擋的是誤觸,不是惡意。 */
+  function myRole(){ const s = currentSession(); return (s && s.role) || "owner"; }
+  function myGroupCode(){ const s = currentSession(); return (s && s.group) || ""; }
+  function isLeader(){ return myRole() === "leader"; }
+  /* 組長綁定的那一組(找不到回 null:代號被改過或設定錯誤) */
+  function myGroup(){
+    const code = myGroupCode().trim().toLowerCase();
+    if(!code) return null;
+    return DATA.find(g => String(g.code || "").trim().toLowerCase() === code) || null;
+  }
+  /* 這位使用者看得到／改得到的分組清單 */
+  function visibleGroups(){
+    if(!isLeader()) return DATA;
+    const g = myGroup();
+    return g ? [g] : [];
+  }
+  function canEditGroup(g){ return !isLeader() || (g && myGroup() === g); }
   function clearSession(){
     memSession = null;
     try{ sessionStorage.removeItem(SESSION_KEY); }catch(e){}
+    showWho();
+  }
+  /* 頂端顯示目前登入者:多帳號時要一眼看得出「現在是誰在改」 */
+  function showWho(){
+    const el = byId("adm-who");
+    if(!el) return;
+    const s = currentSession();
+    if(s && s.user){
+      const g = s.role === "leader" ? myGroup() : null;
+      el.textContent = "👤 " + s.user +
+        (s.role === "leader" ? "・" + (g ? g.code + " " + g.name : s.group + "（找不到此組）") + " 組長" : "・總管理員");
+      el.hidden = false;
+    } else { el.textContent = ""; el.hidden = true; }
+  }
+  /* 依角色決定介面:組長只看到自己那組,全域功能一律隱藏 */
+  function applyRoleUI(){
+    const leader = isLeader();
+    const hide = (id, on) => { const el = byId(id); if(el) el.hidden = !!on; };
+    ["btn-csv-import", "btn-ppt", "btn-settings", "btn-add-group"].forEach(id => hide(id, leader));
+    // 儀表板的說明字由 renderDash 統一決定（renderAll 會在此之後才呼叫它）
   }
 
   async function workerFetch(path, payload, urlOverride){
@@ -1198,18 +1262,26 @@
   function showLock(){
     const configured = !!loadWorkerUrl();
     byId("lock-lead").textContent = configured
-      ? "輸入管理密碼進入編輯模式。"
+      ? "輸入你的帳號與密碼進入編輯模式。"
       : "尚未設定發布服務。請按下方「連線設定」貼上 Worker 網址。";
+    byId("lock-user-field").style.display = configured ? "" : "none";
     byId("lock-pass-field").style.display = configured ? "" : "none";
     byId("lock-enter").style.display = configured ? "" : "none";
     byId("lock-error").hidden = true;
     byId("lock-overlay").hidden = false;
-    if(configured) byId("lock-pass").focus();
+    if(configured) byId("lock-user").focus();
   }
   function hideLock(){ byId("lock-overlay").hidden = true; }
 
   async function tryUnlock(){
+    const user = byId("lock-user").value.trim();
     const pass = byId("lock-pass").value;
+    if(!user){
+      byId("lock-error").hidden = false;
+      byId("lock-error").textContent = "請先輸入帳號。";
+      byId("lock-user").focus();
+      return;
+    }
     if(!pass){
       byId("lock-error").hidden = false;
       byId("lock-error").textContent = "請先輸入密碼。";
@@ -1219,14 +1291,15 @@
     if(!loadWorkerUrl()){ openSettings(); return; }
     const btn = byId("lock-enter");
     btn.disabled = true; btn.textContent = "確認中…";
-    const res = await workerFetch("/login", { password: pass });
+    const res = await workerFetch("/login", { username: user, password: pass });
     btn.disabled = false; btn.textContent = "進入編輯模式";
     if(res.ok && res.session){
-      saveSession(res.session, res.expiresInSeconds || 1800);
+      saveSession(res.session, res.expiresInSeconds || 1800, res.user || user, res.role, res.group);
       byId("lock-pass").value = "";
       hideLock();
       hidePermBanner();
-      toast("已進入編輯模式");
+      fixSelected(); renderAll(); validate();   // 角色決定看得到哪幾組,登入後要重畫
+      toast(isLeader() ? "已進入編輯模式（只會顯示你負責的分組）" : "已進入編輯模式");
       checkHealth(res.session);   // 登入後順便確認伺服器上的 GitHub 權杖還能不能寫入
     } else if(res.error === "too_many_attempts"){
       byId("lock-error").hidden = false;
@@ -1234,12 +1307,15 @@
     } else if(res.error === "no_worker_url" || res.error === "network"){
       byId("lock-error").hidden = false;
       byId("lock-error").textContent = "連不到發布服務，請檢查「連線設定」裡的網址是否正確。";
+    } else if(res.error === "misconfigured_no_accounts"){
+      byId("lock-error").hidden = false;
+      byId("lock-error").textContent = "發布服務上還沒有設定任何帳號，請管理員到 Cloudflare 檢查 Worker 的 ADMIN_USERS 設定（見 worker/README.md）。";
     } else if(res.error === "rate_limit_unavailable" || res.error === "misconfigured_missing_allowed_origin"){
       byId("lock-error").hidden = false;
       byId("lock-error").textContent = "發布服務尚未設定完成，請管理員檢查 Cloudflare Worker 的設定（見 worker/README.md）。";
     } else {
       byId("lock-error").hidden = false;
-      byId("lock-error").textContent = "密碼不正確，請再試一次。";
+      byId("lock-error").textContent = "帳號或密碼不正確，請再試一次。";
       byId("lock-pass").select();
     }
   }
@@ -1337,6 +1413,21 @@
     return { content: serialize(data), files };
   }
 
+  /* ---------- 版本落後偵測 ----------
+     發布時要告訴 Worker「這份草稿是根據哪個版本改的」。做法是開頁時抓一份 data.js 原文
+     算 SHA-256;Worker 比對現行檔案,不符就擋下,避免蓋掉別人剛發布的內容。
+     算不出來(離線、CDN 異常)就留空 → Worker 跳過比對,維持舊行為。 */
+  let baseHash = "";
+  async function loadBaseHash(){
+    try{
+      const res = await fetch("data.js?ts=" + Date.now(), { cache: "no-store" });
+      if(!res.ok) return;
+      const buf = await res.arrayBuffer();
+      const digest = await crypto.subtle.digest("SHA-256", buf);
+      baseHash = [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
+    }catch(e){ /* 抓不到就不帶,不影響發布 */ }
+  }
+
   let publishing = false;
   async function publish(){
     if(publishing) return false;
@@ -1368,11 +1459,12 @@
         }
         // data.js 一定放在最後一批：附件先全部就位，公開網站才不會指到不存在的照片
         res = await workerFetch("/publish", isLast
-          ? { session, content: payload.content, files: chunks[i] }
+          ? { session, content: payload.content, files: chunks[i], baseHash }
           : { session, files: chunks[i] });
         if(!res.ok) break;
       }
       if(res.ok){
+        if(res.newHash) baseHash = res.newHash;   // 接上新版本,不必重新整理就能再發布一次
         clearTimeout(saveTimer);
         dirty = false;
         try{ localStorage.removeItem(DRAFT_KEY); }catch(e){}
@@ -1390,6 +1482,10 @@
       } else if(res.error === "token_forbidden"){
         toast("發布服務目前無法寫入 GitHub，這次修改「沒有」上線（草稿都還在）。", {warn:true, duration:7000});
         showPermBanner("Worker 上設定的 GitHub 權杖沒有寫入權限或已失效，請管理員到 Cloudflare 檢查 Worker 的 GH_TOKEN 設定（需要 Contents: Read and write）。");
+      } else if(res.error === "stale_base"){
+        // 別人在你編輯期間發布過:硬送出去會把對方的修改蓋掉,所以擋在這裡
+        toast("有其他人在你編輯期間發布過新版本，這次「沒有」上線。請先「下載備份」保留你的修改，" +
+              "重新整理頁面取得最新資料後再改一次。", {warn:true, duration:12000});
       } else if(res.error === "conflict"){
         toast("版本衝突，請重新整理頁面後再發布一次", {warn:true, duration:6000});
       } else if(res.error === "no_worker_url"){
@@ -1446,17 +1542,18 @@
   function bindTextField(id, cb){ wireTextInput(byId(id), cb); }
   function scheduleSaveAndValidate(){ scheduleSave(); validate(); }
 
-  function renderAll(){ renderSidebar(); renderMain(); renderDash(); }
+  function renderAll(){ applyRoleUI(); renderSidebar(); renderMain(); renderDash(); }
 
   /* ---------- 分會總覽儀表板:即時統計+工具捷徑 ---------- */
   function renderDash(){
     const el = byId("dash-stats");
     if(!el) return;
-    const total = DATA.reduce((n, g) => n + g.members.length, 0);
+    const scope = visibleGroups();          // 組長的儀表板只統計自己那組
+    const total = scope.reduce((n, g) => n + g.members.length, 0);
     let noPhoto = 0, hasCard = 0, hasProducts = 0, hasWebsite = 0, recruit = 0, missingMembers = 0;
     let hasHave = 0, hasWant = 0, recentlyEdited = 0;
     const WEEK_AGO = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    DATA.forEach(g => {
+    scope.forEach(g => {
       recruit += (g.recruiting || []).filter(r => String(r).trim()).length;
       g.members.forEach(m => {
         if(!m.image) noPhoto++;
@@ -1478,10 +1575,15 @@
       });
     });
     const sub = byId("dash-sub");
-    if(sub) sub.textContent = "資料一修改,數字立即更新;發布後全站同步";
+    if(sub){
+      const g = isLeader() ? myGroup() : null;
+      sub.textContent = !isLeader() ? "資料一修改,數字立即更新;發布後全站同步"
+        : g ? "你是「" + g.code + "・" + g.name + "」的組長,以下統計只算本組"
+            : "找不到你被指派的分組,請聯繫總管理員";
+    }
     el.innerHTML =
       '<div class="dstat"><b>' + total + '</b><span>位成員</span></div>' +
-      '<div class="dstat"><b>' + DATA.length + '</b><span>專業分組</span></div>' +
+      '<div class="dstat"><b>' + scope.length + '</b><span>專業分組</span></div>' +
       '<div class="dstat click warn" id="dstat-missing" title="點擊看缺項清單與催收訊息"><b>' + missingMembers + '<small>／' + total + '</small></b><span>資料有缺項 →</span></div>' +
       '<div class="dstat"><b>' + (total - noPhoto) + '<small>／' + total + '</small></b><span>已有形象照</span></div>' +
       '<div class="dstat"><b>' + hasCard + '<small>／' + total + '</small></b><span>已有名片圖</span></div>' +
@@ -1550,13 +1652,16 @@
   byId("batch-apply").onclick = () => { const fn = batchApplyFn; closeBatchModal(); if(fn) fn(); };
   byId("batch-modal").addEventListener("click", e => { if(e.target.id === "batch-modal") closeBatchModal(); });
   refreshCaps();   // 問一次 Worker 是否支援附件（照片實體檔）；失敗就當不支援，行為同舊版
+  loadBaseHash();  // 記下「這份草稿是根據哪個版本改的」，發布時用來擋掉覆蓋別人的情況
   byId("btn-undo").onclick = undo;
   byId("btn-redo").onclick = redo;
   byId("s-save").onclick = saveSettings;
   byId("s-cancel").onclick = closeSettings;
   byId("s-test").onclick = testConnection;
   byId("lock-enter").onclick = tryUnlock;
+  byId("lock-user").addEventListener("keydown", e => { if(e.key === "Enter") byId("lock-pass").focus(); });
   byId("lock-pass").addEventListener("keydown", e => { if(e.key === "Enter") tryUnlock(); });
+  showWho();
   byId("s-worker-url").addEventListener("keydown", e => { if(e.key === "Enter"){ e.preventDefault(); saveSettings(); } });
   byId("lock-setup").onclick = () => { openSettings(); };
   byId("perm-recheck").onclick = () => { hidePermBanner(); toast("已隱藏提醒，發布時若還有問題會再顯示"); };

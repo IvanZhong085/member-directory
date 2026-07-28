@@ -15,6 +15,8 @@
   .adm-badge{font-size:10px; font-weight:800; letter-spacing:.14em; color:var(--red); border:1.5px solid var(--red-100); background:var(--red-50); border-radius:999px; padding:3px 9px;}
   .adm-actions{margin-left:auto; display:flex; gap:8px; flex-wrap:wrap; align-items:center;}
   .adm-save-state{font-size:12px; color:var(--muted); font-weight:600; margin-right:4px;}
+  .adm-who{font-size:12px; font-weight:800; color:var(--red); background:var(--red-50); border:1px solid var(--red-100); border-radius:999px; padding:3px 10px;}
+  .adm-who[hidden]{display:none;}
   .btn{display:inline-flex; align-items:center; gap:7px; border-radius:10px; padding:9px 15px; font-size:13.5px; font-weight:700; cursor:pointer; border:1.5px solid var(--border-2); background:#fff; color:var(--ink); transition:.15s;}
   .btn:hover{border-color:var(--red-200);}
   .btn svg{width:15px; height:15px;}
@@ -274,6 +276,7 @@
       回名錄
     </a>
     <div class="adm-actions">
+      <span class="adm-who" id="adm-who" hidden></span>
       <span class="adm-save-state" id="save-state">—</span>
       <span class="adm-history">
         <button class="icon-btn" id="btn-undo" type="button" title="上一步" disabled>
@@ -314,12 +317,16 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
     </span>
     <h2>管理員登入</h2>
-    <p class="lock-lead" id="lock-lead">輸入管理密碼進入編輯模式。</p>
+    <p class="lock-lead" id="lock-lead">輸入你的帳號與密碼進入編輯模式。</p>
+    <div class="field" id="lock-user-field">
+      <label for="lock-user">帳號</label>
+      <input id="lock-user" type="text" autocomplete="username" placeholder="你的帳號" autocapitalize="none" spellcheck="false">
+    </div>
     <div class="field" id="lock-pass-field">
-      <label for="lock-pass">管理密碼</label>
+      <label for="lock-pass">密碼</label>
       <input id="lock-pass" type="password" autocomplete="current-password" placeholder="請輸入密碼">
     </div>
-    <div class="lock-error" id="lock-error" hidden>密碼不正確，請再試一次。</div>
+    <div class="lock-error" id="lock-error" hidden>帳號或密碼不正確，請再試一次。</div>
     <button class="btn btn-primary" id="lock-enter" type="button" style="justify-content:center;">進入編輯模式</button>
     <div class="lock-links">
       <a href="index.html">← 回名錄</a>
@@ -363,7 +370,7 @@
     <h3 id="settings-title">連線設定</h3>
     <p class="modal-lead">這裡填的是「發布服務的網址」，不是密碼、也不是權杖——這台電腦的瀏覽器完全不會保管任何機密。真正的 GitHub 權杖只放在你自己架設的 Cloudflare Worker 裡，瀏覽器只會送密碼過去驗證。</p>
     <div class="field"><label>後端服務網址（Cloudflare Worker）</label><input id="s-worker-url" placeholder="https://xxxx.workers.dev" autocomplete="off"></div>
-    <p class="modal-hint">還沒建立 Worker？見 <code>member-site/worker/README.md</code> 的教學（Cloudflare 網站上點一點，不需要安裝任何軟體）。網址設定好、儲存後，回到登入畫面輸入管理密碼即可。</p>
+    <p class="modal-hint">還沒建立 Worker？見 <code>member-site/worker/README.md</code> 的教學（Cloudflare 網站上點一點，不需要安裝任何軟體）。網址設定好、儲存後，回到登入畫面輸入你的帳號與密碼即可。</p>
     <div class="modal-actions">
       <button class="btn btn-sm" id="s-test" type="button">測試連線</button>
       <span style="flex:1"></span>
@@ -434,9 +441,9 @@
 </div>
 
 <div class="help adm-wrap" style="display:block; max-width:1240px;">
-  <b>資料安全說明：</b>這個頁面的編輯只會暫存在<b>你自己的瀏覽器</b>裡，不會影響公開網站。真正能改到公開網站的，只有輸入正確<b>管理密碼</b>的人；密碼登入後由伺服器（Cloudflare Worker）代為發布，瀏覽器本身永遠不會拿到、也不會存放 GitHub 的權杖。密碼錯太多次會被暫時鎖住，防止有人亂猜。
+  <b>資料安全說明：</b>這個頁面的編輯只會暫存在<b>你自己的瀏覽器</b>裡，不會影響公開網站。真正能改到公開網站的，只有輸入正確<b>帳號密碼</b>的人；登入後由伺服器（Cloudflare Worker）代為發布，瀏覽器本身永遠不會拿到、也不會存放 GitHub 的權杖。密碼錯太多次會被暫時鎖住，防止有人亂猜。
   <br><br>
-  <b>如何更新網站？</b> 輸入管理密碼進入編輯模式，改好後按右上角紅色「<b>發布到網站</b>」即可。「下載備份」可另存一份 <code>data.js</code> 備用。
+  <b>如何更新網站？</b> 輸入你的帳號與密碼進入編輯模式，改好後按右上角紅色「<b>發布到網站</b>」即可。「下載備份」可另存一份 <code>data.js</code> 備用。
   <ol>
     <li><b>快速新增成員</b>：在成員列表上方輸入姓名，按 <code>Enter</code> 就新增一位（可連續輸入連續加）；也可用「+ 新增成員」加空白的再慢慢填。</li>
     <li><b>刪除成員</b>：成員卡右上的刪除鈕，刪除後右下角會跳出「<b>復原</b>」按鈕，按錯可立即救回。（分組整組刪除已移除，避免誤刪。）</li>
