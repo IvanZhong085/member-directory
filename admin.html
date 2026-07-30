@@ -213,6 +213,24 @@
   /* 分會總覽儀表板 */
   .adm-dash-wrap{max-width:1240px; margin:12px auto 0; padding:0 20px;}
   .adm-dash{background:#fff; border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;}
+  /* 待認領區:用襯色邊框讓它明顯不同於一般分組卡,提醒「這裡有事情待處理」 */
+  .pending-wrap{background:#fff; border:1px solid var(--brand); border-radius:var(--radius); overflow:hidden;}
+  .pending-head{display:flex; align-items:center; gap:10px; padding:12px 16px; background:var(--brand-weak, #fdf2f2);}
+  .pending-title{font-size:14px; font-weight:800; letter-spacing:.03em;}
+  .pending-sub{font-size:12px; color:var(--muted); font-weight:600;}
+  .pending-list{padding:12px 16px 14px; display:flex; flex-direction:column; gap:12px;}
+  .pend-card{border:1px solid var(--border); border-radius:10px; padding:12px; display:flex; gap:12px; align-items:flex-start;}
+  .pend-photo{width:64px; height:74px; object-fit:cover; border-radius:8px; flex:none; background:#f4f4f5;}
+  .pend-body{flex:1; min-width:0; display:flex; flex-direction:column; gap:6px;}
+  .pend-name{font-weight:800; font-size:15px;}
+  .pend-meta{font-size:12px; color:var(--muted); line-height:1.6; word-break:break-word;}
+  .pend-at{font-size:11px; color:var(--muted);}
+  .pend-actions{display:flex; flex-direction:column; gap:6px; flex:none;}
+  @media (max-width:600px){
+    .pend-card{flex-wrap:wrap;}
+    .pend-actions{flex-direction:row; width:100%;}
+    .pend-actions .btn{flex:1;}
+  }
   .dash-head{display:flex; align-items:center; gap:10px; padding:12px 16px;}
   .dash-title{font-size:14px; font-weight:800; letter-spacing:.03em;}
   .dash-sub{font-size:12px; color:var(--muted); font-weight:600; margin-right:auto;}
@@ -358,6 +376,15 @@
       <div class="dash-tools" id="dash-tools"></div>
     </div>
   </div>
+</div>
+
+<!-- 待認領區:新夥伴自填表單送來的申請,由組長認領到自己那一組。沒有申請時整塊隱藏 -->
+<div class="pending-wrap" id="pending-wrap" hidden>
+  <div class="pending-head">
+    <span class="pending-title">🙋 新夥伴待認領</span>
+    <span class="pending-sub" id="pending-sub"></span>
+  </div>
+  <div class="pending-list" id="pending-list"></div>
 </div>
 
 <!-- 連線設定：只有「後端服務網址」這一項，不是密碼，設定一次就好 -->
