@@ -58,7 +58,9 @@
   /* 分組代號只能是英數字:它同時是檔名(data/<代號>.json)與權限的判定依據。
      新增分組時預設代號是「新」,沒改就發布會被 Worker 擋下,所以檢查表要先講。 */
   const GROUPCODE_RE = /^[A-Za-z0-9]{1,8}$/;
-  const DATA_PATH_RE = /^data\/(_index|[a-z0-9]{1,8})\.json$/;
+  const DATA_PATH_RE = /^data\/(_index|_pending|[a-z0-9]{1,8})\.json$/;
+  const PENDING_PATH = "data/_pending.json";
+  let PENDING = [];        // 新夥伴自填表單送來、還沒被任何組長認領的申請
   const GROUP_BODY_KEYS = ["leader", "room", "members", "recruiting"];
   /* 分組物件的鍵順序要與 tools/build-data.mjs 一致,否則合併出來的 data.js 會有無意義的差異 */
   function groupBody(g){
@@ -103,6 +105,19 @@
                   members: f.json.members ?? [], id: e.id, recruiting: f.json.recruiting ?? [] });
     }
     DATA = next;
+
+    /* 待認領區:新夥伴自填表單送來的申請。所有角色都載入——組長要能認領自己那組的人。
+       檔案可能還不存在(還沒有人申請過),那不是錯誤,當成空清單。 */
+    try{
+      const p = await fetchData(PENDING_PATH);
+      PENDING = Array.isArray(p.json) ? p.json : [];
+      baseHashes[PENDING_PATH] = p.hash;
+      loadedBody[PENDING_PATH] = p.text;
+    }catch(e){
+      PENDING = [];
+      delete baseHashes[PENDING_PATH];
+      loadedBody[PENDING_PATH] = null;
+    }
     fixSelected();
   }
   let selected = DATA.length ? DATA[0].id : null;
@@ -124,8 +139,12 @@
     if(u){ u.disabled = undoStack.length === 0; u.title = "上一步" + (undoStack.length ? "（剩 " + undoStack.length + " 步）" : "（已到最初）"); }
     if(r){ r.disabled = redoStack.length === 0; }
   }
+  /* 一步 = 分組資料 + 待認領區的整體狀態。認領新夥伴會同時動到兩邊,
+     只記其中一邊會讓「復原」把成員收回去、卻沒把申請放回待認領區。 */
+  const snapshot = () => ({ data: clone(DATA), pending: clone(PENDING) });
+  const restore = s => { DATA = s.data; PENDING = s.pending || []; };
   function pushUndo(){
-    undoStack.push(clone(DATA));
+    undoStack.push(snapshot());
     if(undoStack.length > HISTORY_LIMIT) undoStack.shift();
     redoStack = [];
     pendingSnap = null;
@@ -138,15 +157,15 @@
   }
   function undo(){
     if(!undoStack.length) return;
-    redoStack.push(clone(DATA));
-    DATA = undoStack.pop();
+    redoStack.push(snapshot());
+    restore(undoStack.pop());
     fixSelected(); renderAll(); validate(); saveDraft(); updateHistoryButtons();
     toast("已回上一步");
   }
   function redo(){
     if(!redoStack.length) return;
-    undoStack.push(clone(DATA));
-    DATA = redoStack.pop();
+    undoStack.push(snapshot());
+    restore(redoStack.pop());
     fixSelected(); renderAll(); validate(); saveDraft(); updateHistoryButtons();
     toast("已重做");
   }
@@ -155,7 +174,7 @@
   function showDraftBanner(on){ draftBanner.classList.toggle("show", !!on); }
   function saveDraft(){
     try{
-      localStorage.setItem(draftKey(), JSON.stringify({ savedAt: Date.now(), data: DATA }));
+      localStorage.setItem(draftKey(), JSON.stringify({ savedAt: Date.now(), data: DATA, pending: PENDING }));
       saveState.textContent = "已自動儲存 " + new Date().toLocaleTimeString("zh-Hant",{hour:"2-digit",minute:"2-digit"});
       showDraftBanner(true);
       dirty = false;
@@ -178,6 +197,8 @@
     let parsed; try{ parsed = JSON.parse(raw); }catch(e){ return; }
     if(!parsed || !Array.isArray(parsed.data) || !parsed.data.length) return;
     DATA = parsed.data;
+    // 舊版草稿沒有 pending 欄位,那時就沿用剛從伺服器載到的清單
+    if(Array.isArray(parsed.pending)) PENDING = parsed.pending;
     if(!DATA.some(g => g.id === selected)) selected = DATA.length ? DATA[0].id : null;
     hasDraft = true;
   }
@@ -1082,6 +1103,11 @@
       const body = serializeBody(groupBody(g));
       if(body !== loadedBody[path]) files.push({ path, contentB64: utf8ToB64(body) });
     });
+    // 待認領區:認領或刪除申請都會改動它,有變才送
+    const pend = JSON.stringify(PENDING, null, 2) + "\n";
+    if(loadedBody[PENDING_PATH] != null && pend !== loadedBody[PENDING_PATH]){
+      files.push({ path: PENDING_PATH, contentB64: utf8ToB64(pend) });
+    }
     // 分會結構(順序/代號/組名)只有總管理員能寫,同樣有變才送
     if(!isLeader()){
       const idx = JSON.stringify(DATA.map(g => ({ code: g.code, name: g.name, id: g.id })), null, 2) + "\n";
@@ -1230,7 +1256,7 @@
   function bindTextField(id, cb){ wireTextInput(byId(id), cb); }
   function scheduleSaveAndValidate(){ scheduleSave(); validate(); }
 
-  function renderAll(){ applyRoleUI(); renderSidebar(); renderMain(); renderDash(); }
+  function renderAll(){ applyRoleUI(); renderSidebar(); renderMain(); renderDash(); renderPending(); }
 
   /* ---------- 分會總覽儀表板:即時統計+工具捷徑 ---------- */
   function renderDash(){
@@ -1294,9 +1320,116 @@
         '<a class="dtool" href="visitor.html" target="_blank" rel="noopener">🤝 來賓報名頁</a>' +
         '<a class="dtool" href="roster.csv" target="_blank" rel="noopener">📄 名冊 CSV</a>';
       if(SITE.VISITOR_FORM_URL) h += '<a class="dtool" href="' + esc(SITE.VISITOR_FORM_URL) + '" target="_blank" rel="noopener">📝 來賓報名表單</a>';
+      // 新夥伴自填表單:把網址發給新夥伴,他填完就會出現在上方待認領區
+      if(SITE.MEMBER_FORM_URL) h += '<a class="dtool" href="' + esc(SITE.MEMBER_FORM_URL) + '" target="_blank" rel="noopener">🙋 新夥伴填寫表單</a>';
       if(SHEET_URL) h += '<a class="dtool" href="' + esc(SHEET_URL) + '" target="_blank" rel="noopener">📊 名冊試算表</a>';
       tools.innerHTML = h;
     }
+  }
+
+  /* ---------- 待認領區 ----------
+     新夥伴自填表單送來的申請放在 data/_pending.json,所有組長都看得到。
+     按「認領」= 在自己那一組建一張成員卡 + 把該筆從待認領清單移除,兩件事都只是
+     本機草稿,要按「發布到網站」才真正生效(發布時會同時送出分組檔與待認領檔)。 */
+  function pendingPhoto(a){
+    return /^data:image\//.test(a.image || "") ? a.image : "";
+  }
+  function renderPending(){
+    const wrap = byId("pending-wrap"), list = byId("pending-list"), sub = byId("pending-sub");
+    if(!wrap || !list) return;
+    if(!PENDING.length){ wrap.hidden = true; list.innerHTML = ""; return; }
+    wrap.hidden = false;
+    if(sub) sub.textContent = PENDING.length + " 位等待認領";
+
+    const groups = visibleGroups();
+    list.innerHTML = PENDING.map(a => {
+      const meta = [
+        a.title && "行業：" + a.title,
+        a.company && "公司：" + a.company,
+        (a.services || []).length && "服務：" + a.services.join("、"),
+        (a.targets || []).length && "適合引薦：" + a.targets.join("、"),
+        (a.have || []).length && "我有：" + a.have.join("、"),
+        (a.want || []).length && "我要：" + a.want.join("、"),
+      ].filter(Boolean).map(esc).join("<br>");
+      const photo = pendingPhoto(a);
+      const pickGroup = isLeader()
+        ? ""
+        : '<select class="input-sm" data-pick="' + esc(a.pid) + '">' +
+          groups.map(g => '<option value="' + esc(g.id) + '">' + esc((g.code || "?") + " " + (g.name || "")) + '</option>').join("") +
+          '</select>';
+      return '<div class="pend-card" data-pid="' + esc(a.pid) + '">' +
+        (photo ? '<img class="pend-photo" src="' + esc(photo) + '" alt="' + esc(a.name) + ' 的照片">' : '<div class="pend-photo"></div>') +
+        '<div class="pend-body">' +
+          '<div class="pend-name">' + esc(a.name || "(未填姓名)") + '</div>' +
+          (meta ? '<div class="pend-meta">' + meta + '</div>' : "") +
+          '<div class="pend-at">申請時間：' + esc(fmtStamp(a.at, true) || "—") + '</div>' +
+        '</div>' +
+        '<div class="pend-actions">' + pickGroup +
+          '<button class="btn btn-primary btn-sm" data-claim="' + esc(a.pid) + '" type="button">' +
+            (isLeader() ? "認領到「" + esc(myGroupCode()) + "」" : "加入這一組") + '</button>' +
+          '<button class="btn btn-sm" data-drop="' + esc(a.pid) + '" type="button">刪除申請</button>' +
+        '</div>' +
+      '</div>';
+    }).join("");
+
+    list.querySelectorAll("[data-claim]").forEach(btn => {
+      btn.onclick = () => {
+        const pid = btn.dataset.claim;
+        let gid;
+        if(isLeader()){
+          const mine = visibleGroups()[0];
+          gid = mine && mine.id;
+        } else {
+          const sel = list.querySelector('[data-pick="' + cssq(pid) + '"]');
+          gid = sel && sel.value;
+        }
+        claimPending(pid, gid);
+      };
+    });
+    list.querySelectorAll("[data-drop]").forEach(btn => {
+      btn.onclick = () => dropPending(btn.dataset.drop);
+    });
+  }
+
+  /* 申請 → 成員卡。用 newMember() 當樣板,確保每個欄位都存在、id 由本機產生
+     (表單送來的 pid 只是待認領清單的鍵,不會變成成員 id) */
+  function applicantToMember(a, gid){
+    const m = newMember(gid, a.name || "");
+    m.title = a.title || "";
+    m.company = a.company || "";
+    m.business_items = a.business_items || "";
+    m.website = a.website || "";
+    ["services", "targets", "have", "want", "tagline", "products"].forEach(k => {
+      m[k] = Array.isArray(a[k]) ? a[k].slice() : [];
+    });
+    m.image = a.image || "";
+    m.card = a.card || "";
+    m.dataIssue = true;        // 自填資料請組長過目一次,前台會顯示「資料需確認」
+    touch(m);
+    return m;
+  }
+  function claimPending(pid, gid){
+    const i = PENDING.findIndex(x => x.pid === pid);
+    const g = DATA.find(x => x.id === gid);
+    if(i < 0 || !g) return;
+    if(!canEditGroup(g)){ toast("你沒有修改這一組的權限", { warn:true }); return; }
+    pushUndo();
+    const m = applicantToMember(PENDING[i], g.id);
+    g.members.push(m);
+    PENDING.splice(i, 1);
+    selected = g.id;
+    renderAll(); scheduleSaveAndValidate();
+    toast("已認領「" + (m.name || "新夥伴") + "」到「" + (g.code || "?") + "」，" +
+          "請確認資料後按「發布到網站」。已先標記為「資料需確認」。", { duration: 8000 });
+  }
+  function dropPending(pid){
+    const a = PENDING.find(x => x.pid === pid);
+    if(!a) return;
+    if(!confirm("刪除「" + (a.name || "這筆申請") + "」的申請？\n\n這筆資料會從待認領區移除，發布後就找不回來了。")) return;
+    pushUndo();
+    PENDING = PENDING.filter(x => x.pid !== pid);
+    renderPending(); scheduleSaveAndValidate();
+    toast("已刪除該筆申請，按「發布到網站」後生效");
   }
 
   /* ---------- boot ---------- */

@@ -42,8 +42,9 @@ const MAX_FILE_B64_CHARS = 3 * 1024 * 1024;     // 單一附件 base64 上限（
 const FILE_PATH_RE = /^images\/[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.(jpg|jpeg|png|webp)$/;
 /* 分組資料檔:data/_index.json(分會結構)與 data/<代號小寫>.json(各組內容)。
    ★ 這條路徑規則就是權限本身:組長只被允許寫自己那一組的檔案,見 canWriteDataFile() ★ */
-const DATA_PATH_RE = /^data\/(_index|[a-z0-9]{1,8})\.json$/;
+const DATA_PATH_RE = /^data\/(_index|_pending|[a-z0-9]{1,8})\.json$/;
 const MAX_DATA_B64_CHARS = 4 * 1024 * 1024;   // 單一分組檔 base64 上限(約 3MB 原始,含內嵌照片綽綽有餘)
+const PENDING_PATH = "data/_pending.json";
 
 /* 這個 session 可不可以寫這個路徑。
    總管理員:data/ 底下都可以。
@@ -53,7 +54,11 @@ function canWriteDataFile(sess, path){
   if(!DATA_PATH_RE.test(path)) return false;
   if(!sess || sess.r !== "leader") return true;              // owner
   const group = String(sess.g || "").trim().toLowerCase();
-  return !!group && path === "data/" + group + ".json";
+  if(!group) return false;
+  // 待認領區:組長認領新人時要把那筆從清單裡移掉,所以必須能寫。
+  // 這是刻意放寬的——組長之間看得到、也動得到彼此還沒認領的申請。
+  if(path === PENDING_PATH) return true;
+  return path === "data/" + group + ".json";
 }
 
 function sleep(ms){ return new Promise(res => setTimeout(res, ms)); }
@@ -183,6 +188,15 @@ function verifyCredentials(users, username, password){
 async function sha256Hex(bytes){
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, "0")).join("");
+}
+/* bytes → 標準 base64（GitHub contents API 要的格式）。分段處理避免
+   一次展開成過長的參數列表。 */
+function bytesToB64(bytes){
+  let bin = "";
+  for(let i = 0; i < bytes.length; i += 0x8000){
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
 }
 function b64ToBytes(b64){
   const bin = atob(String(b64).replace(/\s+/g, ""));
@@ -360,9 +374,22 @@ function isPlausibleB64(s, max){
    不能等到產線才發現。同時 id 會被拿去組檔名（m/<id>.html），一定要擋掉路徑穿越。 */
 const MEMBER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 const MEMBER_ARRAY_FIELDS = ["services", "targets", "have", "want", "tagline", "products"];
+const MAX_PENDING = 50;                       // 待認領區的上限,擋住表單被灌爆
 function checkDataFileBody(path, text){
   let doc;
   try{ doc = JSON.parse(text); }catch(e){ return "not_json"; }
+  if(path === PENDING_PATH){
+    if(!Array.isArray(doc)) return "pending_not_array";
+    if(doc.length > MAX_PENDING) return "too_many_pending";
+    for(const a of doc){
+      if(!a || typeof a !== "object" || Array.isArray(a)) return "pending_entry_not_object";
+      if(!MEMBER_ID_RE.test(typeof a.pid === "string" ? a.pid : "")) return "bad_pending_id";
+      for(const k of MEMBER_ARRAY_FIELDS){
+        if(k in a && a[k] != null && !Array.isArray(a[k])) return "bad_pending_field:" + k;
+      }
+    }
+    return null;
+  }
   if(path === "data/_index.json"){
     if(!Array.isArray(doc)) return "index_not_array";
     for(const e of doc){
@@ -385,6 +412,116 @@ function checkDataFileBody(path, text){
     }
   }
   return null;
+}
+
+/* ── 新夥伴自填表單的收件口 ────────────────────────────────────────────────
+   Google 表單的 Apps Script 在有人送出時呼叫這裡,把申請放進待認領區。
+   刻意做成獨立的一條路,而不是給它一組後台帳號:
+
+   - 認證用的是 INTAKE_SECRET(與 ADMIN_USERS、SESSION_SECRET 都不同的一把)
+   - 它**只能寫 data/_pending.json**,寫不到任何分組資料,也拿不到 session
+   - 沒設 INTAKE_SECRET 就整個關閉,不會有預設開放的狀態
+   照片以 data: URL 存在申請裡,組長認領時才會變成 images/ 實體檔——
+   沒被認領的人不會在 repo 留下任何圖檔。 */
+const INTAKE_TEXT_MAX = 400;          // 單一文字欄位
+const INTAKE_LIST_MAX = 12;           // 陣列欄位的項目數
+const INTAKE_IMG_B64_MAX = 700 * 1024;   // 單張照片 base64(約 500KB 原始)
+const INTAKE_TOTAL_B64_MAX = 3 * 1024 * 1024;  // 一份申請所有照片加總
+const INTAKE_MAX_PER_WINDOW = 20;     // 同一 IP 在節流窗內最多送幾份
+const DATA_IMG_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+
+const str = (v, max) => String(v == null ? "" : v).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "").trim().slice(0, max || INTAKE_TEXT_MAX);
+const list = v => (Array.isArray(v) ? v : String(v == null ? "" : v).split("\n"))
+  .map(x => str(x)).filter(Boolean).slice(0, INTAKE_LIST_MAX);
+
+/* 把表單送來的東西整理成一筆乾淨的申請;不合格的照片直接丟掉而不是整筆退回,
+   一張照片太大不該讓整份申請消失。回傳 null 代表連姓名都沒有,那才是真的不收。 */
+function sanitizeApplicant(raw, pid){
+  if(!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const name = str(raw.name, 80);
+  if(!name) return null;
+  let budget = INTAKE_TOTAL_B64_MAX;
+  const img = v => {
+    const s = String(v == null ? "" : v);
+    if(!DATA_IMG_RE.test(s) || s.length > INTAKE_IMG_B64_MAX || s.length > budget) return "";
+    budget -= s.length;
+    return s;
+  };
+  return {
+    pid,
+    at: new Date().toISOString(),
+    name,
+    title: str(raw.title, 80),
+    company: str(raw.company, 120),
+    services: list(raw.services),
+    targets: list(raw.targets),
+    have: list(raw.have),
+    want: list(raw.want),
+    tagline: list(raw.tagline),
+    business_items: str(raw.business_items),
+    website: /^https?:\/\/[^\s]{1,300}$/.test(String(raw.website || "").trim()) ? String(raw.website).trim() : "",
+    image: img(raw.image),
+    card: img(raw.card),
+    products: (Array.isArray(raw.products) ? raw.products : []).map(img).filter(Boolean).slice(0, 5),
+  };
+}
+
+async function handleIntake(request, env){
+  const secret = env.INTAKE_SECRET;
+  if(!secret) return json(env, { ok:false, error:"intake_disabled" }, 503);
+
+  const startedAt = Date.now();
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  let count = 0;
+  try{
+    requireKV(env);
+    const raw = await env.RATE_LIMIT.get("intake:" + ip);
+    const d = raw ? JSON.parse(raw) : null;
+    if(d && Date.now() - d.windowStart <= FAIL_WINDOW_SECONDS*1000){
+      if(d.count >= INTAKE_MAX_PER_WINDOW) return json(env, { ok:false, error:"too_many_submissions" }, 429);
+      count = d.count;
+    }
+  }catch(e){
+    if(e && e.code === "rate_limit_kv_missing") return json(env, { ok:false, error:"rate_limit_unavailable" }, 500);
+  }
+
+  let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
+  const good = timingSafeEqual(String(body && body.secret == null ? "" : body.secret), secret);
+  const elapsed = Date.now() - startedAt;
+  if(elapsed < MIN_LOGIN_MS) await sleep(MIN_LOGIN_MS - elapsed);
+  try{ await env.RATE_LIMIT.put("intake:" + ip, JSON.stringify({ count: count+1, windowStart: Date.now() }), { expirationTtl: FAIL_WINDOW_SECONDS }); }catch(e){}
+  if(!good) return json(env, { ok:false, error:"bad_secret" }, 401);
+
+  // pid 由這裡產生,不讓外面決定——它之後會出現在檔名與 DOM 屬性裡
+  const pid = "p_" + Date.now().toString(36) + Math.floor(Math.random()*1e6).toString(36);
+  const applicant = sanitizeApplicant(body && body.applicant, pid);
+  if(!applicant) return json(env, { ok:false, error:"bad_applicant" }, 400);
+
+  const headers = await ghHeaders(env);
+  let current = [];
+  try{
+    const url = contentsUrlFor(env, PENDING_PATH) + "?ref=" + encodeURIComponent(env.GH_BRANCH || "main");
+    const r = await fetchWithTimeout(url, { headers }, GITHUB_TIMEOUT_MS);
+    if(r.ok){
+      const d = await r.json();
+      const parsed = JSON.parse(new TextDecoder().decode(b64ToBytes(d.content)));
+      if(Array.isArray(parsed)) current = parsed;
+    } else if(r.status === 401 || r.status === 403){
+      return json(env, { ok:false, error:"token_forbidden" }, 502);
+    } else if(r.status !== 404){
+      return json(env, { ok:false, error:"github_read_failed", status:r.status }, 502);
+    }
+    // 404 = 還沒有這個檔,current 保持空陣列
+  }catch(e){
+    return json(env, { ok:false, error: e && e.name === "AbortError" ? "github_timeout" : "github_unreachable" }, 502);
+  }
+  if(current.length >= MAX_PENDING) return json(env, { ok:false, error:"pending_full", max:MAX_PENDING }, 409);
+
+  const next = current.concat([applicant]);
+  const bytes = new TextEncoder().encode(JSON.stringify(next, null, 2) + "\n");
+  const res = await ghPutFile(env, headers, PENDING_PATH, bytesToB64(bytes), "新夥伴申請待認領：" + applicant.name);
+  if(!res.ok) return json(env, { ok:false, error:res.error, status:res.status }, 502);
+  return json(env, { ok:true, pid, pending: next.length });
 }
 
 async function handlePublish(request, env){
@@ -464,7 +601,9 @@ async function handlePublish(request, env){
     written++;
   }
   for(const f of dataFiles){
-    const label = f.path === "data/_index.json" ? "分會結構" : f.path.replace(/^data\/|\.json$/g, "").toUpperCase() + " 組";
+    const label = f.path === "data/_index.json" ? "分會結構"
+                : f.path === PENDING_PATH ? "待認領區"
+                : f.path.replace(/^data\/|\.json$/g, "").toUpperCase() + " 組";
     const r = await ghPutFile(env, headers, f.path, f.contentB64, "更新會員名錄・" + label + by);
     if(!r.ok) return json(env, { ok:false, error:r.error, path:f.path, filesWritten:written, status:r.status }, 502);
     // 回傳新版本雜湊,編輯頁接著用它當新的 baseHash,不必重新整理就能再次發布
@@ -530,6 +669,7 @@ export default {
     if(pathname === "/ping") return handlePing(request, env);
     if(pathname === "/login") return handleLogin(request, env);
     if(pathname === "/publish") return handlePublish(request, env);
+    if(pathname === "/intake") return handleIntake(request, env);
     if(pathname === "/health") return handleHealth(request, env);
     if(pathname === "/views") return handleViews(request, env);
     return json(env, { ok:false, error:"not_found" }, 404);
