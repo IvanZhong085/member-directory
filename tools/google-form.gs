@@ -78,7 +78,11 @@ function createVisitorForm() {
       (放在這裡而不是寫進程式碼,所以這串密碼不會進到 GitHub。)
    3. 上方函式下拉選單選 createNewMemberForm → 按「執行」。
       第一次會多要幾個權限(建立表單、讀 Drive 上的照片、連外部網址),都要允許。
-   4. 執行紀錄會印出表單網址 → 貼進 site-config.js 的 MEMBER_FORM_URL,發布網站。
+   4. 執行紀錄會印出表單網址,以及「還要手動加三個上傳題」的指示。
+   5. 照著指示開表單編輯頁,用滑鼠加三個「上傳檔案」題(標題要一字不差)。
+      —— Apps Script 沒有建立上傳題的方法,這是 Google 的限制,只能手動加。
+   6. 回來執行 checkNewMemberForm 核對 13 題都對得上。
+   7. 把「給新夥伴填的網址」貼進 site-config.js 的 MEMBER_FORM_URL,發布網站。
 
    ⚠ 這份表單有「上傳照片」題,Google 會要求填答者**登入 Google 帳號**才能送出。
      這是 Google 的規定,沒有辦法關掉;不想要就把三個上傳題刪掉。
@@ -138,31 +142,70 @@ function createNewMemberForm() {
   form.addTextItem().setTitle(NEWMEMBER_Q.website)
     .setHelpText("有官網才填,要完整網址(https://…);沒有請留白").setRequired(false);
 
-  addImageUpload_(form, NEWMEMBER_Q.image, "半身或大頭照,横幅直幅都可以,系統會自動裁成名錄用的比例", 1, true);
-  addImageUpload_(form, NEWMEMBER_Q.card, "名片正面照片(選填)", 1, false);
-  addImageUpload_(form, NEWMEMBER_Q.products, "你的商品或服務照片,最多 5 張(選填)", 5, false);
+  /* ⚠ 三個「上傳檔案」題不在這裡建立。
+     Apps Script 的 FormApp **沒有**建立上傳題的方法(沒有 addFileUploadItem),
+     這是 Google 的限制,上傳題只能在表單編輯畫面用滑鼠加。
+     所以這裡只建文字題,上傳題請照下方執行紀錄印出的步驟手動補三題,
+     題目名稱必須一字不差,送出處理是靠標題對應欄位的。
+     沒補也不會壞:那三題不存在時,申請一樣會進待認領區,只是沒有照片。 */
 
   var ss = SpreadsheetApp.create("雲榮鑽石分會・新夥伴資料填寫(回應)");
   form.setDestination(FormApp.DestinationType.SPREADSHEET, ss.getId());
 
   ScriptApp.newTrigger(NEWMEMBER_TRIGGER).forForm(form).onFormSubmit().create();
+  PropertiesService.getScriptProperties().setProperty("MEMBER_FORM_EDIT_URL", form.getEditUrl());
 
-  Logger.log("✅ 新夥伴資料表單建立完成,送出後會自動進到名錄的待認領區");
+  Logger.log("✅ 文字題已建立,送出觸發器已掛上");
   Logger.log("① 給新夥伴填的網址(貼進 site-config.js 的 MEMBER_FORM_URL):" + form.getPublishedUrl());
   Logger.log("② 回應試算表(備份用,主要流程不靠它):" + ss.getUrl());
-  Logger.log("③ 表單編輯網址(之後要改題目從這裡進):" + form.getEditUrl());
+  Logger.log("③ 表單編輯網址(下一步要用):" + form.getEditUrl());
+  Logger.log("");
+  Logger.log("⚠ 還差三個上傳題,要手動加(Apps Script 建不了上傳題,這是 Google 的限制)");
+  Logger.log("   開上面第 ③ 個網址 → 右下「+」新增問題 → 題型選「上傳檔案」→ 依序加這三題:");
+  Logger.log("   1. 標題「" + NEWMEMBER_Q.image + "」    必填、只允許圖片、最多 1 個檔案");
+  Logger.log("   2. 標題「" + NEWMEMBER_Q.card + "」    選填、只允許圖片、最多 1 個檔案");
+  Logger.log("   3. 標題「" + NEWMEMBER_Q.products + "」  選填、只允許圖片、最多 5 個檔案");
+  Logger.log("   ★ 標題要一字不差(含全形括號與空格),送出處理是靠標題對應欄位的。");
+  Logger.log("   加完回來執行 checkNewMemberForm,它會逐題核對。");
 }
 
-function addImageUpload_(form, title, help, maxFiles, required) {
-  var item = form.addFileUploadItem().setTitle(title).setHelpText(help).setRequired(!!required);
-  try {
-    item.setAllowedFileTypes([FormApp.FileType.IMAGE]);
-    item.setMaxFiles(maxFiles);
-    item.setMaxFileSize(10 * 1024 * 1024);   // Drive 端上限;送到網站前會自己縮圖
-  } catch (err) {
-    Logger.log("⚠ 上傳題的細部設定失敗(" + title + "):" + err + " —— 題目仍會建立");
+/* 核對表單題目與程式的欄位對應表。手動加完上傳題之後跑這個,
+   它會列出每一題「有沒有、題型對不對」,不改任何東西。 */
+function checkNewMemberForm() {
+  var editUrl = PropertiesService.getScriptProperties().getProperty("MEMBER_FORM_EDIT_URL");
+  if (!editUrl) throw new Error("找不到 MEMBER_FORM_EDIT_URL —— 請先跑 createNewMemberForm,或到「專案設定 → 指令碼屬性」手動填入表單的編輯網址");
+
+  var form = FormApp.openByUrl(editUrl);
+  var actual = {};
+  var items = form.getItems();
+  for (var i = 0; i < items.length; i++) actual[items[i].getTitle()] = items[i].getType();
+
+  var wantUpload = { image: 1, card: 1, products: 1 };
+  var missing = 0, wrongType = 0;
+  Logger.log("表單:" + form.getTitle());
+  Logger.log("─────────────────────────────────────────────");
+  for (var key in NEWMEMBER_Q) {
+    var title = NEWMEMBER_Q[key];
+    var type = actual[title];
+    var isUpload = !!wantUpload[key];
+    if (!type) {
+      Logger.log("✗ 缺少「" + title + "」" + (isUpload ? "(上傳題,要手動加)" : ""));
+      missing++;
+    } else if (isUpload && String(type) !== "FILE_UPLOAD") {
+      Logger.log("✗ 「" + title + "」題型是 " + type + ",應該是「上傳檔案」");
+      wrongType++;
+    } else {
+      Logger.log("✓ " + title + "  (" + type + ")");
+    }
   }
-  return item;
+  Logger.log("─────────────────────────────────────────────");
+  if (!missing && !wrongType) Logger.log("✅ 13 題全部對得上,可以開始收件了");
+  else Logger.log("還有 " + missing + " 題缺少、" + wrongType + " 題題型不對。缺上傳題不影響其他資料,只是收不到照片。");
+
+  var n = 0, all = ScriptApp.getProjectTriggers();
+  for (var j = 0; j < all.length; j++) if (all[j].getHandlerFunction() === NEWMEMBER_TRIGGER) n++;
+  Logger.log(n ? "送出觸發器:✓ 已掛上" : "送出觸發器:✗ 沒有 —— 請跑 setupNewMemberTrigger");
+  Logger.log("給新夥伴填的網址:" + form.getPublishedUrl());
 }
 
 /* 表單送出時自動觸發:把這份回應整理好,送到 Worker 的 /intake。
