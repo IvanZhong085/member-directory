@@ -12,7 +12,8 @@ const SITE = {
      ⚠ 留空不會壞掉:相關按鈕會自動隱藏或改走替代文案,填上去才出現。 */
   VISITOR_FORM_URL: "https://docs.google.com/forms/d/e/1FAIpQLSeiNaJ_FywZtFL52-2fERiaWstx-iJlp8a8R4f5NR7T9qnppw/viewform",
                             // 來賓參訪報名表單(createVisitorForm)→ visitor.html 的「我要報名參訪」按鈕
-  MEMBER_FORM_URL: "",      // 新夥伴自填資料表單(createNewMemberForm)→ 後台「新夥伴填寫表單」捷徑,
+  MEMBER_FORM_URL: "https://docs.google.com/forms/d/e/1FAIpQLSe-_auKp_AEHxgTQWhqTHDDf4gAN1_mpT1r5ZOLWoxKsEhT-Q/viewform",
+                            // 新夥伴自填資料表單(createNewMemberForm)→ 後台「新夥伴填寫表單」捷徑,
                             // 送出後自動進待認領區(需搭配 Worker 的 INTAKE_SECRET)
   ROSTER_SHEET_URL: "",     // 名冊鏡像試算表(createRosterSheet)→ 後台工具列「名冊試算表」捷徑
 };
