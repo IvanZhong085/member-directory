@@ -173,6 +173,33 @@
       "id": "g4_m6",
       "dataIssue": false,
       "updatedAt": ""
+    },
+    {
+      "id": "g4_m_ms8a4e1a1tbg",
+      "number": "",
+      "name": "The",
+      "title": "測試",
+      "services": [
+        "測試"
+      ],
+      "targets": [
+        "測試"
+      ],
+      "have": [
+        "測試"
+      ],
+      "want": [],
+      "tagline": [
+        "測試"
+      ],
+      "image": "",
+      "card": "",
+      "products": [],
+      "company": "草率昂昂測試",
+      "business_items": "",
+      "website": "",
+      "dataIssue": true,
+      "updatedAt": "2026-07-31T01:44:05.902Z"
     }
   ],
   "recruiting": [
