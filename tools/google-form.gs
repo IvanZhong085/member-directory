@@ -90,6 +90,18 @@ function createVisitorForm() {
 */
 
 var NEWMEMBER_TRIGGER = "onNewMemberSubmit";
+
+/* 表單題目是靠**標題**對應到欄位的,但手動加的題目很容易打出看不出差別的字:
+   全形「／」與半形「/」、刪節號「…」與三個點、多打一個空白。
+   比對前先把這些差異抹平,免得使用者盯著兩個看起來一樣的字串找半天。
+   (完全不同的字仍然對不上,那時 checkNewMemberForm 會把實際標題印出來。) */
+function normTitle_(s) {
+  return String(s == null ? "" : s)
+    .replace(/[\uFF0F\u2215\u2044]/g, "/")   // ／ ∕ ⁄ → /
+    .replace(/\u2026/g, "...")                 // … → ...
+    .replace(/\s+/g, "")
+    .toLowerCase();
+}
 /* 題目標題就是對應欄位的鍵。改題目文字的話這裡要一起改,否則對不上。 */
 var NEWMEMBER_Q = {
   name:           "姓名",
@@ -176,17 +188,23 @@ function checkNewMemberForm() {
   if (!editUrl) throw new Error("找不到 MEMBER_FORM_EDIT_URL —— 請先跑 createNewMemberForm,或到「專案設定 → 指令碼屬性」手動填入表單的編輯網址");
 
   var form = FormApp.openByUrl(editUrl);
-  var actual = {};
+  var actual = {}, realTitle = {};
   var items = form.getItems();
-  for (var i = 0; i < items.length; i++) actual[items[i].getTitle()] = items[i].getType();
+  for (var i = 0; i < items.length; i++) {
+    var k = normTitle_(items[i].getTitle());
+    actual[k] = items[i].getType();
+    realTitle[k] = items[i].getTitle();
+  }
 
   var wantUpload = { image: 1, card: 1, products: 1 };
-  var missing = 0, wrongType = 0;
+  var missing = 0, wrongType = 0, used = {};
   Logger.log("表單:" + form.getTitle());
   Logger.log("─────────────────────────────────────────────");
   for (var key in NEWMEMBER_Q) {
     var title = NEWMEMBER_Q[key];
-    var type = actual[title];
+    var norm = normTitle_(title);
+    var type = actual[norm];
+    if (type) used[norm] = 1;
     var isUpload = !!wantUpload[key];
     if (!type) {
       Logger.log("✗ 缺少「" + title + "」" + (isUpload ? "(上傳題,要手動加)" : ""));
@@ -199,8 +217,20 @@ function checkNewMemberForm() {
     }
   }
   Logger.log("─────────────────────────────────────────────");
-  if (!missing && !wrongType) Logger.log("✅ 13 題全部對得上,可以開始收件了");
-  else Logger.log("還有 " + missing + " 題缺少、" + wrongType + " 題題型不對。缺上傳題不影響其他資料,只是收不到照片。");
+  if (!missing && !wrongType) {
+    Logger.log("✅ 13 題全部對得上,可以開始收件了");
+  } else {
+    Logger.log("還有 " + missing + " 題缺少、" + wrongType + " 題題型不對。缺上傳題不影響其他資料,只是收不到照片。");
+    // 把「表單上有、但程式不認得」的題目印出來 —— 標題打錯時一眼就看得出來
+    var extras = [];
+    for (var nk in actual) if (!used[nk]) extras.push("「" + realTitle[nk] + "」(" + actual[nk] + ")");
+    if (extras.length) {
+      Logger.log("");
+      Logger.log("表單上這些題目程式不認得,對照上面缺少的,多半是標題打錯:");
+      for (var x = 0; x < extras.length; x++) Logger.log("   " + extras[x]);
+      Logger.log("改標題時請直接複製上面「缺少」那行的字串,不要自己打。");
+    }
+  }
 
   var n = 0, all = ScriptApp.getProjectTriggers();
   for (var j = 0; j < all.length; j++) if (all[j].getHandlerFunction() === NEWMEMBER_TRIGGER) n++;
@@ -219,11 +249,11 @@ function onNewMemberSubmit(e) {
   var byTitle = {};
   var items = e.response.getItemResponses();
   for (var i = 0; i < items.length; i++) {
-    byTitle[items[i].getItem().getTitle()] = items[i].getResponse();
+    byTitle[normTitle_(items[i].getItem().getTitle())] = items[i].getResponse();
   }
-  var text = function (key) { var v = byTitle[NEWMEMBER_Q[key]]; return v == null ? "" : String(v); };
+  var text = function (key) { var v = byTitle[normTitle_(NEWMEMBER_Q[key])]; return v == null ? "" : String(v); };
   var files = function (key) {
-    var v = byTitle[NEWMEMBER_Q[key]];
+    var v = byTitle[normTitle_(NEWMEMBER_Q[key])];
     if (!v) return [];
     return (Object.prototype.toString.call(v) === "[object Array]" ? v : [v]).filter(String);
   };
