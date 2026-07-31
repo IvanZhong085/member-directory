@@ -2820,7 +2820,7 @@ const GROUPS = [
         "updatedAt": ""
       },
       {
-        "number": "224",
+        "number": "223",
         "name": "楊喜巖",
         "title": "餐飲包材客製化",
         "services": [
@@ -2844,7 +2844,7 @@ const GROUPS = [
         "website": "",
         "id": "g1_m7",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "2026-07-31T03:02:27.809Z"
       }
     ],
     "id": "g1",
