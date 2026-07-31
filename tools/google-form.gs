@@ -98,6 +98,7 @@ var NEWMEMBER_TRIGGER = "onNewMemberSubmit";
 function normTitle_(s) {
   return String(s == null ? "" : s)
     .replace(/[\uFF0F\u2215\u2044]/g, "/")   // ／ ∕ ⁄ → /
+    .replace(/\uFF08/g, "(").replace(/\uFF09/g, ")")   // （ ） → ( )
     .replace(/\u2026/g, "...")                 // … → ...
     .replace(/\s+/g, "")
     .toLowerCase();
@@ -114,10 +115,35 @@ var NEWMEMBER_Q = {
   tagline:        "25 秒自我介紹 Slogan",
   business_items: "主要營業項目",
   website:        "公司網站",
-  image:          "個人照片",
+  image:          "形象照",
   card:           "名片照片",
-  products:       "商品／服務照片",
+  products:       "商品照片(商品圖、示意圖、證書皆可)",
 };
+
+/* 同一個欄位也接受這些寫法。表單題目是給人看的,遲早有人會覺得某個詞更好懂而改掉;
+   與其每次都要回頭改程式,不如把用過的說法都收進來。
+   比對一律經過 normTitle_(),所以括號全半形、斜線、空白的差異不用列在這裡。 */
+var NEWMEMBER_ALIASES = {
+  image:    ["個人照片", "大頭照", "半身照", "個人照"],
+  card:     ["名片"],
+  products: ["商品／服務照片", "商品照片", "服務照片"],
+};
+
+/* 這個欄位在表單上叫什麼(主要標題 + 所有別名),正規化後的清單 */
+function titlesFor_(key) {
+  var out = [normTitle_(NEWMEMBER_Q[key])];
+  var alt = NEWMEMBER_ALIASES[key] || [];
+  for (var i = 0; i < alt.length; i++) out.push(normTitle_(alt[i]));
+  return out;
+}
+/* 從「正規化標題 → 值」的表裡,挑出這個欄位對得上的第一個 */
+function pickByTitle_(map, key) {
+  var names = titlesFor_(key);
+  for (var i = 0; i < names.length; i++) {
+    if (Object.prototype.hasOwnProperty.call(map, names[i])) return map[names[i]];
+  }
+  return undefined;
+}
 
 function createNewMemberForm() {
   var props = PropertiesService.getScriptProperties();
@@ -202,9 +228,13 @@ function checkNewMemberForm() {
   Logger.log("─────────────────────────────────────────────");
   for (var key in NEWMEMBER_Q) {
     var title = NEWMEMBER_Q[key];
-    var norm = normTitle_(title);
-    var type = actual[norm];
-    if (type) used[norm] = 1;
+    var names = titlesFor_(key), norm = null;
+    for (var n = 0; n < names.length; n++) if (actual[names[n]]) { norm = names[n]; break; }
+    var type = norm ? actual[norm] : undefined;
+    if (type) {
+      used[norm] = 1;
+      if (norm !== names[0]) title = realTitle[norm] + "（別名，對應「" + NEWMEMBER_Q[key] + "」）";
+    }
     var isUpload = !!wantUpload[key];
     if (!type) {
       Logger.log("✗ 缺少「" + title + "」" + (isUpload ? "(上傳題,要手動加)" : ""));
@@ -251,9 +281,9 @@ function onNewMemberSubmit(e) {
   for (var i = 0; i < items.length; i++) {
     byTitle[normTitle_(items[i].getItem().getTitle())] = items[i].getResponse();
   }
-  var text = function (key) { var v = byTitle[normTitle_(NEWMEMBER_Q[key])]; return v == null ? "" : String(v); };
+  var text = function (key) { var v = pickByTitle_(byTitle, key); return v == null ? "" : String(v); };
   var files = function (key) {
-    var v = byTitle[normTitle_(NEWMEMBER_Q[key])];
+    var v = pickByTitle_(byTitle, key);
     if (!v) return [];
     return (Object.prototype.toString.call(v) === "[object Array]" ? v : [v]).filter(String);
   };
