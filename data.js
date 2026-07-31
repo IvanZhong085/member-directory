@@ -2820,7 +2820,7 @@ const GROUPS = [
         "updatedAt": ""
       },
       {
-        "number": "223",
+        "number": "224",
         "name": "楊喜巖",
         "title": "餐飲包材客製化",
         "services": [
@@ -2844,7 +2844,31 @@ const GROUPS = [
         "website": "",
         "id": "g1_m7",
         "dataIssue": false,
-        "updatedAt": "2026-07-31T03:02:27.809Z"
+        "updatedAt": ""
+      },
+      {
+        "id": "g1_m_ms8d1a021g8f",
+        "number": "221",
+        "name": "李聖漳",
+        "title": "淨水設備整合規劃",
+        "services": [],
+        "targets": [
+          "水塔清洗\\管路清洗\\房仲\\驗屋公司"
+        ],
+        "have": [],
+        "want": [],
+        "tagline": [
+          "讓健康回到本源",
+          "讓好水走進生活"
+        ],
+        "image": "",
+        "card": "",
+        "products": [],
+        "company": "源恆企業社",
+        "business_items": "",
+        "website": "",
+        "dataIssue": false,
+        "updatedAt": "2026-07-31T03:11:21.303Z"
       }
     ],
     "id": "g1",
