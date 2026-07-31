@@ -83,6 +83,14 @@ function createVisitorForm() {
       —— Apps Script 沒有建立上傳題的方法,這是 Google 的限制,只能手動加。
    6. 回來執行 checkNewMemberForm 核對 13 題都對得上。
    7. 把「給新夥伴填的網址」貼進 site-config.js 的 MEMBER_FORM_URL,發布網站。
+   8. 自己填一筆測試(三個上傳題都放一張圖),再執行 checkPhotoAccess 確認照片收得到。
+
+   ── 收不到照片時 ────────────────────────────────────────────
+   執行 checkPhotoAccess,它會拿最後一筆回應實測,直接告訴你斷在哪:
+     「沒有上傳任何檔案」→ 表單那次就沒選圖,重填一次即可,程式沒問題。
+     「Drive 讀不到」    → 腳本沒有 Drive 權限。這個函式本身會跳授權,允許後就好了。
+                          (加了新權限之後觸發器會暫停,手動執行一次授權完就恢復。)
+     「縮圖 HTTP 404」   → 正常,會自動改用原檔,不必處理。
 
    ⚠ 這份表單有「上傳照片」題,Google 會要求填答者**登入 Google 帳號**才能送出。
      這是 Google 的規定,沒有辦法關掉;不想要就把三個上傳題刪掉。
@@ -289,6 +297,9 @@ function onNewMemberSubmit(e) {
   };
 
   var photos = files("image"), cards = files("card"), products = files("products");
+  // 照片沒進來時,這行決定要往哪查:0 張是表單沒上傳,有張數才是這邊抓不到
+  Logger.log("收到照片:形象照 " + photos.length + " 張、名片 " + cards.length + " 張、商品 " + products.length + " 張");
+
   var applicant = {
     name:           text("name"),
     title:          text("title"),
@@ -300,11 +311,14 @@ function onNewMemberSubmit(e) {
     tagline:        text("tagline"),
     business_items: text("business_items"),
     website:        text("website"),
-    image:          photos.length ? driveImageDataUrl_(photos[0], 900) : "",
-    card:           cards.length ? driveImageDataUrl_(cards[0], 900) : "",
-    products:       products.slice(0, 5).map(function (id) { return driveImageDataUrl_(id, 900); })
+    image:          photos.length ? driveImageDataUrl_(photos[0], 900, "形象照") : "",
+    card:           cards.length ? driveImageDataUrl_(cards[0], 900, "名片照片") : "",
+    products:       products.slice(0, 5).map(function (id, n) { return driveImageDataUrl_(id, 900, "商品照片 " + (n + 1)); })
                       .filter(function (s) { return !!s; }),
   };
+  Logger.log("照片處理結果:形象照 " + (applicant.image ? "✓" : "✗") +
+             "、名片 " + (applicant.card ? "✓" : "✗") +
+             "、商品 " + applicant.products.length + "/" + Math.min(products.length, 5) + " 張");
 
   var res;
   try {
@@ -328,29 +342,104 @@ function onNewMemberSubmit(e) {
 
 /* Drive 上的照片 → data:image/jpeg;base64,…(名錄後台認得的格式)。
    用 Drive 的縮圖服務指定寬度,而不是原檔——手機照片動輒 3–5MB,原檔送不過去。
-   太大就再降一級寬度重試;都失敗回傳空字串(照片沒了,其他資料照樣進待認領區)。 */
-function driveImageDataUrl_(fileId, maxWidth) {
+   太大就再降一級寬度重試。
+
+   縮圖有兩個實際會踩到的狀況,所以不是「一次拿不到就放棄」:
+   ① 表單剛上傳完就觸發,Drive 還沒把縮圖產出來,前幾秒問會是 404 —— 等一下再問。
+   ② 有些檔案 Drive 始終不產縮圖 —— 退回用原檔,小張的照片這樣就夠了。
+   全部失敗才回傳空字串(照片沒了,其他資料照樣進待認領區),並在紀錄裡寫清楚卡在哪。 */
+function driveImageDataUrl_(fileId, maxWidth, label) {
   var widths = [maxWidth, 600, 400];
-  for (var i = 0; i < widths.length; i++) {
-    try {
-      var res = UrlFetchApp.fetch(
-        "https://drive.google.com/thumbnail?id=" + encodeURIComponent(fileId) + "&sz=w" + widths[i],
-        { headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
-      if (res.getResponseCode() !== 200) continue;
-      var blob = res.getBlob();
-      var b64 = Utilities.base64Encode(blob.getBytes());
-      // Worker 端單張上限約 700KB base64,這裡留一點餘裕
-      if (b64.length <= 650 * 1024) {
-        var type = String(blob.getContentType() || "image/jpeg");
-        if (type.indexOf("image/") !== 0) type = "image/jpeg";
-        return "data:" + type + ";base64," + b64;
+  var tag = (label || "照片") + "(" + fileId + ")";
+  var lastCode = 0;
+
+  for (var round = 0; round < 3; round++) {
+    if (round) Utilities.sleep(2000);   // ① 等 Drive 把縮圖產出來
+    var gotThumb = false;
+    for (var i = 0; i < widths.length; i++) {
+      try {
+        var res = UrlFetchApp.fetch(
+          "https://drive.google.com/thumbnail?id=" + encodeURIComponent(fileId) + "&sz=w" + widths[i],
+          { headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+        lastCode = res.getResponseCode();
+        if (lastCode !== 200) continue;
+        gotThumb = true;
+        var out = blobToDataUrl_(res.getBlob());
+        if (out) return out;
+      } catch (err) {
+        Logger.log("⚠ " + tag + " 取縮圖失敗(w" + widths[i] + "):" + err);
       }
-    } catch (err) {
-      Logger.log("⚠ 取照片失敗(" + fileId + ", w" + widths[i] + "):" + err);
     }
+    if (gotThumb) break;   // 縮圖拿得到,只是每一級都太大 —— 再等也不會變小
   }
-  Logger.log("⚠ 照片太大或取不到,這張略過:" + fileId);
+
+  try {   // ② 縮圖始終拿不到,改用原檔
+    var out2 = blobToDataUrl_(DriveApp.getFileById(fileId).getBlob());
+    if (out2) { Logger.log("· " + tag + ":改用原檔(Drive 沒有縮圖)"); return out2; }
+    Logger.log("⚠ " + tag + ":原檔超過 650KB 又沒有縮圖,這張略過");
+  } catch (err2) {
+    Logger.log("⚠ " + tag + ":讀不到檔案(縮圖回 HTTP " + lastCode + ")" + err2 +
+               "\n   多半是這個腳本還沒拿到 Drive 權限 —— 手動執行一次 checkPhotoAccess 重新授權。");
+  }
   return "";
+}
+
+/* 照片收不到時跑這個(手動執行,不是觸發器)。做兩件事:
+   ① 用到 DriveApp,所以會跳授權 —— 腳本拿到 Drive 權限,縮圖那條路才會通。
+      (加了新權限之後觸發器會暫停,手動執行一次授權完就會恢復。)
+   ② 拿表單「最後一筆回應」裡真正上傳的檔案來實測,把每一關的結果印出來:
+      Drive 讀不讀得到、縮圖回幾號、轉出來多大。這樣不必猜是哪一段斷掉。 */
+function checkPhotoAccess() {
+  var editUrl = PropertiesService.getScriptProperties().getProperty("MEMBER_FORM_EDIT_URL");
+  if (!editUrl) throw new Error("請先在「專案設定 → 指令碼屬性」加一筆 MEMBER_FORM_EDIT_URL(表單的編輯網址,結尾是 /edit)");
+
+  var responses = FormApp.openByUrl(editUrl).getResponses();
+  if (!responses.length) { Logger.log("表單還沒有任何回應,先去填一筆(記得上傳照片)再跑這個。"); return; }
+
+  var items = responses[responses.length - 1].getItemResponses();
+  var ids = [];
+  for (var i = 0; i < items.length; i++) {
+    if (items[i].getItem().getType() !== FormApp.ItemType.FILE_UPLOAD) continue;
+    var v = items[i].getResponse();
+    var list = (Object.prototype.toString.call(v) === "[object Array]" ? v : [v]).filter(String);
+    Logger.log("「" + items[i].getItem().getTitle() + "」:" + list.length + " 個檔案");
+    for (var j = 0; j < list.length; j++) ids.push(list[j]);
+  }
+  Logger.log("─────────────────────────────────────────────");
+  if (!ids.length) {
+    Logger.log("最後一筆回應沒有上傳任何檔案 —— 所以照片是空的,程式這邊沒問題。");
+    Logger.log("請再填一次表單,三個上傳題都選一張圖再送出。");
+    return;
+  }
+
+  for (var k = 0; k < ids.length; k++) {
+    var id = ids[k];
+    try {
+      var file = DriveApp.getFileById(id);
+      Logger.log("✓ Drive 讀得到:" + file.getName() + "(" + Math.round(file.getSize() / 1024) + " KB, " + file.getMimeType() + ")");
+    } catch (err) {
+      Logger.log("✗ Drive 讀不到 " + id + ":" + err);
+      continue;
+    }
+    var res = UrlFetchApp.fetch(
+      "https://drive.google.com/thumbnail?id=" + encodeURIComponent(id) + "&sz=w900",
+      { headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+    Logger.log("   縮圖 HTTP " + res.getResponseCode() + (res.getResponseCode() === 200 ? "" : "(會改用原檔)"));
+    var url = driveImageDataUrl_(id, 900, "測試");
+    Logger.log(url ? "   → 轉出 " + Math.round(url.length / 1024) + " KB 的圖,這張沒問題 ✓"
+                   : "   → 轉不出來 ✗(上面那行寫了原因)");
+  }
+  Logger.log("─────────────────────────────────────────────");
+  Logger.log("全部 ✓ 的話,重填一次表單照片就會跟著進待認領區了。");
+}
+
+/* 圖片 blob → data URL;超過 Worker 的單張上限就回空字串,讓呼叫端換小一級再試 */
+function blobToDataUrl_(blob) {
+  var b64 = Utilities.base64Encode(blob.getBytes());
+  if (b64.length > 650 * 1024) return "";   // Worker 端單張上限約 700KB base64,留一點餘裕
+  var type = String(blob.getContentType() || "image/jpeg");
+  if (type.indexOf("image/") !== 0) type = "image/jpeg";
+  return "data:" + type + ";base64," + b64;
 }
 
 /* 觸發器不見了(手動刪掉、或表單重建過)時用這個補回來。
