@@ -14,7 +14,12 @@ import { INDEX_FILE, groupFilePath, groupFileName } from "./build-data.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const EXT_BY_MIME = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
-const fileSafeId = id => String(id).replace(/[^A-Za-z0-9_-]/g, "");
+/* 與 admin.js 的 fileSafeId 同一套規則:開頭必須是英數(Worker 的路徑白名單這樣要求)。
+   兩邊都會替同一張照片取檔名,規則不一致的話同一張圖會在兩條路徑下變成兩個檔名。 */
+const fileSafeId = id => {
+  const s = String(id).replace(/[^A-Za-z0-9_-]/g, "");
+  return /^[A-Za-z0-9]/.test(s) ? s : "m" + s;
+};
 
 if(!existsSync(INDEX_FILE)){ console.error("找不到 data/_index.json"); process.exit(1); }
 const index = JSON.parse(readFileSync(INDEX_FILE, "utf8"));

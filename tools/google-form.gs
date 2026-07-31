@@ -90,7 +90,8 @@ function createVisitorForm() {
      「沒有上傳任何檔案」→ 表單那次就沒選圖,重填一次即可,程式沒問題。
      「Drive 讀不到」    → 腳本沒有 Drive 權限。這個函式本身會跳授權,允許後就好了。
                           (加了新權限之後觸發器會暫停,手動執行一次授權完就恢復。)
-     「縮圖 HTTP 404」   → 正常,會自動改用原檔,不必處理。
+     「縮圖拿不到」      → 不必處理,會自動改用原檔;只有原檔也超過 650KB 才會略過。
+     「不是名錄收得下的圖片格式」→ 那個檔不是圖片(例如把 PDF 傳到照片題)。
 
    ⚠ 這份表單有「上傳照片」題,Google 會要求填答者**登入 Google 帳號**才能送出。
      這是 Google 的規定,沒有辦法關掉;不想要就把三個上傳題刪掉。
@@ -344,44 +345,79 @@ function onNewMemberSubmit(e) {
    用 Drive 的縮圖服務指定寬度,而不是原檔——手機照片動輒 3–5MB,原檔送不過去。
    太大就再降一級寬度重試。
 
-   縮圖有兩個實際會踩到的狀況,所以不是「一次拿不到就放棄」:
+   縮圖有三個實際會踩到的狀況,所以不是「一次拿不到就放棄」:
    ① 表單剛上傳完就觸發,Drive 還沒把縮圖產出來,前幾秒問會是 404 —— 等一下再問。
-   ② 有些檔案 Drive 始終不產縮圖 —— 退回用原檔,小張的照片這樣就夠了。
+   ② 縮圖網址有兩種,不是每個環境兩種都通(見 thumbBlob_)—— 兩種都試。
+   ③ 有些檔案 Drive 始終不產縮圖 —— 退回用原檔,小張的照片這樣就夠了。
    全部失敗才回傳空字串(照片沒了,其他資料照樣進待認領區),並在紀錄裡寫清楚卡在哪。 */
 function driveImageDataUrl_(fileId, maxWidth, label) {
   var widths = [maxWidth, 600, 400];
   var tag = (label || "照片") + "(" + fileId + ")";
-  var lastCode = 0;
+  var state = { code: 0, note: "" };
 
   for (var round = 0; round < 3; round++) {
     if (round) Utilities.sleep(2000);   // ① 等 Drive 把縮圖產出來
     var gotThumb = false;
     for (var i = 0; i < widths.length; i++) {
-      try {
-        var res = UrlFetchApp.fetch(
-          "https://drive.google.com/thumbnail?id=" + encodeURIComponent(fileId) + "&sz=w" + widths[i],
-          { headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
-        lastCode = res.getResponseCode();
-        if (lastCode !== 200) continue;
-        gotThumb = true;
-        var out = blobToDataUrl_(res.getBlob());
-        if (out) return out;
-      } catch (err) {
-        Logger.log("⚠ " + tag + " 取縮圖失敗(w" + widths[i] + "):" + err);
-      }
+      var blob = thumbBlob_(fileId, widths[i], state);
+      if (!blob) continue;
+      gotThumb = true;
+      var out = blobToDataUrl_(blob, tag);
+      if (out) return out;
     }
     if (gotThumb) break;   // 縮圖拿得到,只是每一級都太大 —— 再等也不會變小
   }
 
-  try {   // ② 縮圖始終拿不到,改用原檔
-    var out2 = blobToDataUrl_(DriveApp.getFileById(fileId).getBlob());
-    if (out2) { Logger.log("· " + tag + ":改用原檔(Drive 沒有縮圖)"); return out2; }
+  try {   // ③ 縮圖始終拿不到,改用原檔
+    var out2 = blobToDataUrl_(DriveApp.getFileById(fileId).getBlob(), tag);
+    if (out2) { Logger.log("· " + tag + ":改用原檔(拿不到縮圖)"); return out2; }
     Logger.log("⚠ " + tag + ":原檔超過 650KB 又沒有縮圖,這張略過");
   } catch (err2) {
-    Logger.log("⚠ " + tag + ":讀不到檔案(縮圖回 HTTP " + lastCode + ")" + err2 +
+    Logger.log("⚠ " + tag + ":讀不到檔案(縮圖最後回 HTTP " + state.code + ")" + err2 +
+               (state.note ? "\n   " + state.note : "") +
                "\n   多半是這個腳本還沒拿到 Drive 權限 —— 手動執行一次 checkPhotoAccess 重新授權。");
   }
   return "";
+}
+
+/* 指定寬度的縮圖 blob;拿不到回 null,並把最後看到的 HTTP 碼寫進 state 讓上層報告。
+   兩條路都試,因為它們的認證方式不一樣:
+   ① Drive API 的 thumbnailLink —— 官方文件寫的做法。用 OAuth token 問到一個
+      短效的圖片網址,再去抓那個網址。私人檔案要拿縮圖,這條才是正規路徑。
+   ② drive.google.com/thumbnail —— 網頁版在用的網址。它本來是給瀏覽器帶
+      cookie 用的,不保證認 Bearer token,私人檔案很可能怎麼問都是 404;
+      但有些環境走得通,所以留著當備援。 */
+function thumbBlob_(fileId, width, state) {
+  try {
+    var meta = UrlFetchApp.fetch(
+      "https://www.googleapis.com/drive/v3/files/" + encodeURIComponent(fileId) + "?fields=thumbnailLink",
+      { headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+    state.code = meta.getResponseCode();
+    if (state.code === 200) {
+      var link = "";
+      try { link = String(JSON.parse(meta.getContentText()).thumbnailLink || ""); }
+      catch (e) { state.note = "thumbnailLink 解不開:" + e; }
+      if (link) {
+        // 結尾的 =s220 之類是尺寸參數,換成我們要的寬度。只有在最後一個「/」之後
+        // 出現的「=」才是尺寸,不然會把網址本身切壞。
+        var cut = link.lastIndexOf("=");
+        var sized = (cut > link.lastIndexOf("/") ? link.slice(0, cut) : link) + "=w" + width;
+        var img = UrlFetchApp.fetch(sized, { muteHttpExceptions: true });   // 短效網址,不要再帶 token
+        if (img.getResponseCode() === 200) return img.getBlob();
+        state.code = img.getResponseCode();
+      }
+    }
+  } catch (err) { state.note = String(err); }
+
+  try {
+    var res = UrlFetchApp.fetch(
+      "https://drive.google.com/thumbnail?id=" + encodeURIComponent(fileId) + "&sz=w" + width,
+      { headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
+    if (res.getResponseCode() === 200) return res.getBlob();
+    state.code = res.getResponseCode();
+  } catch (err2) { state.note = String(err2); }
+
+  return null;
 }
 
 /* 照片收不到時跑這個(手動執行,不是觸發器)。做兩件事:
@@ -421,10 +457,10 @@ function checkPhotoAccess() {
       Logger.log("✗ Drive 讀不到 " + id + ":" + err);
       continue;
     }
-    var res = UrlFetchApp.fetch(
-      "https://drive.google.com/thumbnail?id=" + encodeURIComponent(id) + "&sz=w900",
-      { headers: { Authorization: "Bearer " + ScriptApp.getOAuthToken() }, muteHttpExceptions: true });
-    Logger.log("   縮圖 HTTP " + res.getResponseCode() + (res.getResponseCode() === 200 ? "" : "(會改用原檔)"));
+    var state = { code: 0, note: "" };
+    var thumb = thumbBlob_(id, 900, state);
+    Logger.log(thumb ? "   縮圖 ✓(" + thumb.getContentType() + ")"
+                     : "   縮圖拿不到(最後回 HTTP " + state.code + (state.note ? "," + state.note : "") + "),會改用原檔");
     var url = driveImageDataUrl_(id, 900, "測試");
     Logger.log(url ? "   → 轉出 " + Math.round(url.length / 1024) + " KB 的圖,這張沒問題 ✓"
                    : "   → 轉不出來 ✗(上面那行寫了原因)");
@@ -433,12 +469,25 @@ function checkPhotoAccess() {
   Logger.log("全部 ✓ 的話,重填一次表單照片就會跟著進待認領區了。");
 }
 
-/* 圖片 blob → data URL;超過 Worker 的單張上限就回空字串,讓呼叫端換小一級再試 */
-function blobToDataUrl_(blob) {
+/* 名錄只收這三種格式(Worker 的 DATA_IMG_RE 也是這樣把關),其餘一律先轉檔 */
+var DATA_URL_TYPES = { "image/jpeg": 1, "image/png": 1, "image/webp": 1 };
+
+/* 圖片 blob → data URL;超過 Worker 的單張上限就回空字串,讓呼叫端換小一級再試。
+   格式不對的先轉成 JPEG —— iPhone 預設拍的是 HEIC,直接送出去會被 Worker
+   當成不合格的照片默默丟掉,人只會看到「照片沒有進來」而查不出原因。
+   真的轉不了(例如把 PDF 傳到照片題)就回空字串,不要硬掰成 image/jpeg:
+   標錯型別送出去照樣過得了驗證,但名錄上會是一張破圖,更難查。 */
+function blobToDataUrl_(blob, tag) {
+  var type = String(blob.getContentType() || "");
+  if (!DATA_URL_TYPES[type]) {
+    try { blob = blob.getAs("image/jpeg"); type = "image/jpeg"; }
+    catch (err) {
+      Logger.log("⚠ " + (tag || "照片") + ":不是名錄收得下的圖片格式(" + (type || "未知") + "),略過");
+      return "";
+    }
+  }
   var b64 = Utilities.base64Encode(blob.getBytes());
   if (b64.length > 650 * 1024) return "";   // Worker 端單張上限約 700KB base64,留一點餘裕
-  var type = String(blob.getContentType() || "image/jpeg");
-  if (type.indexOf("image/") !== 0) type = "image/jpeg";
   return "data:" + type + ";base64," + b64;
 }
 
