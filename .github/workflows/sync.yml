@@ -36,6 +36,7 @@ jobs:
           generate() {
             node tools/extract-inline-photos.mjs
             node tools/build-data.mjs
+            node tools/stamp-data-version.mjs   # 必須在 build-data 之後:要對最終的 data.js 取雜湊
             node tools/build-member-pages.mjs
             node tools/build-roster.mjs
           }
