@@ -1166,7 +1166,9 @@
         showDraftBanner(false);
         hidePermBanner();
         ok = true;
-        toast("已發布！約 1 分鐘後公開網站就會更新 ✔", {duration:6000});
+        // 已經開著名錄的分頁不會自己更新——講清楚,免得以為發布失敗又發一次
+        toast("已發布！約 1～2 分鐘後公開網站就會更新 ✔（已經開著名錄的分頁要重新整理才看得到）",
+              {duration:8000});
       } else if(res.error === "session_expired" || res.httpStatus === 401){
         clearSession();
         toast("登入逾時，請重新輸入密碼再發布一次（草稿都還在，沒有遺失）", {warn:true, duration:6000});
