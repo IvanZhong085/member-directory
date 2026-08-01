@@ -231,29 +231,6 @@
       "id": "g3_m8",
       "dataIssue": false,
       "updatedAt": ""
-    },
-    {
-      "id": "g3_m_ms94j20g1koh",
-      "number": "",
-      "name": "測試",
-      "title": "1123",
-      "services": [
-        "123123"
-      ],
-      "targets": [
-        "1132123"
-      ],
-      "have": [],
-      "want": [],
-      "tagline": [],
-      "image": "",
-      "card": "",
-      "products": [],
-      "company": "123213",
-      "business_items": "123123",
-      "website": "",
-      "dataIssue": true,
-      "updatedAt": "2026-07-31T15:55:18.640Z"
     }
   ],
   "recruiting": [
