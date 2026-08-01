@@ -1069,7 +1069,25 @@
     workerCaps = (res && res.ok && res.caps) || {};
   }
 
-  function fileSafeId(id){ return String(id).replace(/[^A-Za-z0-9_-]/g, ""); }
+  /* 檔名要通得過 Worker 的路徑白名單:開頭必須是英數,其餘只留 [A-Za-z0-9._-]。
+     現在的 id 都是 uid() 產的、開頭一定是英數,但舊資料匯進來的不保證;
+     開頭補一個 m,比整次發布被打回來 bad_file_path 好處理。 */
+  function fileSafeId(id){
+    const s = String(id).replace(/[^A-Za-z0-9_-]/g, "");
+    return /^[A-Za-z0-9]/.test(s) ? s : "m" + s;
+  }
+
+  /* 內嵌照片 → 要寫進 images/ 的實體檔;不是內嵌照片(已經是檔名了)回 null。
+     三種格式都要認:表單收得到 png 與 webp，只認 jpeg 的話那兩種會整串 base64
+     留在分組檔裡，每個訪客載入名錄都要多扛幾百 KB。副檔名跟著實際格式走，
+     存成 .jpg 會讓 GitHub Pages 回錯的 content-type。 */
+  const DATA_IMG_EXT = { jpeg: "jpg", png: "png", webp: "webp" };
+  function embeddedPhoto(value, base){
+    const m = /^data:image\/(jpeg|png|webp);base64,(.+)$/.exec(String(value || ""));
+    if(!m) return null;
+    const b64 = m[2].trim();
+    return b64 ? { name: base + "." + DATA_IMG_EXT[m[1]], b64 } : null;
+  }
 
   /* 組出這次發布要寫的檔案:照片附件 + 「內容真的有變」的分組檔。
      沒改到的組完全不送,才不會在別組組長同時編輯時互相踩到。 */
@@ -1078,22 +1096,13 @@
     const files = [];
     if(workerCaps.files){
       data.forEach(g => g.members.forEach(m => {
-        if(/^data:image\/jpeg;base64,/.test(m.image || "")){
-          const fname = fileSafeId(m.id) + "_x.jpg";
-          const b64 = (m.image.split(",")[1] || "").trim();
-          if(b64){ files.push({ path: "images/" + fname, contentB64: b64 }); m.image = fname; }
-        }
-        if(/^data:image\/jpeg;base64,/.test(m.card || "")){
-          const fname = fileSafeId(m.id) + "_card.jpg";
-          const b64 = (m.card.split(",")[1] || "").trim();
-          if(b64){ files.push({ path: "images/" + fname, contentB64: b64 }); m.card = fname; }
-        }
+        const pic = embeddedPhoto(m.image, fileSafeId(m.id) + "_x");
+        if(pic){ files.push({ path: "images/" + pic.name, contentB64: pic.b64 }); m.image = pic.name; }
+        const card = embeddedPhoto(m.card, fileSafeId(m.id) + "_card");
+        if(card){ files.push({ path: "images/" + card.name, contentB64: card.b64 }); m.card = card.name; }
         (m.products || []).forEach((p, i) => {
-          if(/^data:image\/jpeg;base64,/.test(p || "")){
-            const fname = fileSafeId(m.id) + "_p" + (i + 1) + ".jpg";
-            const b64 = (p.split(",")[1] || "").trim();
-            if(b64){ files.push({ path: "images/" + fname, contentB64: b64 }); m.products[i] = fname; }
-          }
+          const prod = embeddedPhoto(p, fileSafeId(m.id) + "_p" + (i + 1));
+          if(prod){ files.push({ path: "images/" + prod.name, contentB64: prod.b64 }); m.products[i] = prod.name; }
         });
       }));
     }
