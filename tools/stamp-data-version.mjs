@@ -21,6 +21,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
    兩者都不在這裡。新增頁面若要用 GROUPS,記得加進這個清單。 */
 export const PAGES = ["index.html", "groups.html", "spotlight.html", "visitor.html"];
 const SRC_RE = /(<script\s+src=")data\.js(?:\?v=[A-Za-z0-9]+)?(")/g;
+/* 版本戳寫在 index.html 裡,而 index.html 自己也被快取 10 分鐘 —— 光靠戳記,
+   發布後那 10 分鐘內回來的人還是會看到舊資料。所以同一個版本另外寫一份獨立的小檔,
+   data-fresh.js 會用 no-store 問它,對不上就換網址重載。詳見 data-fresh.js。 */
+const VERSION_FILE = "data-version.txt";
 
 export function dataVersion(dataJsText){
   return createHash("sha256").update(dataJsText, "utf8").digest("hex").slice(0, 8);
@@ -44,10 +48,14 @@ for(const page of PAGES){
   if(after !== before){ writeFileSync(path, after); changed++; }
 }
 
+const versionPath = join(ROOT, VERSION_FILE);
+const versionBefore = existsSync(versionPath) ? readFileSync(versionPath, "utf8") : null;
+if(versionBefore !== version + "\n"){ writeFileSync(versionPath, version + "\n"); changed++; }
+
 if(missing.length){
   console.error("✗ 這些頁面沒處理到:" + missing.join("、"));
   process.exit(1);
 }
 console.log(changed
-  ? `data.js 版本戳已更新為 ${version}:改了 ${changed} 個頁面。`
+  ? `data.js 版本戳已更新為 ${version}:改了 ${changed} 個檔案。`
   : `data.js 版本戳未變(${version}),不需重寫。`);
