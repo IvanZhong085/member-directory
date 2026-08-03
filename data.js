@@ -236,35 +236,6 @@ const GROUPS = [
         "id": "g3_m8",
         "dataIssue": false,
         "updatedAt": ""
-      },
-      {
-        "id": "g3_m_ms9z0mhx1p08",
-        "number": "",
-        "name": "鐘文成",
-        "title": "23",
-        "services": [
-          "896869"
-        ],
-        "targets": [
-          "6896"
-        ],
-        "have": [
-          "869"
-        ],
-        "want": [
-          "689"
-        ],
-        "tagline": [
-          "869896"
-        ],
-        "image": "",
-        "card": "",
-        "products": [],
-        "company": "6222",
-        "business_items": "389",
-        "website": "",
-        "dataIssue": true,
-        "updatedAt": "2026-08-01T06:08:46.821Z"
       }
     ],
     "id": "g3",
