@@ -324,10 +324,15 @@ async function handleLogin(request, env){
   if(elapsed < MIN_LOGIN_MS) await sleep(MIN_LOGIN_MS - elapsed);
 
   if(!acc){
-    await recordFail(env, ip, rl.count);
+    /* 記不下這次失敗就不能放行:記不了等於防暴力破解停擺,那時候回 401 會讓人
+       以為只是密碼錯,實際上已經可以無限次猜。明講是伺服器端的問題。 */
+    try{ await recordFail(env, ip, rl.count); }
+    catch(e){ return json(env, { ok:false, error:"rate_limit_unavailable" }, 503); }
     return json(env, { ok:false, error:"wrong_password" }, 401);   // 不區分帳號錯/密碼錯,避免探測帳號
   }
-  await clearFail(env, ip);
+  /* 清掉失敗記錄只是善後,失敗了不該連累一次「密碼正確」的登入 ——
+     那筆記錄本來就有 TTL,自己會過期。這裡吞掉例外是刻意的。 */
+  try{ await clearFail(env, ip); }catch(e){ /* best-effort */ }
   const session = await makeSession(env.SESSION_SECRET, acc);
   return json(env, { ok:true, session, user: acc.name, role: acc.role, group: acc.group,
     expiresInSeconds: SESSION_TTL_SECONDS });
@@ -655,13 +660,19 @@ async function handlePublish(request, env){
 /* 公開的訪客瀏覽計數：不需要密碼、不佔登入錯誤額度。
    scope="site" 累計全站；scope="member"&id=<成員id> 累計單一成員頁，回傳遞增後的數字。
    讀-改-寫非原子（Workers KV 特性），對這種展示用計數可接受；偶爾平行存取可能少算一兩次。
-   ⚠ 與防暴力破解共用同一個 KV，免費方案每日 1000 次寫入為兩者共用上限——一般小站流量綽綽有餘，
-   若站點爆紅可另建一個 KV 命名空間、綁定為 VIEWS，並把下面 kv 換成 env.VIEWS。 */
+
+   ★ 一定要用獨立的 VIEWS 命名空間，沒綁就不計數 ★
+   原本沒綁 VIEWS 時會退回用 RATE_LIMIT —— 也就是防暴力破解那一個。這條路很危險：
+   這個端點是公開的、免密碼、不限流，而且**每一次呼叫都寫一次 KV**；前台每個訪客
+   開名錄就會打一次。免費方案每天 1000 次寫入用完之後，登入那條路的 KV 寫入也會
+   一起失敗，全會（包含總管理員）都登不進後台。任何人用 curl 跑個迴圈就做得到。
+   一個「展示用的計數器」不該和「登入」共用同一個失敗範圍，所以這裡不再退而求其次：
+   沒綁 VIEWS 就回 views_disabled，前端會安靜地不顯示計數（app.js 本來就這樣處理）。 */
 const VIEW_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 async function handleViews(request, env){
-  const kv = env.VIEWS && typeof env.VIEWS.get === "function" ? env.VIEWS : env.RATE_LIMIT;
-  if(!kv || typeof kv.get !== "function"){
-    return json(env, { ok:false, error:"kv_missing" }, 200);   // 前端會安靜地不顯示計數，不讓頁面出錯
+  const kv = env.VIEWS;
+  if(!kv || typeof kv.get !== "function" || typeof kv.put !== "function"){
+    return json(env, { ok:false, error:"views_disabled" }, 200);   // 前端會安靜地不顯示計數，不讓頁面出錯
   }
   let body; try{ body = await request.json(); }catch(e){ body = {}; }
   const scope = body && body.scope;
@@ -705,12 +716,20 @@ export default {
     if(request.method === "OPTIONS") return new Response(null, { status:204, headers: corsHeaders(env) });
     if(request.method !== "POST") return json(env, { ok:false, error:"method_not_allowed" }, 405);
     const { pathname } = new URL(request.url);
-    if(pathname === "/ping") return handlePing(request, env);
-    if(pathname === "/login") return handleLogin(request, env);
-    if(pathname === "/publish") return handlePublish(request, env);
-    if(pathname === "/intake") return handleIntake(request, env);
-    if(pathname === "/health") return handleHealth(request, env);
-    if(pathname === "/views") return handleViews(request, env);
-    return json(env, { ok:false, error:"not_found" }, 404);
+    /* 沒有這層 try/catch 的話,任何一個沒預期到的例外都會變成 Workers 執行階段的裸錯誤:
+       沒有 CORS 標頭 → 瀏覽器只看得到一個網路錯誤 → 編輯頁顯示「連不到發布服務」,
+       於是人去查網址、查有沒有部署,查不到真正的原因。回一個帶 CORS 的 JSON,
+       至少畫面上會出現看得懂的訊息。 */
+    try{
+      if(pathname === "/ping") return await handlePing(request, env);
+      if(pathname === "/login") return await handleLogin(request, env);
+      if(pathname === "/publish") return await handlePublish(request, env);
+      if(pathname === "/intake") return await handleIntake(request, env);
+      if(pathname === "/health") return await handleHealth(request, env);
+      if(pathname === "/views") return await handleViews(request, env);
+      return json(env, { ok:false, error:"not_found" }, 404);
+    }catch(e){
+      return json(env, { ok:false, error:"server_error" }, 500);
+    }
   },
 };
