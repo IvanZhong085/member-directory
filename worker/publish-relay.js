@@ -13,6 +13,11 @@
  *
  * ADMIN_USERS 的格式是一段 JSON，一個帳號一組「帳號":"密碼"」：
  *     {"ivan":"密碼1","amy":"密碼2","shufen":"密碼3"}
+ * 也可以寫成物件，指定角色（三種）：
+ *     "ivan":  "密碼"                                        → 總管理員，全開
+ *     "主席":  {"password":"密碼","role":"owner"}             → 同上，寫清楚而已
+ *     "曾俊凱":{"password":"密碼","role":"leader","group":"A1"} → 組長，只能改 A1 這一組
+ *     "123":  {"password":"密碼","role":"viewer"}             → 唯讀，看得到、匯得出，寫不了
  * 要新增／刪除人或改密碼，就改這一格字串再 Deploy，不必動程式碼。
  * 帳號不分大小寫（Ivan 與 ivan 視為同一人），密碼分大小寫。
  * 相容性：沒有設定 ADMIN_USERS 時，仍會沿用舊的單一 ADMIN_PASSWORD，此時帳號固定為 admin。
@@ -49,10 +54,20 @@ const PENDING_PATH = "data/_pending.json";
 /* 這個 session 可不可以寫這個路徑。
    總管理員:data/ 底下都可以。
    組長:只有 data/<自己分組代號>.json——連 _index.json(分會結構)都不行。
-   回傳 true/false;非 data/ 開頭的附件(images、m)不經過這裡,由 FILE_PATH_RE 管。 */
+   唯讀帳號:一律不行。
+   回傳 true/false;非 data/ 開頭的附件(images、m)不經過這裡,由 FILE_PATH_RE 管
+   ——所以唯讀帳號還有 handlePublish 開頭那道總開關擋著,不能只靠這裡。 */
+/* session 的角色。有兩個地方要判 viewer(這裡與 handlePublish 的總開關),
+   各自寫一次字串比對遲早會漂移 —— 一邊改了另一邊沒跟上就是靜默破洞,
+   所以只留這一個來源。 */
+function sessionRole(sess){ return (sess && sess.r) || "owner"; }
+function isViewerSession(sess){ return sessionRole(sess) === "viewer"; }
+
 function canWriteDataFile(sess, path){
   if(!DATA_PATH_RE.test(path)) return false;
-  if(!sess || sess.r !== "leader") return true;              // owner
+  const role = sessionRole(sess);
+  if(role === "viewer") return false;                        // 唯讀:連自己的組都沒有
+  if(role !== "leader") return true;                         // owner
   const group = String(sess.g || "").trim().toLowerCase();
   if(!group) return false;
   // 待認領區:組長認領新人時要把那筆從清單裡移掉,所以必須能寫。
@@ -136,17 +151,31 @@ async function verifySession(token, secret){
 const USERNAME_RE = /^[^\s\u0000-\u001f\u007f]{1,32}$/;   // 不含空白與控制字元,長度 1–32
 const GROUPCODE_RE = /^[A-Za-z0-9]{1,8}$/;
 
-/* 一筆帳號設定 → {password, role, group}。role 只認 "leader",其餘一律視為 owner;
-   組長沒綁合法分組代號就回傳 null(設定錯誤的帳號不生效,不會變成隱形的總管理員)。 */
+/* 一筆帳號設定 → {password, role, group}。認得三種角色:
+     owner   全開(role 留空或寫 owner,以及舊格式的純字串密碼)
+     leader  綁定一個分組,只能改那一組
+     viewer  唯讀:登得進後台、看得到資料、能匯出,但什麼都寫不了
+
+   ★ 白名單,不是黑名單 ★
+   原本寫的是「不是 leader 就當 owner」。那在只有兩種角色時沒問題,加了 viewer
+   之後就變成一個安靜的陷阱:role 打成 "Viewer"、"viewer "、"read-only",
+   全都會掉進 else 變成**總管理員**,而且部署的人不會看到任何錯誤。
+   所以改成:認得的才給,不認得的整筆不生效(跟 leader 沒綁好分組同樣處理)。
+   大小寫與前後空白先抹平,免得為了一個空格debug半天。 */
 function normalizeAccount(val){
   if(typeof val === "string") return val ? { password: val, role: "owner", group: "" } : null;
   if(!val || typeof val !== "object" || Array.isArray(val)) return null;
   const password = typeof val.password === "string" ? val.password : "";
   if(!password) return null;                       // 空密碼的帳號一律不生效
-  if(val.role !== "leader") return { password, role: "owner", group: "" };
-  const group = typeof val.group === "string" ? val.group.trim() : "";
-  if(!GROUPCODE_RE.test(group)) return null;
-  return { password, role: "leader", group };
+  const role = String(val.role == null ? "" : val.role).trim().toLowerCase();
+  if(role === "" || role === "owner") return { password, role: "owner", group: "" };
+  if(role === "viewer") return { password, role: "viewer", group: "" };
+  if(role === "leader"){
+    const group = typeof val.group === "string" ? val.group.trim() : "";
+    if(!GROUPCODE_RE.test(group)) return null;
+    return { password, role: "leader", group };
+  }
+  return null;                                     // 不認得的角色:寧可登不進來,也不要變成總管理員
 }
 function loadUsers(env){
   const users = new Map();
@@ -312,11 +341,14 @@ async function ghHeaders(env){
     "X-GitHub-Api-Version": "2022-11-28",
   };
 }
-/* 讓管理員在設定 Worker 後可以自我檢查：密碼登入成功、且 GitHub 權杖確實可寫入 */
+/* 讓管理員在設定 Worker 後可以自我檢查：密碼登入成功、且 GitHub 權杖確實可寫入。
+   唯讀帳號問不到 —— 它本來就發不了,知道權杖能不能寫也沒有用,
+   而這個答案透露的是伺服器的設定狀態,沒必要給不需要的人。 */
 async function handleHealth(request, env){
   let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
   const sess = await verifySession(body && body.session, env.SESSION_SECRET);
   if(!sess) return json(env, { ok:false, error:"session_expired" }, 401);
+  if(isViewerSession(sess)) return json(env, { ok:false, error:"read_only" }, 403);
   try{
     const r = await fetchWithTimeout(`https://api.github.com/repos/${encodeURIComponent(env.GH_OWNER)}/${encodeURIComponent(env.GH_REPO)}`, { headers: await ghHeaders(env) }, GITHUB_TIMEOUT_MS);
     if(r.status === 401 || r.status === 403) return json(env, { ok:true, github:"invalid_token" });
@@ -529,6 +561,13 @@ async function handlePublish(request, env){
   const { session, content, files } = body || {};
   const sess = await verifySession(session, env.SESSION_SECRET);
   if(!sess) return json(env, { ok:false, error:"session_expired" }, 401);
+
+  /* ★ 唯讀帳號的總開關 ★
+     擋在最前面,連一個位元組都不看。這道很重要:下面的逐檔權限檢查只管 data/ 開頭的,
+     images/ 是走 FILE_PATH_RE 那條、不經過 canWriteDataFile —— 只擋 data/ 的話,
+     唯讀帳號仍然可以往 repo 塞圖片。前端把按鈕藏起來不算數,真正的界線在這一行。 */
+  if(isViewerSession(sess)) return json(env, { ok:false, error:"read_only" }, 403);
+
   // 誰發布的:記進 commit 訊息。帳號在登入時已過 USERNAME_RE(無空白/控制字元)且長度受限,
   // 這裡再截一次長度,確保任何情況下都不會把奇怪的東西寫進 git 歷史。
   const who = String(sess.u || "").slice(0, 32);

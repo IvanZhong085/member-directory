@@ -143,7 +143,10 @@
      只記其中一邊會讓「復原」把成員收回去、卻沒把申請放回待認領區。 */
   const snapshot = () => ({ data: clone(DATA), pending: clone(PENDING) });
   const restore = s => { DATA = s.data; PENDING = s.pending || []; };
+  /* 這三個是所有結構性變更的共同前置與回溯點,唯讀帳號一律不動。
+     擋在函式本體而不是按鈕上 —— Ctrl+Z / Ctrl+Y 不經過按鈕。 */
   function pushUndo(){
+    if(isViewer()) return;
     undoStack.push(snapshot());
     if(undoStack.length > HISTORY_LIMIT) undoStack.shift();
     redoStack = [];
@@ -156,14 +159,14 @@
     if(!groups.some(g => g.id === selected)) selected = groups.length ? groups[0].id : null;
   }
   function undo(){
-    if(!undoStack.length) return;
+    if(isViewer() || !undoStack.length) return;
     redoStack.push(snapshot());
     restore(undoStack.pop());
     fixSelected(); renderAll(); validate(); saveDraft(); updateHistoryButtons();
     toast("已回上一步");
   }
   function redo(){
-    if(!redoStack.length) return;
+    if(isViewer() || !redoStack.length) return;
     undoStack.push(snapshot());
     restore(redoStack.pop());
     fixSelected(); renderAll(); validate(); saveDraft(); updateHistoryButtons();
@@ -172,7 +175,11 @@
 
   /* ---------- draft persistence ---------- */
   function showDraftBanner(on){ draftBanner.classList.toggle("show", !!on); }
+  /* 唯讀帳號不留草稿。除了「本來就沒東西可存」之外還有一個實際理由:草稿的鍵對
+     非組長一律是 "all",同一台電腦上唯讀帳號與總管理員會共用同一份 —— 唯讀帳號
+     會載到別人還沒發布的內容,自己的暫存也會反過來污染對方。 */
   function saveDraft(){
+    if(isViewer()) return;
     try{
       localStorage.setItem(draftKey(), JSON.stringify({ savedAt: Date.now(), data: DATA, pending: PENDING }));
       saveState.textContent = "已自動儲存 " + new Date().toLocaleTimeString("zh-Hant",{hour:"2-digit",minute:"2-digit"});
@@ -192,6 +199,7 @@
 
   // Silently continue from any saved draft (no scary modal); a banner shows there are unpublished changes.
   function tryLoadDraft(){
+    if(isViewer()) return;   // 唯讀帳號一律看線上的真實資料,不吃任何草稿(見 saveDraft)
     let raw; try{ raw = localStorage.getItem(draftKey()); }catch(e){ return; }
     if(!raw) return;
     let parsed; try{ parsed = JSON.parse(raw); }catch(e){ return; }
@@ -389,7 +397,7 @@
         <span class="gitem-name">${esc(g.name||"（未命名）")}</span>
         <span class="gitem-count">${g.members.length}</span>
       </div>`).join("") +
-      (isLeader() ? "" : `<button class="gadd-tile" id="gadd-tile" type="button">＋ 新增分組</button>`);
+      (isLeader() || isViewer() ? "" : `<button class="gadd-tile" id="gadd-tile" type="button">＋ 新增分組</button>`);
     glist.querySelectorAll(".gitem").forEach(el => {
       el.addEventListener("click", () => {
         selected = el.dataset.gid; renderAll();
@@ -412,7 +420,11 @@
       return;
     }
     if(!canEditGroup(g)){   // 保險:選到不該編輯的組就不渲染表單
-      main.innerHTML = `<div class="adm-card">你沒有編輯「${esc(g.code)}・${esc(g.name)}」的權限。</div>`;
+      main.innerHTML = isViewer()
+        ? `<div class="adm-card"><b>${esc(g.code)}・${esc(g.name)}</b>　${g.members.length} 位成員<br>
+             <span class="hint">這是唯讀帳號，不能修改資料。匯出 CSV、缺資料清單、
+             聚光燈產生器與產業小組表都可以照常使用。</span></div>`
+        : `<div class="adm-card">你沒有編輯「${esc(g.code)}・${esc(g.name)}」的權限。</div>`;
       return;
     }
     const gi = DATA.indexOf(g);
@@ -666,12 +678,14 @@
 
   /* ---------- mutations（每個結構性動作先 pushUndo() 記錄一步） ---------- */
   function moveGroup(i, dir){
+    if(isViewer() || isLeader()) return;   // 同 addGroup:排序也是分會結構
     const j = i + dir; if(j<0||j>=DATA.length) return;
     pushUndo();
     [DATA[i], DATA[j]] = [DATA[j], DATA[i]];
     renderAll(); scheduleSave();
   }
   function addGroup(){
+    if(isViewer() || isLeader()) return;   // 分會結構只有總管理員能動;函式本體也擋一道,不只靠隱藏按鈕
     pushUndo();
     const g = { id: uid("g"), code:"新", name:"新分組", leader:"", room:"", members:[] };
     // 預設代號是中文的「新」,發布一定會被擋——立刻跑一次檢查表把話講在前面
@@ -876,12 +890,16 @@
     try{ sessionStorage.setItem(SESSION_KEY, JSON.stringify(memSession)); }catch(e){}
     showWho();
   }
-  /* ⚠️ 這裡的角色判斷只用來「隱藏介面」,不是真的權限:發布時整份 data.js 仍照送,
-     會開發者工具的人可以繞過(Worker 端目前不做範圍檢查,見 worker/publish-relay.js)。
-     它擋的是誤觸,不是惡意。 */
+  /* ⚠️ 這裡的角色判斷只用來「隱藏介面」,不是真的權限。真正的界線在 Worker:
+     組長送別組的檔案會被 canWriteDataFile 擋下,唯讀帳號的發布在 handlePublish
+     開頭就被回 read_only。這一層擋的是誤觸,不是惡意——會開發者工具的人繞得過。 */
   function myRole(){ const s = currentSession(); return (s && s.role) || "owner"; }
   function myGroupCode(){ const s = currentSession(); return (s && s.group) || ""; }
   function isLeader(){ return myRole() === "leader"; }
+  /* 唯讀帳號:看得到全會資料、能匯出,但改不了也發不了。
+     注意下面幾個判斷式原本都是「不是組長就當成全開」——多一種角色之後那樣寫會直接
+     把唯讀帳號當成總管理員,所以要問的是 isViewer(),不是 !isLeader()。 */
+  function isViewer(){ return myRole() === "viewer"; }
   /* 組長綁定的那一組(找不到回 null:代號被改過或設定錯誤) */
   function myGroup(){
     const code = myGroupCode().trim().toLowerCase();
@@ -894,7 +912,9 @@
     const g = myGroup();
     return g ? [g] : [];
   }
-  function canEditGroup(g){ return !isLeader() || (g && myGroup() === g); }
+  /* 唯讀帳號一律 false —— 這一句就讓 renderMain 不渲染編輯表單,
+     連帶把表單裡所有的輸入、快速新增、裁切、刪除都變成到不了的路徑。 */
+  function canEditGroup(g){ return !isViewer() && (!isLeader() || (g && myGroup() === g)); }
   function clearSession(){
     memSession = null;
     try{ sessionStorage.removeItem(SESSION_KEY); }catch(e){}
@@ -908,19 +928,29 @@
     if(s && s.user){
       const g = s.role === "leader" ? myGroup() : null;
       el.textContent = "👤 " + s.user +
-        (s.role === "leader" ? "・" + (g ? g.code + " " + g.name : s.group + "（找不到此組）") + " 組長" : "・總管理員");
+        (s.role === "leader" ? "・" + (g ? g.code + " " + g.name : s.group + "（找不到此組）") + " 組長"
+         : s.role === "viewer" ? "・唯讀"
+         : "・總管理員");
       el.hidden = false;
     } else { el.textContent = ""; el.hidden = true; }
   }
-  /* 依角色決定介面:組長只看到自己那組,全域功能一律隱藏 */
+  /* 依角色決定介面:組長只看到自己那組,全域功能一律隱藏;
+     唯讀帳號再把所有會改資料的鈕收起來,只留匯出與查看。 */
   function applyRoleUI(){
-    const leader = isLeader();
+    const leader = isLeader(), viewer = isViewer();
     const hide = (id, on) => { const el = byId(id); if(el) el.hidden = !!on; };
-    ["btn-settings", "btn-add-group"].forEach(id => hide(id, leader));
+    ["btn-settings", "btn-add-group"].forEach(id => hide(id, leader || viewer));
+    // 復原/重做/儲存草稿/發布:唯讀帳號按了也沒有意義,收起來免得以為壞了
+    ["btn-undo", "btn-redo", "btn-save", "btn-publish"].forEach(id => hide(id, viewer));
     // 儀表板的說明字由 renderDash 統一決定（renderAll 會在此之後才呼叫它）
   }
 
   async function workerFetch(path, payload, urlOverride){
+    /* 唯讀帳號連一次發布請求都不該送出去。擋在這裡而不是各個按鈕上,是因為發布有
+       兩個入口(工具列的「發布到網站」與離開提醒視窗裡的那顆),而這裡是所有對外
+       請求的唯一出口 —— 以後再多幾個入口也不會漏。
+       Worker 端本來就會回 read_only,這一層只是不要白跑一趟。 */
+    if(path === "/publish" && isViewer()) return { ok:false, error:"read_only" };
     const url = urlOverride || loadWorkerUrl();
     if(!url) return { ok:false, error:"no_worker_url" };
     try{
@@ -985,7 +1015,9 @@
       hideLock();
       hidePermBanner();
       await bootData();                          // 角色決定載入哪幾組,登入後才取資料
-      toast(isLeader() ? "已進入編輯模式（只會顯示你負責的分組）" : "已進入編輯模式");
+      toast(isLeader() ? "已進入編輯模式（只會顯示你負責的分組）"
+            : isViewer() ? "已登入（唯讀帳號：可以查看與匯出，不能修改）"
+            : "已進入編輯模式");
       checkHealth(res.session);   // 登入後順便確認伺服器上的 GitHub 權杖還能不能寫入
     } else if(res.error === "too_many_attempts"){
       byId("lock-error").hidden = false;
@@ -1033,6 +1065,9 @@
   }
   function closeSettings(){ byId("settings-modal").hidden = true; }
   function saveSettings(){
+    /* 改 Worker 網址等於改發布目標。設定視窗有兩個入口(工具列的鈕、鎖定畫面上的
+       「連線設定」),後者在還沒登入時就點得到、判不了角色,所以閘門放在這裡。 */
+    if(isViewer()){ toast("唯讀帳號不能修改連線設定", { warn:true }); return; }
     const url = byId("s-worker-url").value.trim().replace(/\/+$/, "");
     if(url && !/^https:\/\//.test(url)){ toast("網址需以 https:// 開頭", {warn:true}); return; }
     const changed = url !== loadWorkerUrl();
@@ -1128,6 +1163,12 @@
   let publishing = false;
   async function publish(){
     if(publishing) return false;
+    /* 唯讀帳號:這裡先擋下來,只是為了給一句看得懂的話。
+       就算把這幾行刪掉,Worker 也會回 read_only —— 權限不是靠這裡守的。 */
+    if(isViewer()){
+      toast("唯讀帳號不能發布。你可以查看與匯出，要修改請找有編輯權限的夥伴。", { warn:true, duration:6000 });
+      return false;
+    }
     let session = loadSession();
     if(!session){
       showLock();
@@ -1178,6 +1219,10 @@
         // 已經開著名錄的分頁不會自己更新——講清楚,免得以為發布失敗又發一次
         toast("已發布！約 1～2 分鐘後公開網站就會更新 ✔（已經開著名錄的分頁要重新整理才看得到）",
               {duration:8000});
+      } else if(res.error === "read_only"){
+        // 唯讀帳號。前端本來就擋著,會走到這裡代表 session 是別的分頁登的、或有人繞過介面
+        toast("這是唯讀帳號，伺服器拒絕了這次發布。要修改請用有編輯權限的帳號登入。",
+              {warn:true, duration:7000});
       } else if(res.error === "session_expired" || res.httpStatus === 401){
         clearSession();
         toast("登入逾時，請重新輸入密碼再發布一次（草稿都還在，沒有遺失）", {warn:true, duration:6000});
@@ -1302,7 +1347,8 @@
     const sub = byId("dash-sub");
     if(sub){
       const g = isLeader() ? myGroup() : null;
-      sub.textContent = !isLeader() ? "資料一修改,數字立即更新;發布後全站同步"
+      sub.textContent = isViewer() ? "唯讀帳號:看得到全會資料,也可以匯出,但不能修改"
+        : !isLeader() ? "資料一修改,數字立即更新;發布後全站同步"
         : g ? "你是「" + g.code + "・" + g.name + "」的組長,以下統計只算本組"
             : "找不到你被指派的分組,請聯繫總管理員";
     }
@@ -1348,6 +1394,8 @@
   function renderPending(){
     const wrap = byId("pending-wrap"), list = byId("pending-list"), sub = byId("pending-sub");
     if(!wrap || !list) return;
+    // 認領＝在某一組建一張成員卡,是編輯行為。唯讀帳號整塊不顯示。
+    if(isViewer()){ wrap.hidden = true; list.innerHTML = ""; return; }
     if(!PENDING.length){ wrap.hidden = true; list.innerHTML = ""; return; }
     wrap.hidden = false;
     if(sub) sub.textContent = PENDING.length + " 位等待認領";
@@ -1434,6 +1482,7 @@
           "請確認資料後按「發布到網站」。已先標記為「資料需確認」。", { duration: 8000 });
   }
   function dropPending(pid){
+    if(isViewer()) return;   // 刪申請是破壞性的,而且這個函式原本一道角色檢查都沒有
     const a = PENDING.find(x => x.pid === pid);
     if(!a) return;
     if(!confirm("刪除「" + (a.name || "這筆申請") + "」的申請？\n\n這筆資料會從待認領區移除，發布後就找不回來了。")) return;
