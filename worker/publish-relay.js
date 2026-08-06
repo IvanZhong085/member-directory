@@ -235,14 +235,19 @@ function b64ToBytes(b64){
 }
 /* 現行檔案內容的 SHA-256。讀不到(檔案不存在、網路問題)回傳 null＝跳過比對:
    寧可放行,也不要因為一次讀取失敗就擋住所有人發布。 */
-async function currentFileHash(env, headers, path){
+/* 現行版本:內容的 SHA-256(拿來跟草稿的來源版本比對)+ GitHub 的 blob sha
+   (寫入時要原封不動帶回去,那是 GitHub contents API 的樂觀鎖)。
+   兩個值必須來自**同一次讀取** —— 分開讀就等於在檢查與寫入之間開了一個窗口。
+   讀不到(檔案不存在、網路問題)回 null;檔案不存在時回 { hash:null, sha:null }。 */
+async function currentFileState(env, headers, path){
   try{
     const url = contentsUrlFor(env, path) + "?ref=" + encodeURIComponent(env.GH_BRANCH || "main");
     const r = await fetchWithTimeout(url, { headers }, GITHUB_TIMEOUT_MS);
+    if(r.status === 404) return { hash:null, sha:null };   // 還沒有這個檔,不是錯誤
     if(!r.ok) return null;
     const d = await r.json();
     if(!d || typeof d.content !== "string") return null;
-    return await sha256Hex(b64ToBytes(d.content));
+    return { hash: await sha256Hex(b64ToBytes(d.content)), sha: typeof d.sha === "string" ? d.sha : null };
   }catch(e){ return null; }
 }
 
@@ -371,17 +376,27 @@ function contentsUrlFor(env, path){
 }
 
 /* 讀 sha（存在才需要）→ PUT 寫入一個檔案。回傳 {ok} 或 {ok:false, error, status} */
-async function ghPutFile(env, headers, path, contentB64, message){
+/* pinnedSha:版本檢查那一刻讀到的 blob sha。傳了就直接用,**不再重讀**。
+
+   為什麼重讀是錯的:GitHub contents API 靠 sha 做樂觀鎖 —— 帶著「我看到的版本」
+   去寫,別人先寫過就回 409。原本在 PUT 前一刻才去取最新 sha,等於每次都主動把這道
+   鎖解掉:兩個人從同一版本開始編輯,檢查都過、寫入一前一後,兩邊都收到「已發布!」,
+   先寫那位的修改被無聲蓋掉。中間只要隔著幾張照片的上傳時間(認領新夥伴必帶照片),
+   這個窗口就是好幾秒。
+   沒傳 pinnedSha(images/ 這種沒有版本語意的附件)才沿用舊行為自己讀。 */
+async function ghPutFile(env, headers, path, contentB64, message, pinnedSha){
   const url = contentsUrlFor(env, path);
   const branch = env.GH_BRANCH || "main";
-  let sha;
-  try{
-    const getRes = await fetchWithTimeout(url + "?ref=" + encodeURIComponent(branch), { headers }, GITHUB_TIMEOUT_MS);
-    if(getRes.ok){ sha = (await getRes.json()).sha; }
-    else if(getRes.status === 401 || getRes.status === 403){ return { ok:false, error:"token_forbidden" }; }
-    else if(getRes.status !== 404){ return { ok:false, error:"github_read_failed", status:getRes.status }; }
-  }catch(e){
-    return { ok:false, error: e && e.name === "AbortError" ? "github_timeout" : "github_unreachable" };
+  let sha = pinnedSha === undefined ? undefined : (pinnedSha || undefined);
+  if(pinnedSha === undefined){
+    try{
+      const getRes = await fetchWithTimeout(url + "?ref=" + encodeURIComponent(branch), { headers }, GITHUB_TIMEOUT_MS);
+      if(getRes.ok){ sha = (await getRes.json()).sha; }
+      else if(getRes.status === 401 || getRes.status === 403){ return { ok:false, error:"token_forbidden" }; }
+      else if(getRes.status !== 404){ return { ok:false, error:"github_read_failed", status:getRes.status }; }
+    }catch(e){
+      return { ok:false, error: e && e.name === "AbortError" ? "github_timeout" : "github_unreachable" };
+    }
   }
   const putBody = { message, content: contentB64, branch };
   if(sha) putBody.sha = sha;
@@ -389,7 +404,10 @@ async function ghPutFile(env, headers, path, contentB64, message){
     const putRes = await fetchWithTimeout(url, { method:"PUT", headers: Object.assign({}, headers, {"Content-Type":"application/json"}), body: JSON.stringify(putBody) }, GITHUB_TIMEOUT_MS);
     if(!putRes.ok){
       const status = putRes.status;
-      const error = (status === 401 || status === 403) ? "token_forbidden" : (status === 409 ? "conflict" : "github_write_failed");
+      // 409 = 我們帶去的 sha 已經不是最新的 → 別人在這中間寫過了,就是版本落後
+      const error = (status === 401 || status === 403) ? "token_forbidden"
+                  : (status === 409 || status === 422) ? "stale_base"
+                  : "github_write_failed";
       return { ok:false, error, status };
     }
     return { ok:true };
@@ -429,9 +447,18 @@ function checkDataFileBody(path, text){
   }
   if(path === "data/_index.json"){
     if(!Array.isArray(doc)) return "index_not_array";
+    /* 代號重複要擋在這裡。分組檔的檔名就是代號小寫(data/<code>.json),
+       兩組同代號 = 兩組共用同一個檔:發布時後寫的整份蓋掉先寫的,前台兩組顯示
+       同一批人,被撞掉那組的成員直接從網站上消失。只要總管理員在代號欄打錯一次
+       就會發生,而且是靜默的 —— 沒有錯誤、沒有警告,要靠 git 歷史才救得回來。 */
+    const seen = new Set();
     for(const e of doc){
       if(!e || typeof e !== "object" || Array.isArray(e)) return "index_entry_not_object";
       if(!GROUPCODE_RE.test(typeof e.code === "string" ? e.code : "")) return "bad_group_code";
+      if(typeof e.name !== "string" || typeof e.id !== "string") return "bad_index_field";
+      const key = e.code.toLowerCase();          // 檔名是小寫,A1 與 a1 是同一個檔
+      if(seen.has(key)) return "dup_group_code:" + e.code;
+      seen.add(key);
     }
     return null;
   }
@@ -620,16 +647,19 @@ async function handlePublish(request, env){
   /* 版本落後偵測(逐檔):baseHashes 是 {路徑: 這份草稿的來源版本雜湊}。
      只要有一個分組檔在編輯期間被別人改過就整批擋下,不做部分寫入——
      寧可要求重來,也不要留下一半新一半舊的狀態。
-     讀不到現行檔案(不存在、網路問題)就跳過該檔的比對,見 currentFileHash。 */
+     讀不到現行檔案(網路問題)就跳過該檔的比對,見 currentFileState。
+     檢查與寫入用的是**同一次讀取**的 blob sha(pinned),中間別人寫過就會在 PUT 時被 GitHub 擋下。 */
   const baseHashes = (body && typeof body.baseHashes === "object" && body.baseHashes) || {};
+  const pinned = {};              // 路徑 → 檢查那一刻的 blob sha,等一下原封不動帶去寫
   for(const f of fileList){
     if(!f.path.startsWith("data/")) continue;
+    const st = await currentFileState(env, headers, f.path);
+    if(!st) continue;             // 讀不到(網路問題):維持原本的寬鬆,不因一次抖動卡住所有人
     const want = baseHashes[f.path];
-    if(typeof want !== "string" || !want) continue;
-    const cur = await currentFileHash(env, headers, f.path);
-    if(cur && cur !== want){
-      return json(env, { ok:false, error:"stale_base", path:f.path, currentHash: cur }, 409);
+    if(typeof want === "string" && want && st.hash && st.hash !== want){
+      return json(env, { ok:false, error:"stale_base", path:f.path, currentHash: st.hash }, 409);
     }
+    pinned[f.path] = st.sha;      // null = 這個檔還不存在,寫入時不帶 sha
   }
 
   /* 先寫照片等附件、最後寫分組資料檔:任何一步失敗就中止,
@@ -648,7 +678,11 @@ async function handlePublish(request, env){
     const label = f.path === "data/_index.json" ? "分會結構"
                 : f.path === PENDING_PATH ? "待認領區"
                 : f.path.replace(/^data\/|\.json$/g, "").toUpperCase() + " 組";
-    const r = await ghPutFile(env, headers, f.path, f.contentB64, "更新會員名錄・" + label + by);
+    /* 帶上檢查那一刻的 sha。別人在這中間寫過的話,GitHub 會回 409 → stale_base,
+       使用者看到的是「有人在你編輯期間發布過」,而不是一句假的「已發布!」。
+       這個檔沒被檢查過(pinned 裡沒有)就傳 undefined,沿用舊行為。 */
+    const r = await ghPutFile(env, headers, f.path, f.contentB64, "更新會員名錄・" + label + by,
+                              Object.prototype.hasOwnProperty.call(pinned, f.path) ? pinned[f.path] : undefined);
     if(!r.ok) return json(env, { ok:false, error:r.error, path:f.path, filesWritten:written, status:r.status }, 502);
     // 回傳新版本雜湊,編輯頁接著用它當新的 baseHash,不必重新整理就能再次發布
     newHashes[f.path] = await sha256Hex(b64ToBytes(f.contentB64));
@@ -715,6 +749,21 @@ export default {
     }
     if(request.method === "OPTIONS") return new Response(null, { status:204, headers: corsHeaders(env) });
     if(request.method !== "POST") return json(env, { ok:false, error:"method_not_allowed" }, 405);
+
+    /* ALLOWED_ORIGIN 原本只被寫進「回應」的 CORS 標頭 —— 那只能阻止瀏覽器**讀取回應**,
+       擋不住請求送達。simple request(Content-Type: text/plain)連預檢都不會發,
+       所以任何網站都能拿訪客的瀏覽器連打 /login:五次錯誤之後,那位訪客的 IP 就被鎖
+       15 分鐘。共用同一條對外 IP 的辦公室裡,這代表整間公司都登不進後台。
+
+       這裡擋的正是這條路:**有帶 Origin 就必須相符**。只有瀏覽器會自動帶 Origin,
+       而這個攻擊的前提就是借用別人的瀏覽器。沒帶 Origin 的請求(curl、伺服器對伺服器)
+       維持放行 —— 那種攻擊者用的是自己的 IP,鎖到的也只有自己,而 Apps Script 送來的
+       /intake 本來就沒有 Origin,擋掉會把新夥伴表單一起弄壞。 */
+    const origin = request.headers.get("Origin");
+    if(origin && origin !== env.ALLOWED_ORIGIN){
+      return json(env, { ok:false, error:"bad_origin" }, 403);
+    }
+
     const { pathname } = new URL(request.url);
     /* 沒有這層 try/catch 的話,任何一個沒預期到的例外都會變成 Workers 執行階段的裸錯誤:
        沒有 CORS 標頭 → 瀏覽器只看得到一個網路錯誤 → 編輯頁顯示「連不到發布服務」,

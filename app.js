@@ -378,8 +378,8 @@
             <div class="info-text">${esc(m.company) || "資料尚未提供，補充後將顯示於此。"}</div>
             ${/^https?:\/\//.test(m.website || "") ? `<a class="website-link" href="${esc(m.website)}" target="_blank" rel="noopener nofollow">${I.link} 公司網站 ↗</a>` : ""}
           </div>
-          <div class="info-card placeholder">
-            <div class="info-head"><span class="info-icon">${I.tags}</span><span class="info-label">主要營業項目</span><span class="pending-chip">待補充</span></div>
+          <div class="info-card ${m.business_items ? "" : "placeholder"}">
+            <div class="info-head"><span class="info-icon">${I.tags}</span><span class="info-label">主要營業項目</span>${m.business_items ? "" : '<span class="pending-chip">待補充</span>'}</div>
             <div class="info-text">${esc(m.business_items) || "資料尚未提供，補充後將顯示於此。"}</div>
           </div>
         </div>
