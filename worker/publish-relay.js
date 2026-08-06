@@ -13,6 +13,11 @@
  *
  * ADMIN_USERS 的格式是一段 JSON，一個帳號一組「帳號":"密碼"」：
  *     {"ivan":"密碼1","amy":"密碼2","shufen":"密碼3"}
+ * 也可以寫成物件，指定角色（三種）：
+ *     "ivan":  "密碼"                                        → 總管理員，全開
+ *     "主席":  {"password":"密碼","role":"owner"}             → 同上，寫清楚而已
+ *     "曾俊凱":{"password":"密碼","role":"leader","group":"A1"} → 組長，只能改 A1 這一組
+ *     "123":  {"password":"密碼","role":"viewer"}             → 唯讀，看得到、匯得出，寫不了
  * 要新增／刪除人或改密碼，就改這一格字串再 Deploy，不必動程式碼。
  * 帳號不分大小寫（Ivan 與 ivan 視為同一人），密碼分大小寫。
  * 相容性：沒有設定 ADMIN_USERS 時，仍會沿用舊的單一 ADMIN_PASSWORD，此時帳號固定為 admin。
@@ -49,10 +54,20 @@ const PENDING_PATH = "data/_pending.json";
 /* 這個 session 可不可以寫這個路徑。
    總管理員:data/ 底下都可以。
    組長:只有 data/<自己分組代號>.json——連 _index.json(分會結構)都不行。
-   回傳 true/false;非 data/ 開頭的附件(images、m)不經過這裡,由 FILE_PATH_RE 管。 */
+   唯讀帳號:一律不行。
+   回傳 true/false;非 data/ 開頭的附件(images、m)不經過這裡,由 FILE_PATH_RE 管
+   ——所以唯讀帳號還有 handlePublish 開頭那道總開關擋著,不能只靠這裡。 */
+/* session 的角色。有兩個地方要判 viewer(這裡與 handlePublish 的總開關),
+   各自寫一次字串比對遲早會漂移 —— 一邊改了另一邊沒跟上就是靜默破洞,
+   所以只留這一個來源。 */
+function sessionRole(sess){ return (sess && sess.r) || "owner"; }
+function isViewerSession(sess){ return sessionRole(sess) === "viewer"; }
+
 function canWriteDataFile(sess, path){
   if(!DATA_PATH_RE.test(path)) return false;
-  if(!sess || sess.r !== "leader") return true;              // owner
+  const role = sessionRole(sess);
+  if(role === "viewer") return false;                        // 唯讀:連自己的組都沒有
+  if(role !== "leader") return true;                         // owner
   const group = String(sess.g || "").trim().toLowerCase();
   if(!group) return false;
   // 待認領區:組長認領新人時要把那筆從清單裡移掉,所以必須能寫。
@@ -136,17 +151,31 @@ async function verifySession(token, secret){
 const USERNAME_RE = /^[^\s\u0000-\u001f\u007f]{1,32}$/;   // 不含空白與控制字元,長度 1–32
 const GROUPCODE_RE = /^[A-Za-z0-9]{1,8}$/;
 
-/* 一筆帳號設定 → {password, role, group}。role 只認 "leader",其餘一律視為 owner;
-   組長沒綁合法分組代號就回傳 null(設定錯誤的帳號不生效,不會變成隱形的總管理員)。 */
+/* 一筆帳號設定 → {password, role, group}。認得三種角色:
+     owner   全開(role 留空或寫 owner,以及舊格式的純字串密碼)
+     leader  綁定一個分組,只能改那一組
+     viewer  唯讀:登得進後台、看得到資料、能匯出,但什麼都寫不了
+
+   ★ 白名單,不是黑名單 ★
+   原本寫的是「不是 leader 就當 owner」。那在只有兩種角色時沒問題,加了 viewer
+   之後就變成一個安靜的陷阱:role 打成 "Viewer"、"viewer "、"read-only",
+   全都會掉進 else 變成**總管理員**,而且部署的人不會看到任何錯誤。
+   所以改成:認得的才給,不認得的整筆不生效(跟 leader 沒綁好分組同樣處理)。
+   大小寫與前後空白先抹平,免得為了一個空格debug半天。 */
 function normalizeAccount(val){
   if(typeof val === "string") return val ? { password: val, role: "owner", group: "" } : null;
   if(!val || typeof val !== "object" || Array.isArray(val)) return null;
   const password = typeof val.password === "string" ? val.password : "";
   if(!password) return null;                       // 空密碼的帳號一律不生效
-  if(val.role !== "leader") return { password, role: "owner", group: "" };
-  const group = typeof val.group === "string" ? val.group.trim() : "";
-  if(!GROUPCODE_RE.test(group)) return null;
-  return { password, role: "leader", group };
+  const role = String(val.role == null ? "" : val.role).trim().toLowerCase();
+  if(role === "" || role === "owner") return { password, role: "owner", group: "" };
+  if(role === "viewer") return { password, role: "viewer", group: "" };
+  if(role === "leader"){
+    const group = typeof val.group === "string" ? val.group.trim() : "";
+    if(!GROUPCODE_RE.test(group)) return null;
+    return { password, role: "leader", group };
+  }
+  return null;                                     // 不認得的角色:寧可登不進來,也不要變成總管理員
 }
 function loadUsers(env){
   const users = new Map();
@@ -295,10 +324,15 @@ async function handleLogin(request, env){
   if(elapsed < MIN_LOGIN_MS) await sleep(MIN_LOGIN_MS - elapsed);
 
   if(!acc){
-    await recordFail(env, ip, rl.count);
+    /* 記不下這次失敗就不能放行:記不了等於防暴力破解停擺,那時候回 401 會讓人
+       以為只是密碼錯,實際上已經可以無限次猜。明講是伺服器端的問題。 */
+    try{ await recordFail(env, ip, rl.count); }
+    catch(e){ return json(env, { ok:false, error:"rate_limit_unavailable" }, 503); }
     return json(env, { ok:false, error:"wrong_password" }, 401);   // 不區分帳號錯/密碼錯,避免探測帳號
   }
-  await clearFail(env, ip);
+  /* 清掉失敗記錄只是善後,失敗了不該連累一次「密碼正確」的登入 ——
+     那筆記錄本來就有 TTL,自己會過期。這裡吞掉例外是刻意的。 */
+  try{ await clearFail(env, ip); }catch(e){ /* best-effort */ }
   const session = await makeSession(env.SESSION_SECRET, acc);
   return json(env, { ok:true, session, user: acc.name, role: acc.role, group: acc.group,
     expiresInSeconds: SESSION_TTL_SECONDS });
@@ -312,11 +346,14 @@ async function ghHeaders(env){
     "X-GitHub-Api-Version": "2022-11-28",
   };
 }
-/* 讓管理員在設定 Worker 後可以自我檢查：密碼登入成功、且 GitHub 權杖確實可寫入 */
+/* 讓管理員在設定 Worker 後可以自我檢查：密碼登入成功、且 GitHub 權杖確實可寫入。
+   唯讀帳號問不到 —— 它本來就發不了,知道權杖能不能寫也沒有用,
+   而這個答案透露的是伺服器的設定狀態,沒必要給不需要的人。 */
 async function handleHealth(request, env){
   let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
   const sess = await verifySession(body && body.session, env.SESSION_SECRET);
   if(!sess) return json(env, { ok:false, error:"session_expired" }, 401);
+  if(isViewerSession(sess)) return json(env, { ok:false, error:"read_only" }, 403);
   try{
     const r = await fetchWithTimeout(`https://api.github.com/repos/${encodeURIComponent(env.GH_OWNER)}/${encodeURIComponent(env.GH_REPO)}`, { headers: await ghHeaders(env) }, GITHUB_TIMEOUT_MS);
     if(r.status === 401 || r.status === 403) return json(env, { ok:true, github:"invalid_token" });
@@ -529,6 +566,13 @@ async function handlePublish(request, env){
   const { session, content, files } = body || {};
   const sess = await verifySession(session, env.SESSION_SECRET);
   if(!sess) return json(env, { ok:false, error:"session_expired" }, 401);
+
+  /* ★ 唯讀帳號的總開關 ★
+     擋在最前面,連一個位元組都不看。這道很重要:下面的逐檔權限檢查只管 data/ 開頭的,
+     images/ 是走 FILE_PATH_RE 那條、不經過 canWriteDataFile —— 只擋 data/ 的話,
+     唯讀帳號仍然可以往 repo 塞圖片。前端把按鈕藏起來不算數,真正的界線在這一行。 */
+  if(isViewerSession(sess)) return json(env, { ok:false, error:"read_only" }, 403);
+
   // 誰發布的:記進 commit 訊息。帳號在登入時已過 USERNAME_RE(無空白/控制字元)且長度受限,
   // 這裡再截一次長度,確保任何情況下都不會把奇怪的東西寫進 git 歷史。
   const who = String(sess.u || "").slice(0, 32);
@@ -616,13 +660,19 @@ async function handlePublish(request, env){
 /* 公開的訪客瀏覽計數：不需要密碼、不佔登入錯誤額度。
    scope="site" 累計全站；scope="member"&id=<成員id> 累計單一成員頁，回傳遞增後的數字。
    讀-改-寫非原子（Workers KV 特性），對這種展示用計數可接受；偶爾平行存取可能少算一兩次。
-   ⚠ 與防暴力破解共用同一個 KV，免費方案每日 1000 次寫入為兩者共用上限——一般小站流量綽綽有餘，
-   若站點爆紅可另建一個 KV 命名空間、綁定為 VIEWS，並把下面 kv 換成 env.VIEWS。 */
+
+   ★ 一定要用獨立的 VIEWS 命名空間，沒綁就不計數 ★
+   原本沒綁 VIEWS 時會退回用 RATE_LIMIT —— 也就是防暴力破解那一個。這條路很危險：
+   這個端點是公開的、免密碼、不限流，而且**每一次呼叫都寫一次 KV**；前台每個訪客
+   開名錄就會打一次。免費方案每天 1000 次寫入用完之後，登入那條路的 KV 寫入也會
+   一起失敗，全會（包含總管理員）都登不進後台。任何人用 curl 跑個迴圈就做得到。
+   一個「展示用的計數器」不該和「登入」共用同一個失敗範圍，所以這裡不再退而求其次：
+   沒綁 VIEWS 就回 views_disabled，前端會安靜地不顯示計數（app.js 本來就這樣處理）。 */
 const VIEW_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
 async function handleViews(request, env){
-  const kv = env.VIEWS && typeof env.VIEWS.get === "function" ? env.VIEWS : env.RATE_LIMIT;
-  if(!kv || typeof kv.get !== "function"){
-    return json(env, { ok:false, error:"kv_missing" }, 200);   // 前端會安靜地不顯示計數，不讓頁面出錯
+  const kv = env.VIEWS;
+  if(!kv || typeof kv.get !== "function" || typeof kv.put !== "function"){
+    return json(env, { ok:false, error:"views_disabled" }, 200);   // 前端會安靜地不顯示計數，不讓頁面出錯
   }
   let body; try{ body = await request.json(); }catch(e){ body = {}; }
   const scope = body && body.scope;
@@ -666,12 +716,20 @@ export default {
     if(request.method === "OPTIONS") return new Response(null, { status:204, headers: corsHeaders(env) });
     if(request.method !== "POST") return json(env, { ok:false, error:"method_not_allowed" }, 405);
     const { pathname } = new URL(request.url);
-    if(pathname === "/ping") return handlePing(request, env);
-    if(pathname === "/login") return handleLogin(request, env);
-    if(pathname === "/publish") return handlePublish(request, env);
-    if(pathname === "/intake") return handleIntake(request, env);
-    if(pathname === "/health") return handleHealth(request, env);
-    if(pathname === "/views") return handleViews(request, env);
-    return json(env, { ok:false, error:"not_found" }, 404);
+    /* 沒有這層 try/catch 的話,任何一個沒預期到的例外都會變成 Workers 執行階段的裸錯誤:
+       沒有 CORS 標頭 → 瀏覽器只看得到一個網路錯誤 → 編輯頁顯示「連不到發布服務」,
+       於是人去查網址、查有沒有部署,查不到真正的原因。回一個帶 CORS 的 JSON,
+       至少畫面上會出現看得懂的訊息。 */
+    try{
+      if(pathname === "/ping") return await handlePing(request, env);
+      if(pathname === "/login") return await handleLogin(request, env);
+      if(pathname === "/publish") return await handlePublish(request, env);
+      if(pathname === "/intake") return await handleIntake(request, env);
+      if(pathname === "/health") return await handleHealth(request, env);
+      if(pathname === "/views") return await handleViews(request, env);
+      return json(env, { ok:false, error:"not_found" }, 404);
+    }catch(e){
+      return json(env, { ok:false, error:"server_error" }, 500);
+    }
   },
 };
