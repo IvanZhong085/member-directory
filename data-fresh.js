@@ -24,8 +24,15 @@
     .then(function (r) { return r.ok ? r.text() : ""; })
     .then(function (text) {
       var latest = String(text || "").trim();
-      if (!latest || latest === mine) return;
+      if (!latest) return;
       if (!/^[A-Za-z0-9]{1,32}$/.test(latest)) return;   // 版本檔內容不對勁就不要拿去組網址
+      if (latest === mine) {
+        /* 版本對上了 → 把重載次數歸零。②那個上限是用來擋「版本檔每次回不同值」的
+           無限打轉,不是要一個分頁一輩子只更新兩次 —— 不歸零的話,長時間開著的
+           分頁經過兩次發布之後就再也不會自動更新了。 */
+        try { sessionStorage.removeItem("dv:n"); } catch (e) {}
+        return;
+      }
       var key = "dv:" + latest;
       try {
         if (sessionStorage.getItem(key)) return;              // ① 這個版本試過了
@@ -34,7 +41,11 @@
         sessionStorage.setItem(key, "1");
         sessionStorage.setItem("dv:n", String(n + 1));
       } catch (e) { return; }   // 沒有 sessionStorage 就不重載,寧可慢一點也不要無限打轉
-      location.replace(location.pathname + "?v=" + encodeURIComponent(latest) + location.hash);
+      /* 只換掉 v,其餘查詢參數原樣保留。spotlight.html?m=<成員id> 是靠參數決定
+         顯示誰的,整個 query 換掉會變成顯示第一位 —— 分享出去的連結就開錯人了。 */
+      var u = new URL(location.href);
+      u.searchParams.set("v", latest);
+      location.replace(u.href);
     })
     .catch(function () {});
 })();

@@ -181,7 +181,14 @@
   function saveDraft(){
     if(isViewer()) return;
     try{
-      localStorage.setItem(draftKey(), JSON.stringify({ savedAt: Date.now(), data: DATA, pending: PENDING }));
+      /* 連 baseHashes 與 loadedBody 一起存。只存資料的話,下次開頁面的流程是
+         「先載線上最新版(拿到新的雜湊)→ 再用舊草稿蓋掉資料」,發布時送出的就變成
+         「舊內容 + 新雜湊」—— Worker 的版本落後偵測比對的是雜湊,完全看不出異常,
+         於是別人在這期間發布的修改會被這份舊草稿無聲蓋回去。 */
+      localStorage.setItem(draftKey(), JSON.stringify({
+        savedAt: Date.now(), data: DATA, pending: PENDING,
+        baseHashes: baseHashes, loadedBody: loadedBody,
+      }));
       saveState.textContent = "已自動儲存 " + new Date().toLocaleTimeString("zh-Hant",{hour:"2-digit",minute:"2-digit"});
       showDraftBanner(true);
       dirty = false;
@@ -207,6 +214,17 @@
     DATA = parsed.data;
     // 舊版草稿沒有 pending 欄位,那時就沿用剛從伺服器載到的清單
     if(Array.isArray(parsed.pending)) PENDING = parsed.pending;
+    /* 資料與版本雜湊必須成套還原,不然就是「舊內容配新雜湊」。
+       舊版草稿沒有這兩個欄位:那時維持剛載到的線上版本,行為與過去一致
+       —— 雖然仍有蓋掉別人的風險,但至少不會因為欄位不存在而整個壞掉。 */
+    if(parsed.baseHashes && typeof parsed.baseHashes === "object"){
+      for(const k of Object.keys(baseHashes)) delete baseHashes[k];
+      Object.assign(baseHashes, parsed.baseHashes);
+    }
+    if(parsed.loadedBody && typeof parsed.loadedBody === "object"){
+      for(const k of Object.keys(loadedBody)) delete loadedBody[k];
+      Object.assign(loadedBody, parsed.loadedBody);
+    }
     if(!DATA.some(g => g.id === selected)) selected = DATA.length ? DATA[0].id : null;
     hasDraft = true;
   }
@@ -265,15 +283,23 @@
   function linesToArr(v){ const a = v.replace(/\u000B/g, "\n").split("\n"); while(a.length && a[a.length-1].trim()==="") a.pop(); return a; }
 
   /* ---------- validation ---------- */
+  /* 回傳「會擋下發布的問題」清單。分兩級是刻意的:
+     擋下的是會造成**資料靜默損毀**的(代號重複會讓兩組共用同一個檔、id 重複會讓
+     前台連結指到錯的人);空姓名、編號重複這類是資料品質提醒,不該擋住人發布。 */
   function validate(){
     const problems = [];
+    const blocking = [];
     const ids = new Map();
     const nums = new Map();
+    const codes = new Map();
     visibleGroups().forEach(g => {
       if(!g.name.trim()) problems.push("有分組沒有名稱（" + (g.code||"?") + "）");
       if(!GROUPCODE_RE.test(String(g.code||"").trim())){
-        problems.push("分組代號「" + (g.code||"(空白)") + "」不合法：只能用英文字母或數字、最多 8 個字（例如 A1、B2、C），改好才能發布");
+        blocking.push("分組代號「" + (g.code||"(空白)") + "」不合法：只能用英文字母或數字、最多 8 個字（例如 A1、B2、C），改好才能發布");
       }
+      // 檔名是代號小寫,所以 A1 與 a1 是同一個檔
+      const key = String(g.code||"").trim().toLowerCase();
+      if(key) codes.set(key, (codes.get(key)||[]).concat(g.name || "(未命名)"));
       g.members.forEach(m => {
         ids.set(m.id, (ids.get(m.id)||0)+1);
         if(!m.name.trim()) problems.push("「" + (g.code||"?") + "」組有成員未填姓名");
@@ -281,17 +307,23 @@
         if(n) nums.set(n, (nums.get(n)||[]).concat((m.name||"?")));
       });
     });
-    [...ids.entries()].filter(([,c])=>c>1).forEach(([id,c]) => problems.push("成員 id 重複：" + id + "（×" + c + "）"));
+    [...codes.entries()].filter(([,names])=>names.length>1).forEach(([code,names]) =>
+      blocking.push("分組代號「" + code.toUpperCase() + "」重複了（" + names.join("、") +
+                    "）。兩組共用同一個代號會讓其中一組的成員全部消失，請先改掉再發布"));
+    [...ids.entries()].filter(([,c])=>c>1).forEach(([id,c]) =>
+      blocking.push("成員 id 重複：" + id + "（×" + c + "）。前台的連結會指到錯的人"));
     const dupNums = [...nums.entries()].filter(([,names])=>names.length>1);
     if(dupNums.length){
       problems.push("編號重複（僅提醒，可接受）：" + dupNums.map(([n,names])=>n+"→"+names.join("/")).join("；"));
     }
-    if(problems.length){
-      validationBox.innerHTML = ICON.warn + "<div>" + problems.map(esc).join("<br>") + "</div>";
+    const all = blocking.concat(problems);
+    if(all.length){
+      validationBox.innerHTML = ICON.warn + "<div>" + all.map(esc).join("<br>") + "</div>";
       validationBox.classList.add("show");
     } else {
       validationBox.classList.remove("show");
     }
+    return blocking;
   }
 
   /* ---------- image crop + resize（裁成與前台卡片相同比例 4:4.6，輸出寬 900） ---------- */
@@ -1175,7 +1207,14 @@
       toast("請先輸入管理密碼", {warn:true});
       return false;
     }
-    validate();
+    /* 有會造成資料損毀的問題就擋下來。以前這裡只是把警告畫在頁面上、照樣發布,
+       代號重複那種情況等於讓人一路按到底,然後某一組的成員就從網站上消失了。 */
+    const blocking = validate();
+    if(blocking.length){
+      toast("有必須先修正的問題：" + blocking[0].split("。")[0], { warn:true, duration:9000 });
+      validationBox.scrollIntoView({ behavior:"smooth", block:"center" });
+      return false;
+    }
     publishing = true;
     let ok = false;
     const btn = byId("btn-publish");
@@ -1191,8 +1230,33 @@
          公開網站不會出現「資料檔指向不存在照片」的狀態。單次上限 25 檔,
          12 組 + 結構檔 + 照片極少同時超過,超過時由 Worker 明確回報 too_many_files。 */
       const CHUNK = 20;
+      /* 照片先送、分組檔一律留到最後一批一起送。
+         分組檔跨批的話,中途失敗就會留下「有的組更新了、有的還是舊的」——
+         而使用者看到的訊息是「這次修改沒有上線,可以稍後再試」,那句話是錯的。
+         分組檔最多十幾個(12 組 + 結構檔 + 待認領區),低於單次上限,永遠塞得進同一批。 */
+      const assets = payload.files.filter(f => !f.path.startsWith("data/"));
+      const datas  = payload.files.filter(f => f.path.startsWith("data/"));
       const chunks = [];
-      for(let i = 0; i < payload.files.length; i += CHUNK) chunks.push(payload.files.slice(i, i + CHUNK));
+      if(payload.files.length <= CHUNK){
+        /* 一批送得完就一批送。Worker 在單一請求內會先寫照片、再寫分組檔,任一步失敗
+           就整批中止 —— 這是最好的情況,沒必要為了分批的規則把它拆開多跑一趟。 */
+        chunks.push(payload.files);
+      } else {
+        for(let i = 0; i < assets.length; i += CHUNK) chunks.push(assets.slice(i, i + CHUNK));
+        if(datas.length) chunks.push(datas);
+      }
+
+      /* 每一批成功就立刻對齊狀態。原本只在**最後一批**成功時才更新,於是中途失敗後
+         baseHashes 還是舊值、repo 裡卻已經是新內容 —— 使用者照提示「再試一次」,
+         第一批那些檔立刻被判成版本落後,人就被推進「重新整理 = 前面的編輯全部重做」。 */
+      const alignAfterChunk = (files, newHashes) => {
+        Object.assign(baseHashes, newHashes || {});
+        files.forEach(f => {
+          if(f.path.startsWith("data/")) loadedBody[f.path] = new TextDecoder().decode(
+            Uint8Array.from(atob(f.contentB64), c => c.charCodeAt(0)));
+        });
+      };
+
       let res = { ok:false, error:"network" };
       let sent = 0;
       for(const chunk of chunks){
@@ -1202,14 +1266,9 @@
         }
         res = await workerFetch("/publish", { session, files: chunk, baseHashes });
         if(!res.ok) break;
+        alignAfterChunk(chunk, res.newHashes);
       }
       if(res.ok){
-        // 接上新版本,不必重新整理就能再發布一次;同時把「已載入內容」對齊,避免重複送同一份
-        Object.assign(baseHashes, res.newHashes || {});
-        payload.files.forEach(f => {
-          if(f.path.startsWith("data/")) loadedBody[f.path] = new TextDecoder().decode(
-            Uint8Array.from(atob(f.contentB64), c => c.charCodeAt(0)));
-        });
         clearTimeout(saveTimer);
         dirty = false;
         try{ localStorage.removeItem(draftKey()); }catch(e){}
@@ -1535,7 +1594,11 @@
   byId("batch-apply").onclick = () => { const fn = batchApplyFn; closeBatchModal(); if(fn) fn(); };
   byId("batch-modal").addEventListener("click", e => { if(e.target.id === "batch-modal") closeBatchModal(); });
   refreshCaps();   // 問一次 Worker 是否支援附件（照片實體檔）；失敗就當不支援，行為同舊版
-  if(loadSession()) bootData();   // 已有有效 session（重新整理頁面）就直接載入
+  /* 已有有效 session(重新整理頁面)就直接載入,並且要把鎖定畫面收起來 ——
+     上面那行 showLock() 是「預設鎖住」,安全的預設;但少了這裡的 hideLock(),
+     30 分鐘的 session 等於形同虛設,每次重新整理都要再打一次帳密。
+     角色相關的介面(哪些鈕該藏)也要在這裡跑一次,不然重整後會以總管理員的樣子顯示。 */
+  if(loadSession()){ hideLock(); applyRoleUI(); showWho(); bootData(); }
   byId("btn-undo").onclick = undo;
   byId("btn-redo").onclick = redo;
   byId("s-save").onclick = saveSettings;

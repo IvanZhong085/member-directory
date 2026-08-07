@@ -9,7 +9,7 @@
    由 GitHub Action 在 data/ 有變動時自動執行;內容沒變重跑也不會產生差異(冪等)。 */
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 export const DATA_DIR = join(ROOT, "data");
@@ -46,8 +46,15 @@ export function serializeDataJs(groups){
          "if (typeof module !== 'undefined') { module.exports = GROUPS; }\n";
 }
 
-/* 直接執行時才寫檔;被 import 當函式庫時不動任何東西 */
-if(import.meta.url === `file://${process.argv[1]}`){
+/* 直接執行時才寫檔;被 import 當函式庫時不動任何東西
+   (extract-inline-photos.mjs 會 import 這支拿 INDEX_FILE / groupFilePath,不能拿掉這道)。
+
+   用 pathToFileURL 而不是自己拼 `file://` + 路徑:兩者在很多情況下對不起來,
+   而且對不起來時是**靜默的** —— 整段不執行、exit 0、一行輸出都沒有,
+   跑的人只會看到指令秒退,合理地以為成功了。
+   會對不起來的情況:路徑含空白或非 ASCII 字元(這是個全中文專案,clone 到
+   ~/文件/ 底下就中)、以及 Windows 的磁碟機代號與反斜線。 */
+if(import.meta.url === pathToFileURL(process.argv[1]).href){
   const groups = loadGroups();
   const out = join(ROOT, "data.js");
   const next = serializeDataJs(groups);
