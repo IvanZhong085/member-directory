@@ -15,13 +15,14 @@
  *    - 報名回應試算表 → 收藏起來,這就是你的來賓 CRM
  * 4. 把 VISITOR_FORM_URL 填好後發布網站,來賓頁的「我要報名參訪」按鈕就會直接開表單。
  *
- * ⚠ 不要重複執行 createVisitorForm,每跑一次就會多建一份新表單。
- *   要改題目請直接到表單編輯頁改;要重建請先把舊表單刪掉。
+ * ⚠ 重複執行 createVisitorForm 會被擋下(建立過就記在指令碼屬性裡)。
+ *   要改題目請直接到表單編輯頁改;真的要重建請先跑 forgetForms_()。
  */
 
 /* 建立「來賓參訪報名」表單:回應進獨立試算表,當作來賓 CRM。
    五個欄位:姓名、電話、LINE ID、職業必填;引薦人姓名選填(自己找上門的來賓也收得到)。 */
 function createVisitorForm() {
+  guardAlreadyCreated_("VISITOR_FORM_EDIT_URL", "createVisitorForm", "來賓參訪報名");
   var form = FormApp.create("雲榮鑽石分會・來賓參訪報名");
   form.setDescription(
     "感謝你的參訪意願!填寫約 1 分鐘,送出後分會夥伴會與你聯繫確認場次與細節。\n" +
@@ -59,6 +60,7 @@ function createVisitorForm() {
   Logger.log("① 給來賓填的網址(貼進 site-config.js 的 VISITOR_FORM_URL):" + form.getPublishedUrl());
   Logger.log("② 報名回應試算表(來賓 CRM;建議手動加「追蹤狀態/到訪日/結果」三欄):" + ss.getUrl());
   Logger.log("③ 表單編輯網址(之後要改題目從這裡進):" + form.getEditUrl());
+  PropertiesService.getScriptProperties().setProperty("VISITOR_FORM_EDIT_URL", form.getEditUrl());
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -95,10 +97,51 @@ function createVisitorForm() {
 
    ⚠ 這份表單有「上傳照片」題,Google 會要求填答者**登入 Google 帳號**才能送出。
      這是 Google 的規定,沒有辦法關掉;不想要就把三個上傳題刪掉。
-   ⚠ 不要重複執行 createNewMemberForm,每跑一次就會多建一份新表單。
+   ⚠ 重複執行 createNewMemberForm 會被擋下(建立過就記在指令碼屬性裡)。
+     真的要重建(換 Google 帳號、表單被誤刪)請先跑 forgetForms_(),它會告訴你下一步。
+     搬到另一個 Google 帳號的完整步驟見 docs/搬到另一個-google-帳號.md。
 */
 
 var NEWMEMBER_TRIGGER = "onNewMemberSubmit";
+
+/* 這兩支 create* 每跑一次就會多建一份表單、一份試算表、一個上傳資料夾,
+   而且**舊的那份不會消失** —— 你會得到兩份同名的東西,分不出哪份是活的,
+   還可能繼續收到填進舊表單的回應。註解寫「不要重複執行」擋不住手滑,所以改成程式擋。
+
+   真的要重建(例如換 Google 帳號、或表單被誤刪)時:先跑 forgetForms_(),
+   或到「專案設定 → 指令碼屬性」把對應那筆刪掉。
+   ⚠ 忘掉之後舊表單仍然存在於 Drive,只是這個腳本不再指向它 —— 記得自己去刪。 */
+function guardAlreadyCreated_(propKey, fnName, label) {
+  var url = PropertiesService.getScriptProperties().getProperty(propKey);
+  if (!url) return;
+  throw new Error(
+    "「" + label + "」表單已經建立過了,不要再跑一次 " + fnName + " ——\n" +
+    "  現有的表單:" + url + "\n" +
+    "  要改題目請直接開上面那個網址。\n" +
+    "  真的要重建(例如換 Google 帳號)請先執行 forgetForms_(),它會告訴你接下來該做什麼。");
+}
+
+/* 讓這個腳本「忘記」目前綁定的表單,之後才能重新建立。
+   不會刪掉 Drive 上的任何東西 —— 刪除要你自己確認過再手動做,程式不該替你決定。 */
+function forgetForms_() {
+  var props = PropertiesService.getScriptProperties();
+  var keys = ["MEMBER_FORM_EDIT_URL", "VISITOR_FORM_EDIT_URL"];
+  var removed = [];
+  for (var i = 0; i < keys.length; i++) {
+    var v = props.getProperty(keys[i]);
+    if (v) { props.deleteProperty(keys[i]); removed.push(keys[i] + " → " + v); }
+  }
+  if (!removed.length) { Logger.log("目前沒有綁定任何表單,直接跑 create… 就可以了。"); return; }
+  Logger.log("已忘記以下綁定(Drive 上的檔案沒有被刪除):");
+  for (var j = 0; j < removed.length; j++) Logger.log("   " + removed[j]);
+  Logger.log("");
+  Logger.log("接下來:");
+  Logger.log("  1. 上面那些舊表單如果不要了,請自己到 Drive 刪掉(連同它們的回應試算表與上傳資料夾)");
+  Logger.log("  2. 確認 RELAY_URL 與 INTAKE_SECRET 兩筆指令碼屬性還在");
+  Logger.log("  3. 重新執行 createNewMemberForm / createVisitorForm");
+  Logger.log("  4. 手動加三個上傳題,再跑 checkNewMemberForm 核對");
+  Logger.log("  5. 把新的表單網址貼回 site-config.js 的 MEMBER_FORM_URL / VISITOR_FORM_URL");
+}
 
 /* 表單題目是靠**標題**對應到欄位的,但手動加的題目很容易打出看不出差別的字:
    全形「／」與半形「/」、刪節號「…」與三個點、多打一個空白。
@@ -155,6 +198,7 @@ function pickByTitle_(map, key) {
 }
 
 function createNewMemberForm() {
+  guardAlreadyCreated_("MEMBER_FORM_EDIT_URL", "createNewMemberForm", "新夥伴資料填寫");
   var props = PropertiesService.getScriptProperties();
   if (!props.getProperty("RELAY_URL") || !props.getProperty("INTAKE_SECRET")) {
     throw new Error("請先到「專案設定 → 指令碼屬性」設好 RELAY_URL 與 INTAKE_SECRET(見檔案開頭步驟 1、2)");
