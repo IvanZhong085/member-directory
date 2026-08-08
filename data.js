@@ -682,35 +682,6 @@ const GROUPS = [
         "id": "g12_m6",
         "dataIssue": false,
         "updatedAt": ""
-      },
-      {
-        "number": "179",
-        "name": "楊惠萱",
-        "title": "異國香料批發零售業",
-        "services": [
-          "配方香料零售包/1kg業務用包",
-          "客製化香料配方研發/企業贈禮",
-          "香料熱紅酒、香料奶茶教學/VIP活動"
-        ],
-        "targets": [
-          "搭配組合銷售/團購",
-          "品牌VIP活動邀約"
-        ],
-        "have": [],
-        "want": [],
-        "tagline": [
-          "異國香料調味找食色",
-          "文化故事風味有特色"
-        ],
-        "image": "g12_m7_x.jpg",
-        "card": "",
-        "products": [],
-        "company": "",
-        "business_items": "",
-        "website": "",
-        "id": "g12_m7",
-        "dataIssue": false,
-        "updatedAt": ""
       }
     ],
     "id": "g12",
@@ -1604,35 +1575,6 @@ const GROUPS = [
         "business_items": "",
         "website": "",
         "id": "g5_m2",
-        "dataIssue": false,
-        "updatedAt": ""
-      },
-      {
-        "number": "083",
-        "name": "高麗媛",
-        "title": "生活保健商品團購主",
-        "services": [
-          "團購商品(不限類別)，例如：",
-          "生活用品、保健食品、餅乾、零食、飲料、冷凍、冷藏食品等"
-        ],
-        "targets": [
-          "生活用品",
-          "美妝保養品、保健食品",
-          "各式食品業者"
-        ],
-        "have": [],
-        "want": [],
-        "tagline": [
-          "1638",
-          "讓您發發發"
-        ],
-        "image": "g5_m3_x.jpg",
-        "card": "",
-        "products": [],
-        "company": "",
-        "business_items": "",
-        "website": "",
-        "id": "g5_m3",
         "dataIssue": false,
         "updatedAt": ""
       },
