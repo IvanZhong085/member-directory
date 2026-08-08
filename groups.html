@@ -50,17 +50,6 @@
     display:flex; flex-direction:column;
   }
   /* 右下紅色斜帶(海報收尾) */
-  .sheet::after{
-    content:""; position:absolute; right:-60px; bottom:26px; width:420px; height:30px;
-    background:linear-gradient(90deg, var(--red) 0%, var(--red-deep) 100%);
-    transform:rotate(-7deg); border-radius:4px; pointer-events:none;
-  }
-  .sheet::before{
-    content:""; position:absolute; right:-60px; bottom:60px; width:300px; height:7px;
-    background:var(--red-100, #F3C4CD); background:#F3C4CD;
-    transform:rotate(-7deg); border-radius:4px; pointer-events:none;
-  }
-
   /* ── 海報標題 ── */
   .mast{position:relative; text-align:center; padding:2px 0 6px;}
   .mast-title{
@@ -105,26 +94,29 @@
   li.recruit{padding-left:calc(46px * var(--s));}
   li.recruit .t{color:var(--recruit); font-weight:700;}
 
-  /* ── 頁尾(BNI 樣式 + QR) ── */
+  /* ── 頁尾(只留 QR) ── */
   .foot{
     position:relative; z-index:1; margin-top:6px; padding-top:5px;
     display:flex; align-items:flex-end; gap:12px;
   }
-  .bni{display:flex; align-items:baseline; gap:8px;}
-  .bni-logo{font-size:26px; font-weight:900; color:var(--red); letter-spacing:.02em; line-height:1;}
-  .bni-sub{font-size:15px; font-weight:900; font-style:italic; color:var(--red-dark); letter-spacing:.06em;}
-  .foot-region{font-size:11px; color:#8A8E99; font-weight:800; letter-spacing:.04em; outline:none;}
   .foot-qr{margin-left:auto; margin-right:44px; display:flex; align-items:center; gap:7px;}
   .foot-qr canvas{width:44px; height:44px; border:1px solid var(--hair); border-radius:5px; background:#fff;}
   .foot-qr span{font-size:7.4px; color:var(--muted); font-weight:700; letter-spacing:.12em; text-align:right; line-height:1.7;}
 
   [contenteditable]:hover, [contenteditable]:focus{background:#FDF3F5; border-radius:4px; outline:none;}
 
+  /* ── 列印:一律 A4 橫式,不做直式版本 ──
+     下面那組 @media screen 的窄螢幕規則刻意只掛 screen:手機上瀏覽時會變成兩欄好讀,
+     但一按列印就回到 6 欄的 A4 橫式海報 —— 列印出來的東西不該因為你用哪台裝置而不同。
+     ⚠ iOS Safari 會忽略 @page 的 size,列印面板要自己選「橫向」。
+       想避開這件事就用工具列的「存成 JPG」,那是固定 A4 橫式比例、跟裝置無關。 */
   @media print{
     body{background:#fff;}
     .toolbar{display:none !important;}
-    .sheet{width:auto; min-height:0; margin:0; box-shadow:none; padding:0 0 2mm;}
-    .sheet::after{right:-60px; bottom:20px;}
+    .sheet{
+      width:auto; min-height:0; margin:0; box-shadow:none; padding:0 0 2mm;
+      break-inside:avoid; page-break-inside:avoid;   /* 不允許被拆成兩頁 */
+    }
     @page{size:A4 landscape; margin:7mm 9mm 5mm;}
   }
   @media screen and (max-width:900px){
@@ -140,6 +132,7 @@
   <span class="tip">標題與日期<b>點一下就能改字</b>;各組「招募席位」紅字項目在後台的分組欄位編輯。確認後按「列印/存 PDF」。</span>
   <a class="tbtn" href="admin.html">← 回後台</a>
   <a class="tbtn" href="./">回名錄</a>
+  <button class="tbtn" id="btn-jpg" type="button">🖼 存成 JPG</button>
   <button class="tbtn tbtn-primary" onclick="window.print()" type="button">🖨 列印/存 PDF</button>
 </div>
 
@@ -150,8 +143,6 @@
   </header>
   <div class="grid" id="grid"></div>
   <footer class="foot">
-    <div class="bni"><span class="bni-logo">BNI</span><span class="bni-sub">ACCELERATE</span></div>
-    <div class="foot-region" contenteditable="true" spellcheck="false">投嘉雲彰區域/Nantou.Chiayi.Yunlin.Changhua/Taiwan</div>
     <div class="foot-qr">
       <span>掃描 QR<br>看完整名錄</span>
       <canvas id="foot-qr-canvas" width="176" height="176"></canvas>
@@ -239,6 +230,148 @@
   }
   fit();
   if(document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+
+  /* ══ 存成 JPG ══════════════════════════════════════════════════════════
+     固定 A4 橫式比例,跟裝置、跟瀏覽器的列印面板都無關 —— iOS Safari 會忽略
+     @page 的 size,列印常常跑出直式,這條路繞過那個問題。
+
+     做法是「照著螢幕上已經排好的版面畫」,不是另外寫一套排版:
+     每個文字節點用 Range 逐字量位置,依 top 分行,再用 canvas 把每一行畫回原位。
+     這樣自動吃到 fit() 算好的縮放、換行、對齊,CSS 之後怎麼改都不用同步改這裡。
+     字體也一樣 —— canvas 與頁面同一個文件,用得到已經載好的 Noto Sans TC。
+
+     不用 SVG foreignObject 那條常見的路:它畫不出 <canvas> 內容(QR 會不見),
+     載不到外部字體(中文會掉成預設字),而且在 iOS Safari 上時常直接產出空白圖。 */
+  var A4_RATIO = 210 / 297;
+
+  function roundRect(ctx, x, y, w, h, r){
+    r = Math.min(r || 0, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y,     x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x,     y + h, r);
+    ctx.arcTo(x,     y + h, x,     y,     r);
+    ctx.arcTo(x,     y,     x + w, y,     r);
+    ctx.closePath();
+  }
+
+  /* 一個文字節點 → 逐行的 {text, left, top, bottom}。
+     逐字量看起來很笨,但這是唯一能同時吃到自動換行與對齊的方法,
+     而這張表全部加起來也才一千多個字,量起來是毫秒等級。 */
+  function textLines(node){
+    var t = node.nodeValue, out = [], range = document.createRange(), cur = null;
+    for(var i = 0; i < t.length; i++){
+      range.setStart(node, i); range.setEnd(node, i + 1);
+      var rects = range.getClientRects();
+      if(!rects.length) continue;
+      var r = rects[0];
+      if(cur && Math.abs(r.top - cur.top) < 0.8){
+        cur.text += t[i];
+      } else {
+        cur = { text: t[i], left: r.left, top: r.top, bottom: r.bottom };
+        out.push(cur);
+      }
+    }
+    return out;
+  }
+
+  function paintSheet(scaleK){
+    var base = sheet.getBoundingClientRect();
+    var cv = document.createElement("canvas");
+    cv.width  = Math.round(base.width  * scaleK);
+    cv.height = Math.round(base.height * scaleK);
+    var ctx = cv.getContext("2d");
+    if(!ctx) return null;
+
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.scale(scaleK, scaleK);
+    ctx.translate(-base.left, -base.top);
+
+    // ① 有底色的方塊(各組的彩色標題列)
+    var all = sheet.querySelectorAll("*");
+    for(var i = 0; i < all.length; i++){
+      var el = all[i], cs = getComputedStyle(el);
+      if(cs.visibility === "hidden" || cs.display === "none") continue;
+      var bg = cs.backgroundColor;
+      if(!bg || bg === "transparent" || bg.indexOf("rgba(0, 0, 0, 0)") === 0) continue;
+      var rb = el.getBoundingClientRect();
+      if(rb.width < 1 || rb.height < 1) continue;
+      roundRect(ctx, rb.left, rb.top, rb.width, rb.height, parseFloat(cs.borderTopLeftRadius) || 0);
+      ctx.fillStyle = bg;
+      ctx.fill();
+    }
+
+    // ② 文字:逐個文字節點、逐行畫回原位
+    var walker = document.createTreeWalker(sheet, NodeFilter.SHOW_TEXT, null, false);
+    ctx.textBaseline = "bottom";
+    var node;
+    while((node = walker.nextNode())){
+      if(!node.nodeValue || !node.nodeValue.trim()) continue;
+      var pe = node.parentElement;
+      if(!pe) continue;
+      var ps = getComputedStyle(pe);
+      if(ps.visibility === "hidden" || ps.display === "none") continue;
+      ctx.font = ps.fontStyle + " " + ps.fontWeight + " " + ps.fontSize + " " + ps.fontFamily;
+      ctx.fillStyle = ps.color;
+      var lines = textLines(node);
+      for(var L = 0; L < lines.length; L++){
+        ctx.fillText(lines[L].text, lines[L].left, lines[L].bottom);
+      }
+    }
+
+    // ③ QR 是 <canvas>,直接把它畫過來
+    var qrc = document.getElementById("foot-qr-canvas");
+    if(qrc && qrc.width){
+      var rq = qrc.getBoundingClientRect();
+      if(rq.width > 0) ctx.drawImage(qrc, rq.left, rq.top, rq.width, rq.height);
+    }
+    return cv;
+  }
+
+  function saveJPG(){
+    var btn = document.getElementById("btn-jpg");
+    var label = btn.textContent;
+    btn.disabled = true; btn.textContent = "產生中…";
+
+    /* A4 橫式 300dpi = 3508×2480。手機記憶體吃不下時退到 200、150dpi ——
+       寧可解析度低一點,也不要按下去沒反應。 */
+    var dpis = [300, 200, 150];
+    var basePx = sheet.getBoundingClientRect().width;
+
+    function attempt(i){
+      if(i >= dpis.length){
+        btn.disabled = false; btn.textContent = label;
+        alert("這台裝置的記憶體不夠產生圖片,請改用「列印/存 PDF」。");
+        return;
+      }
+      var targetW = Math.round(297 / 25.4 * dpis[i]);
+      var cv;
+      try{ cv = paintSheet(targetW / basePx); }catch(e){ cv = null; }
+      if(!cv){ attempt(i + 1); return; }
+
+      var name = (SITE.ORG_NAME || "產業小組表").replace(/[\\/:*?"<>|]/g, "") + "_產業小組表.jpg";
+      var done = function(url, revoke){
+        var a = document.createElement("a");
+        a.href = url; a.download = name;
+        a.rel = "noopener";
+        document.body.appendChild(a); a.click(); a.remove();
+        if(revoke) setTimeout(function(){ URL.revokeObjectURL(url); }, 30000);
+        btn.disabled = false; btn.textContent = label;
+      };
+      if(cv.toBlob){
+        cv.toBlob(function(blob){
+          if(!blob){ attempt(i + 1); return; }
+          done(URL.createObjectURL(blob), true);
+        }, "image/jpeg", 0.92);
+      } else {
+        try{ done(cv.toDataURL("image/jpeg", 0.92), false); }
+        catch(e){ attempt(i + 1); }
+      }
+    }
+    attempt(0);
+  }
+  document.getElementById("btn-jpg").addEventListener("click", saveJPG);
 })();
 </script>
 </body>
