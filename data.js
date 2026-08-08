@@ -236,6 +236,39 @@ const GROUPS = [
         "id": "g3_m8",
         "dataIssue": false,
         "updatedAt": ""
+      },
+      {
+        "id": "g3_m_mskjr81116f7",
+        "number": "",
+        "name": "鐘文成",
+        "title": "123",
+        "services": [
+          "782782"
+        ],
+        "targets": [
+          "782"
+        ],
+        "have": [
+          "872"
+        ],
+        "want": [
+          "728"
+        ],
+        "tagline": [
+          "782"
+        ],
+        "image": "g3_m_mskjr81116f7_x.jpg",
+        "card": "g3_m_mskjr81116f7_card.jpg",
+        "products": [
+          "g3_m_mskjr81116f7_p1.png",
+          "g3_m_mskjr81116f7_p2.jpg",
+          "g3_m_mskjr81116f7_p3.png"
+        ],
+        "company": "2758",
+        "business_items": "728",
+        "website": "",
+        "dataIssue": true,
+        "updatedAt": "2026-08-08T15:47:01.861Z"
       }
     ],
     "id": "g3",
