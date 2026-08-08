@@ -15,6 +15,9 @@ const SITE = {
   MEMBER_FORM_URL: "https://docs.google.com/forms/d/e/1FAIpQLSelgxbiNLXs6JbGlCEvtS5sme7T5P2zqGpuG5OylXTqjOFqqg/viewform",
                             // 新夥伴自填資料表單(createNewMemberForm)→ 後台「新夥伴填寫表單」捷徑,
                             // 送出後自動進待認領區(需搭配 Worker 的 INTAKE_SECRET)
-  ROSTER_SHEET_URL: "",     // 名冊鏡像試算表(createRosterSheet)→ 後台工具列「名冊試算表」捷徑
+  ROSTER_SHEET_URL: "https://docs.google.com/spreadsheets/d/1OpHP1y6vuREhCFQFw7uWCQurl0k9xerisAvAI-RHY94/edit",
+                            // 名冊鏡像試算表(createRosterSheet)→ 後台工具列與儀表板的「名冊試算表」捷徑。
+                            // 單向鏡像:A1 的 IMPORTDATA 抓 roster.csv,發布後約一小時自動跟上;
+                            // 在試算表裡改字不會回寫網站,下次重抓就蓋掉,要改資料一律回後台。
 };
 if (typeof module !== "undefined") module.exports = SITE;
