@@ -594,6 +594,10 @@ function checkNewMemberSetup() {
     }
   }
 
+  var cn = 0;
+  for (var k = 0; k < all.length; k++) if (all[k].getHandlerFunction() === CLEANUP_TRIGGER) cn++;
+  Logger.log("每月清理照片  :" + (cn ? "✅ 已排定(每月 1 號)" : "未啟用(要開就跑 setupPhotoCleanupTrigger)"));
+
   if (!relay || !secret) return;
   // 故意送一份不完整的申請:secret 對的話會回 bad_applicant,代表這條路是通的
   var res = UrlFetchApp.fetch(relay + "/intake", {
@@ -721,6 +725,134 @@ function archiveSubmissionPhotos_(name, groups) {
   }
   Logger.log("📁 照片已歸檔 " + moved + " 張" + (failed ? "(失敗 " + failed + " 張)" : "") +
              " → " + root.getName() + "/新夥伴照片/" + dest.getName());
+}
+
+/* ══ 每月清理:把「已經推上 GitHub」的照片從 Drive 移掉 ═══════════════════════
+   照片認領發布之後就變成 repo 裡 images/ 的實體檔,Drive 那份只是中繼站,
+   放著只是佔空間。這支每月自動清一次。
+
+   ★ 判斷「已經推上 GitHub」的依據,是去讀**公開網站上的名錄**:
+     某位夥伴出現在 data.js 裡、而且 image 欄是實體檔名(不是 data: 內嵌),
+     就代表他的照片確實已經在 repo 裡了。不需要 GitHub 權杖,也不需要任何 AI ——
+     就是一支定時執行的 Apps Script。
+
+   刪之前要同時滿足三個條件,少一個就留著:
+     ① 資料夾建立超過 CLEANUP_MIN_AGE_DAYS 天(剛送出的絕對不碰)
+     ② 這個人不在待認領區(還沒被認領的當然不能刪)
+     ③ 這個人在名錄上、而且有照片(這就是「已經推上 GitHub」的證據)
+
+   而且:
+   - 讀不到線上資料(網路問題、網址改了、格式變了)就**整批不刪** —— 寧可這個月
+     沒清到,也不要因為查不到而誤刪。
+   - 刪除是「移到垃圾桶」不是永久刪除,30 天內都救得回來。
+   - 第一次請先跑 previewPhotoCleanup(),它只列出「會刪哪些」,不動任何東西。
+
+   ⚠ repo 裡那份是寬度 900 的縮圖,不是原檔。清掉 Drive 這份等於放棄原始解析度。 */
+var CLEANUP_TRIGGER = "cleanupArchivedPhotos";
+var CLEANUP_MIN_AGE_DAYS = 30;                                        // 幾天內的一律不碰
+var SITE_BASE_URL = "https://ivanzhong085.github.io/member-directory/";   // 公開名錄網址
+
+/* 排定每月執行一次。會先清掉同名的舊觸發器,不會累積。 */
+function setupPhotoCleanupTrigger() {
+  var all = ScriptApp.getProjectTriggers(), removed = 0;
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].getHandlerFunction() === CLEANUP_TRIGGER) { ScriptApp.deleteTrigger(all[i]); removed++; }
+  }
+  ScriptApp.newTrigger(CLEANUP_TRIGGER).timeBased().onMonthDay(1).atHour(3).create();
+  Logger.log("✅ 每月清理已排定:每月 1 號凌晨 3 點左右執行(清掉舊的 " + removed + " 個)");
+  Logger.log("   建議先手動跑一次 previewPhotoCleanup(),看它會刪哪些再決定。");
+}
+
+/* 只列出「會刪哪些」,不動任何東西 */
+function previewPhotoCleanup() { photoCleanup_(true); }
+/* 真的清理(觸發器呼叫的就是這支) */
+function cleanupArchivedPhotos() { photoCleanup_(false); }
+
+/* 比對姓名用:去掉所有空白、轉小寫。表單填的與名錄上的偶爾差一個空白。 */
+function normName_(s) { return String(s == null ? "" : s).replace(/\s+/g, "").toLowerCase(); }
+
+/* 抓公開網站上的檔案。加時間戳避開 GitHub Pages 的快取 —— 讀到舊版就可能誤判。 */
+function fetchSite_(path) {
+  var url = SITE_BASE_URL + path + (path.indexOf("?") >= 0 ? "&" : "?") + "t=" + Date.now();
+  var res = UrlFetchApp.fetch(url, { muteHttpExceptions: true });
+  return { code: res.getResponseCode(), text: res.getContentText() };
+}
+
+/* 名錄上「有實體照片」的成員姓名。回 null 代表讀不到或看不懂 —— 呼叫端會整批不刪。 */
+function publishedNamesWithPhoto_() {
+  var r = fetchSite_("data.js");
+  if (r.code !== 200) { Logger.log("✗ 讀不到名錄 data.js(HTTP " + r.code + ")"); return null; }
+  var a = r.text.indexOf("["), b = r.text.lastIndexOf("]");
+  if (a < 0 || b <= a) { Logger.log("✗ data.js 格式看不懂"); return null; }
+  var groups;
+  try { groups = JSON.parse(r.text.slice(a, b + 1)); }
+  catch (err) { Logger.log("✗ data.js 解析失敗:" + err); return null; }
+  if (Object.prototype.toString.call(groups) !== "[object Array]" || !groups.length) {
+    Logger.log("✗ 名錄是空的 —— 不正常,這次不刪"); return null;   // 空名錄會把所有人都判成「查無此人」,保留即可,但仍當作異常
+  }
+  var map = {}, n = 0;
+  for (var i = 0; i < groups.length; i++) {
+    var ms = groups[i].members || [];
+    for (var j = 0; j < ms.length; j++) {
+      var img = String(ms[j].image || "");
+      if (img && img.indexOf("data:") !== 0) { map[normName_(ms[j].name)] = true; n++; }
+    }
+  }
+  Logger.log("名錄上有實體照片的成員:" + n + " 位");
+  return map;
+}
+
+/* 待認領區的姓名。回 null 代表讀不到 —— 呼叫端會整批不刪。 */
+function pendingNames_() {
+  var r = fetchSite_("data/_pending.json");
+  if (r.code === 404) { Logger.log("待認領區:沒有這個檔(等於空的)"); return {}; }
+  if (r.code !== 200) { Logger.log("✗ 讀不到待認領區(HTTP " + r.code + ")"); return null; }
+  var arr;
+  try { arr = JSON.parse(r.text); } catch (err) { Logger.log("✗ 待認領區解析失敗:" + err); return null; }
+  if (Object.prototype.toString.call(arr) !== "[object Array]") { Logger.log("✗ 待認領區格式看不懂"); return null; }
+  var map = {};
+  for (var i = 0; i < arr.length; i++) map[normName_(arr[i] && arr[i].name)] = true;
+  Logger.log("待認領區:" + arr.length + " 筆");
+  return map;
+}
+
+function photoCleanup_(dryRun) {
+  var root = photoArchiveFolder_();
+  if (!root) { Logger.log("沒有設定照片歸檔資料夾,沒東西可清"); return; }
+  var it = root.getFoldersByName("新夥伴照片");
+  if (!it.hasNext()) { Logger.log("還沒有「新夥伴照片」資料夾,沒東西可清"); return; }
+  var box = it.next();
+
+  /* 先把兩份線上資料都拿到手再動任何東西。任一份拿不到就整批放棄 ——
+     「查不到」不等於「可以刪」,這是這支程式最重要的一條。 */
+  var published = publishedNamesWithPhoto_();
+  var pending = pendingNames_();
+  if (!published || !pending) {
+    Logger.log("⚠ 線上資料查不到,這次一個都不刪(寧可沒清到,也不要誤刪)");
+    return;
+  }
+
+  var now = Date.now(), del = 0, keep = 0;
+  var subs = box.getFolders();
+  while (subs.hasNext()) {
+    var f = subs.next(), fname = f.getName();
+    var cut = fname.lastIndexOf("_");
+    var person = normName_(cut > 0 ? fname.slice(0, cut) : fname);
+    var ageDays = Math.floor((now - f.getDateCreated().getTime()) / 86400000);
+
+    var why = "";
+    if (ageDays < CLEANUP_MIN_AGE_DAYS) why = "才 " + ageDays + " 天,未滿 " + CLEANUP_MIN_AGE_DAYS + " 天";
+    else if (pending[person]) why = "還在待認領區,尚未認領";
+    else if (!published[person]) why = "名錄上查不到他的照片(還沒發布?被刪了?)";
+
+    if (why) { keep++; Logger.log("  保留 " + fname + " —— " + why); continue; }
+    if (dryRun) Logger.log("  [試算] 會刪 " + fname + "(" + ageDays + " 天前,照片已在名錄上)");
+    else { f.setTrashed(true); Logger.log("  已移到垃圾桶 " + fname + "(" + ageDays + " 天前)"); }
+    del++;
+  }
+  Logger.log(dryRun
+    ? "試算結果:會刪 " + del + " 個、保留 " + keep + " 個。確認沒問題再執行 cleanupArchivedPhotos 或排定觸發器。"
+    : "清理完成:刪 " + del + " 個、保留 " + keep + " 個。檔案在 Drive 垃圾桶,30 天內都救得回來。");
 }
 
 /* 建立「名冊鏡像」Google 試算表:A1 放 IMPORTDATA,名錄一發布就自動跟上(約每小時重抓)。
