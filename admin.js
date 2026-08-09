@@ -1310,6 +1310,13 @@
       } else if(res.error === "forbidden_path"){
         toast("你沒有修改「" + String(res.path || "").replace(/^data\/|\.json$/g, "").toUpperCase() +
               "」的權限，這次修改沒有上線。若你認為這是設定錯誤，請聯繫總管理員。", {warn:true, duration:9000});
+      } else if(res.error === "forbidden_asset"){
+        // 組長送出的照片檔名不屬於自己那組(正常操作不會發生;多半是別組的照片混進來)
+        toast("這次要上傳的照片不屬於你這一組，伺服器拒絕了發布。請重新整理頁面再試一次；" +
+              "若持續發生，請聯繫總管理員。", {warn:true, duration:9000});
+      } else if(res.error === "group_unresolved"){
+        toast("伺服器找不到你這一組的設定，這次修改沒有上線。請稍後再試一次，或聯繫總管理員確認分組設定。",
+              {warn:true, duration:9000});
       } else if(res.error === "stale_base"){
         // 別人在你編輯期間發布過:硬送出去會把對方的修改蓋掉,所以擋在這裡
         toast("「" + String(res.path || "").replace(/^data\/|\.json$/g, "").toUpperCase() +

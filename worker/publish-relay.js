@@ -255,6 +255,27 @@ async function currentFileState(env, headers, path){
   }catch(e){ return null; }
 }
 
+/* 組長分組代號(session.g,如 "A1")→ 分組內部 id(如 "g3")。
+   照片檔名是 fileSafeId(成員id)+後綴,而成員 id 一律以「分組內部 id + _m…」開頭
+   (uid(g.id+"_m")),成員也不會跨組搬動(moveMember 只在組內換位),所以某組所有照片的
+   檔名都以該組內部 id 為前綴。用它來判斷組長能不能寫某張 images/ 附件。
+   對應關係只存在 data/_index.json,這裡讀一次;讀不到或查無此代號回 null,呼叫端 fail-closed。 */
+async function groupInternalId(env, headers, code){
+  const want = String(code == null ? "" : code).trim().toLowerCase();
+  if(!want) return null;
+  try{
+    const url = contentsUrlFor(env, "data/_index.json") + "?ref=" + encodeURIComponent(env.GH_BRANCH || "main");
+    const r = await fetchWithTimeout(url, { headers }, GITHUB_TIMEOUT_MS);
+    if(!r.ok) return null;
+    const d = await r.json();
+    if(!d || typeof d.content !== "string") return null;
+    const idx = JSON.parse(new TextDecoder().decode(b64ToBytes(d.content)));
+    if(!Array.isArray(idx)) return null;
+    const hit = idx.find(e => e && typeof e.code === "string" && e.code.trim().toLowerCase() === want);
+    return hit && typeof hit.id === "string" && hit.id ? hit.id : null;
+  }catch(e){ return null; }
+}
+
 /* constant-time-ish string compare — avoids leaking password length/content via response timing */
 function timingSafeEqual(a, b){
   const ea = new TextEncoder().encode(String(a));
@@ -566,30 +587,48 @@ async function handleIntake(request, env){
   if(!applicant) return json(env, { ok:false, error:"bad_applicant" }, 400);
 
   const headers = await ghHeaders(env);
-  let current = [];
-  try{
-    const url = contentsUrlFor(env, PENDING_PATH) + "?ref=" + encodeURIComponent(env.GH_BRANCH || "main");
-    const r = await fetchWithTimeout(url, { headers }, GITHUB_TIMEOUT_MS);
-    if(r.ok){
-      const d = await r.json();
-      const parsed = JSON.parse(new TextDecoder().decode(b64ToBytes(d.content)));
-      if(Array.isArray(parsed)) current = parsed;
-    } else if(r.status === 401 || r.status === 403){
-      return json(env, { ok:false, error:"token_forbidden" }, 502);
-    } else if(r.status !== 404){
-      return json(env, { ok:false, error:"github_read_failed", status:r.status }, 502);
-    }
-    // 404 = 還沒有這個檔,current 保持空陣列
-  }catch(e){
-    return json(env, { ok:false, error: e && e.name === "AbortError" ? "github_timeout" : "github_unreachable" }, 502);
-  }
-  if(current.length >= MAX_PENDING) return json(env, { ok:false, error:"pending_full", max:MAX_PENDING }, 409);
 
-  const next = current.concat([applicant]);
-  const bytes = new TextEncoder().encode(JSON.stringify(next, null, 2) + "\n");
-  const res = await ghPutFile(env, headers, PENDING_PATH, bytesToB64(bytes), "新夥伴申請待認領：" + applicant.name);
-  if(!res.ok) return json(env, { ok:false, error:res.error, status:res.status }, 502);
-  return json(env, { ok:true, pid, pending: next.length });
+  /* 讀-改-寫 data/_pending.json,帶樂觀鎖(pinned sha)重試。
+     為什麼要鎖:兩位新夥伴幾乎同時送出表單、或一筆 intake 撞上組長認領(認領也在寫
+     _pending)時,若各自「讀舊清單 → 追加 → 寫回」而不帶版本,後寫的會靜默蓋掉先寫的
+     —— 一筆申請憑空消失(表單卻回報成功),或把剛被認領移除的人又寫回待認領區「復活」、
+     被重複認領成兩位成員。做法與 /publish 一致:讀取時記下 blob sha,原封帶去寫,別人
+     先寫過 GitHub 就回 409/422,這時重讀最新版、重新合併、再寫,最多幾次。
+     全部重試用完仍失敗就 fail-closed 回錯誤 —— 表單資料留在回應試算表,可補救,
+     絕不靜默覆蓋。 */
+  const MAX_INTAKE_TRIES = 5;
+  let pendingCount = 0;
+  for(let attempt = 0; ; attempt++){
+    let current = [], sha = null;
+    try{
+      const url = contentsUrlFor(env, PENDING_PATH) + "?ref=" + encodeURIComponent(env.GH_BRANCH || "main");
+      const r = await fetchWithTimeout(url, { headers }, GITHUB_TIMEOUT_MS);
+      if(r.ok){
+        const d = await r.json();
+        const parsed = JSON.parse(new TextDecoder().decode(b64ToBytes(d.content)));
+        if(Array.isArray(parsed)) current = parsed;
+        sha = typeof d.sha === "string" ? d.sha : null;   // ★ 留住 sha 當樂觀鎖,別像以前丟掉
+      } else if(r.status === 401 || r.status === 403){
+        return json(env, { ok:false, error:"token_forbidden" }, 502);
+      } else if(r.status !== 404){
+        return json(env, { ok:false, error:"github_read_failed", status:r.status }, 502);
+      }
+      // 404 = 還沒有這個檔,current 空、sha null(寫入時不帶 sha = 建立新檔)
+    }catch(e){
+      return json(env, { ok:false, error: e && e.name === "AbortError" ? "github_timeout" : "github_unreachable" }, 502);
+    }
+    if(current.length >= MAX_PENDING) return json(env, { ok:false, error:"pending_full", max:MAX_PENDING }, 409);
+
+    const next = current.concat([applicant]);
+    const bytes = new TextEncoder().encode(JSON.stringify(next, null, 2) + "\n");
+    const res = await ghPutFile(env, headers, PENDING_PATH, bytesToB64(bytes),
+                                "新夥伴申請待認領：" + applicant.name, sha);
+    if(res.ok){ pendingCount = next.length; break; }
+    // stale_base = 我們帶去的 sha 已過期(別人在這中間寫過)→ 重讀重試,不覆蓋對方
+    if(res.error === "stale_base" && attempt < MAX_INTAKE_TRIES - 1) continue;
+    return json(env, { ok:false, error:res.error, status:res.status }, 502);
+  }
+  return json(env, { ok:true, pid, pending: pendingCount });
 }
 
 async function handlePublish(request, env){
@@ -647,6 +686,23 @@ async function handlePublish(request, env){
   }
 
   const headers = await ghHeaders(env);
+
+  /* ★ 跨組保護:images/ 附件的授權 ★
+     data/ 檔的跨組隔離靠 canWriteDataFile,但 images/ 走 FILE_PATH_RE、不經過那裡——
+     只擋 viewer 的話,任一組長都能發一張 images/<別組成員檔名>.jpg 覆寫別組成員的照片
+     (檔名全寫在公開的 data.js 裡,不必猜)。所以組長送 images/ 附件時,要求檔名前綴等於
+     自己那組的內部 id;owner 不受限。內部 id 由 _index.json 解析,讀不到就 fail-closed
+     (寧可這次發不出去、要求重試,也不要放行一次可能的越權覆寫)。 */
+  if(sessionRole(sess) === "leader"){
+    const assetPaths = fileList.filter(f => !f.path.startsWith("data/")).map(f => f.path);
+    if(assetPaths.length){
+      const gid = await groupInternalId(env, headers, sess.g);
+      if(!gid) return json(env, { ok:false, error:"group_unresolved", group: sess.g || "" }, 403);
+      const prefix = "images/" + gid + "_";
+      const bad = assetPaths.find(p => !p.startsWith(prefix));
+      if(bad) return json(env, { ok:false, error:"forbidden_asset", path: bad, group: sess.g || "" }, 403);
+    }
+  }
 
   /* 版本落後偵測(逐檔):baseHashes 是 {路徑: 這份草稿的來源版本雜湊}。
      只要有一個分組檔在編輯期間被別人改過就整批擋下,不做部分寫入——
