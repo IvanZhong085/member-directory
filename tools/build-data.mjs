@@ -29,6 +29,16 @@ export function loadGroups(){
   const index = JSON.parse(readFileSync(INDEX_FILE, "utf8"));
   if(!Array.isArray(index)) throw new Error("data/_index.json 必須是陣列");
 
+  /* 代號重複的話,兩筆都會讀同一個 <code>.json,合出兩個相同的組:前台重複顯示、
+     人數灌兩倍、roster 每人多一列,而且整條鏈路不報錯。寧可讓 Action 在這裡紅一次。
+     用正規化後的檔名(小寫)比對,因為 groupFilePath 本來就 case-insensitive。 */
+  const seenCode = new Set();
+  for(const entry of index){
+    const key = groupFileName(entry.code);
+    if(seenCode.has(key)) throw new Error(`data/_index.json 有重複的分組代號:${entry.code}`);
+    seenCode.add(key);
+  }
+
   return index.map(entry => {
     const path = groupFilePath(entry.code);
     if(!existsSync(path)) throw new Error(`_index.json 列出了 ${entry.code},但找不到 data/${groupFileName(entry.code)}`);

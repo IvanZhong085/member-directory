@@ -29,39 +29,33 @@ for(const entry of index){
   const path = groupFilePath(entry.code);
   if(!existsSync(path)){ console.warn("略過不存在的分組檔:" + groupFileName(entry.code)); continue; }
 
-  let src = readFileSync(path, "utf8");
-  const body = JSON.parse(src);
+  const body = JSON.parse(readFileSync(path, "utf8"));
   let changedInGroup = 0;
 
-  /* value=內嵌字串、suffix 決定檔名:形象照 _x、名片 _card、商品照 _p1.._p5 */
-  const convert = (m, value, suffix) => {
+  /* value=內嵌字串、suffix 決定檔名:形象照 _x、名片 _card、商品照 _p1.._p5。
+     setField 把「這一位、這一欄」改成檔名 —— 直接改物件對應欄位,而不是對整份檔案字串取代。
+     兩位成員若共用同一張內嵌照片(位元組完全相同),字串取代會把兩處一起換成第一位的檔名,
+     造成第二位被別名、其實體檔變孤兒,日後第一位換照片還會連帶悄悄替換掉第二位;
+     逐欄改寫則兩人各自指向自己的檔。 */
+  const convert = (m, value, suffix, setField) => {
     const match = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/.exec(value || "");
     if(!match) return;
     const fname = fileSafeId(m.id) + suffix + "." + EXT_BY_MIME[match[1]];
     writeFileSync(join(ROOT, "images", fname), Buffer.from(match[2], "base64"));
-    const needle = JSON.stringify(value);
-    if(!src.includes(needle)){
-      console.error("⚠ 找不到 " + m.name + " 的內嵌圖片字串,略過(分組檔格式異常?)");
-      return;
-    }
-    src = src.split(needle).join(JSON.stringify(fname));
+    setField(fname);
     converted++; changedInGroup++;
     console.log("已轉檔:" + entry.code + "・" + m.name + " → images/" + fname);
   };
 
   for(const m of body.members || []){
-    convert(m, m.image, "_x");
-    convert(m, m.card, "_card");
-    (m.products || []).forEach((p, i) => convert(m, p, "_p" + (i + 1)));
+    convert(m, m.image, "_x", fn => { m.image = fn; });
+    convert(m, m.card, "_card", fn => { m.card = fn; });
+    (m.products || []).forEach((p, i) => convert(m, p, "_p" + (i + 1), fn => { m.products[i] = fn; }));
   }
 
   if(changedInGroup){
-    // 改寫後重新解析驗證,確認人數沒被改壞才落盤
-    const check = JSON.parse(src);
-    if((check.members || []).length !== (body.members || []).length){
-      throw new Error(entry.code + ":改寫後成員數不符,放棄寫入");
-    }
-    writeFileSync(path, src);
+    // 逐欄改寫不可能改到成員數;以正規格式(2 空格縮排 + 尾端換行,與後台/Worker 落盤一致)寫回
+    writeFileSync(path, JSON.stringify(body, null, 2) + "\n");
   }
 }
 

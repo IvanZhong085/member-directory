@@ -103,7 +103,9 @@ window.ShareTools = (function(){
   }
 
   /* ---------- vCard ---------- */
-  function vEsc(s){ return String(s||"").replace(/\\/g,"\\\\").replace(/;/g,"\\;").replace(/,/g,"\\,").replace(/\n/g,"\\n"); }
+  /* vCard 值跳脫:\ ; , 與換行。CRLF/CR/LF 都折成 \n —— 只處理 \n 會放行裸 \r,
+     對把裸 CR 當行尾的寬鬆解析器仍可被折出額外屬性(TEL/URL…)。 */
+  function vEsc(s){ return String(s||"").replace(/\\/g,"\\\\").replace(/;/g,"\\;").replace(/,/g,"\\,").replace(/\r\n|[\r\n]/g,"\\n"); }
   function buildVCard(m){
     const g = m._group || {};
     const note = [
@@ -119,7 +121,7 @@ window.ShareTools = (function(){
       m.company ? "ORG:" + vEsc(m.company) : "ORG:" + vEsc(BRAND_TITLE),
       "TITLE:" + vEsc(m.title),
       "URL:" + shareUrl(m),
-      m.website ? "URL;TYPE=WORK:" + String(m.website).trim() : "",
+      m.website ? "URL;TYPE=WORK:" + vEsc(String(m.website).trim()) : "",
       note ? "NOTE:" + vEsc(note) : "",
       "END:VCARD",
     ].filter(Boolean).join("\r\n");
