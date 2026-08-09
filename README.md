@@ -255,6 +255,20 @@ data/a2.json …      其餘 11 組
 
 執行方式都一樣：把 `tools/google-form.gs` 貼到 script.google.com 的專案，選那支函式按執行，看「執行紀錄」複製網址。
 
+### 來賓在網站上直接報名（選用）
+
+`visitor.html` 可以顯示一份 floating-label 的內嵌表單，來賓不必離開名錄網站就能報名，資料照樣進**同一張 Google 表單與來賓 CRM**。
+
+沒設定時完全不影響現況 —— 頁面維持原本「開新分頁到 Google 表單」的按鈕。開啟方式：
+
+1. Apps Script 執行 `printVisitorFormEntryIds()`，它會印出一段可以直接複製的設定
+2. 貼進 `worker/publish-relay.js` 最上面的 `VISITOR_FORM_ID` 與 `VISITOR_ENTRY`，Deploy
+3. 之後表單題目若有更動，跑 `checkVisitorEntryIds()` 核對編號有沒有跑掉
+
+**為什麼要經過 Worker 而不是讓瀏覽器直接打 Google**：跨網域的關係瀏覽器讀不到 Google 的回應，送失敗時來賓看到的仍然是「報名成功」，單子掉了沒有人會知道。走 Worker 才拿得到真正的 HTTP 狀態；順便在那裡做 IP 限流與 honeypot，補上「自己刻表單就繞過了 Google 表單頁面本身防護」這個缺口。
+
+> ⚠ `entry.<數字>` 是 Google 給每一題的編號，**改題目或刪掉重加會變**，而且送出時會安靜地少一欄。動過表單就跑一次 `checkVisitorEntryIds()`。
+
 ### 新夥伴照片自動歸檔（選用）
 
 表單上傳的照片預設全部堆在 Google 自建的 `(File responses)` 資料夾裡，檔名是「題目 - 填答者」，混在一起；手動整理完，下一筆送出又會掉回去。

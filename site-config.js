@@ -6,6 +6,9 @@ const SITE = {
   ORG_NAME:  "雲榮鑽石分會",                                        // 分會名稱(所有頁面的品牌字樣)
   BRAND_SUB: "MEMBER DIRECTORY",                                    // 品牌英文副標(標示頁面性質,非分會名)
   SITE_BASE: "https://ivanzhong085.github.io/member-directory/",    // 發布後的正式網址(QR、og、vCard 都以此為準)
+  /* Cloudflare Worker(發布中介)的網址。非機密:它只認密碼與 Origin,網址本身公開沒關係。
+     visitor.html 的內嵌報名表單靠它把資料轉送到 Google 表單。 */
+  RELAY_URL: "https://member-directory-relay.retetrhjj123.workers.dev",
 
   /* ── 三個外部連結(Google 表單/試算表)──────────────────────────────
      都由 tools/google-form.gs 的對應函式建立,執行後把「執行紀錄」印出的網址貼到這裡。

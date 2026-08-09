@@ -63,6 +63,100 @@ function createVisitorForm() {
   PropertiesService.getScriptProperties().setProperty("VISITOR_FORM_EDIT_URL", form.getEditUrl());
 }
 
+/* ══ 來賓表單的 entry 編號 ═══════════════════════════════════════════════
+   visitor.html 上的內嵌報名表單,是把資料送到 Google 表單的 formResponse 端點;
+   每一題要用它自己的「entry.<數字>」當欄位名。這兩支就是拿來取得與核對那些編號的。
+
+   printVisitorFormEntryIds()  印出一段可以直接貼進 worker/publish-relay.js 的設定
+   checkVisitorEntryIds()      核對 Worker 裡那份設定是不是還跟表單對得上
+
+   編號怎麼來的:用官方 API createResponse().toPrefilledUrl() 產生預填網址,
+   再從網址裡把 entry.<數字> 解析出來 —— 比自己去翻表單網頁原始碼可靠。
+   ⚠ 改題目、刪掉重加一題,編號就會變,而且送出會**安靜地少一欄**。
+     動過表單之後請跑一次 checkVisitorEntryIds()。 */
+var VISITOR_FIELD_TITLES = {
+  name:     "姓名",
+  phone:    "電話",
+  line:     "LINE ID",
+  job:      "職業",
+  referrer: "引薦人姓名",
+};
+
+/* 表單各題 → entry 編號。回傳 { 欄位鍵: "entry.123", … };對不上的欄位不會出現在結果裡。 */
+function visitorEntryIds_() {
+  var editUrl = PropertiesService.getScriptProperties().getProperty("VISITOR_FORM_EDIT_URL");
+  if (!editUrl) throw new Error("指令碼屬性沒有 VISITOR_FORM_EDIT_URL —— 請先跑 createVisitorForm,或手動補上表單的編輯網址");
+  var form = FormApp.openByUrl(editUrl);
+
+  /* 給每一題填一個獨一無二的標記,再從預填網址反查它落在哪個 entry。
+     直接比對題目標題會被全半形、空白差異卡住,標記則是我們自己給的,不會弄錯。 */
+  var items = form.getItems(), marks = {}, resp = form.createResponse();
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i];
+    if (it.getType() !== FormApp.ItemType.TEXT) continue;   // 來賓表單五題都是單行文字
+    var mark = "ZZMARK" + i + "ZZ";
+    marks[mark] = normTitle_(it.getTitle());
+    resp = resp.withItemResponse(it.asTextItem().createResponse(mark));
+  }
+  var url = resp.toPrefilledUrl();
+
+  // 反查:網址裡每個 entry.NNN=ZZMARKiZZ,對回題目標題,再對回我們的欄位鍵
+  var byTitle = {};
+  var re = /[?&](entry\.\d+)=([^&]*)/g, m;
+  while ((m = re.exec(url)) !== null) {
+    var val = decodeURIComponent(m[2]);
+    if (marks[val]) byTitle[marks[val]] = m[1];
+  }
+  var out = {};
+  for (var key in VISITOR_FIELD_TITLES) {
+    if (!Object.prototype.hasOwnProperty.call(VISITOR_FIELD_TITLES, key)) continue;
+    var t = normTitle_(VISITOR_FIELD_TITLES[key]);
+    if (byTitle[t]) out[key] = byTitle[t];
+  }
+  return { form: form, ids: out, seenTitles: byTitle };
+}
+
+/* 印出可以直接貼進 Worker 的設定 */
+function printVisitorFormEntryIds() {
+  var r = visitorEntryIds_();
+  var formId = String(r.form.getPublishedUrl()).replace(/^.*\/forms\/d\/e\/([^\/]+)\/.*$/, "$1");
+  var missing = [];
+  for (var key in VISITOR_FIELD_TITLES) {
+    if (Object.prototype.hasOwnProperty.call(VISITOR_FIELD_TITLES, key) && !r.ids[key]) missing.push(key + "(" + VISITOR_FIELD_TITLES[key] + ")");
+  }
+  Logger.log("把下面這兩段貼進 worker/publish-relay.js,取代原本的 VISITOR_FORM_ID 與 VISITOR_ENTRY:");
+  Logger.log("");
+  Logger.log('const VISITOR_FORM_ID = "' + formId + '";');
+  Logger.log("const VISITOR_ENTRY = {");
+  Logger.log('  name: "' + (r.ids.name || "") + '", phone: "' + (r.ids.phone || "") + '", line: "' + (r.ids.line || "") + '",');
+  Logger.log('  job: "' + (r.ids.job || "") + '", referrer: "' + (r.ids.referrer || "") + '",');
+  Logger.log("};");
+  Logger.log("");
+  if (missing.length) {
+    Logger.log("⚠ 這些欄位對不上表單題目:" + missing.join("、"));
+    Logger.log("  表單上實際有的文字題:" + objKeys_(r.seenTitles).join("、"));
+    Logger.log("  題目改過名字的話,請一起改上面的 VISITOR_FIELD_TITLES。");
+  } else {
+    Logger.log("✅ 五個欄位都對得上。貼進 Worker 之後記得 Deploy。");
+  }
+}
+
+/* 核對 Worker 裡的設定還對不對(改過表單之後跑這支) */
+function checkVisitorEntryIds() {
+  var r = visitorEntryIds_();
+  var n = 0;
+  for (var key in VISITOR_FIELD_TITLES) {
+    if (!Object.prototype.hasOwnProperty.call(VISITOR_FIELD_TITLES, key)) continue;
+    if (r.ids[key]) { Logger.log("  " + key + "(" + VISITOR_FIELD_TITLES[key] + ")→ " + r.ids[key]); n++; }
+    else Logger.log("  ✗ " + key + "(" + VISITOR_FIELD_TITLES[key] + ")→ 表單上找不到這一題");
+  }
+  Logger.log(n === 5
+    ? "✅ 五題都在。請比對這些編號與 Worker 裡的 VISITOR_ENTRY 是否一致,不一致就重跑 printVisitorFormEntryIds 並重貼。"
+    : "⚠ 只對上 " + n + " 題 —— 這樣送出會安靜地少欄位,請先修好表單題目或 VISITOR_FIELD_TITLES。");
+}
+
+function objKeys_(o) { var a = []; for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) a.push(k); return a; }
+
 /* ══════════════════════════════════════════════════════════════════════════
    新夥伴自填資料表單
    ══════════════════════════════════════════════════════════════════════════

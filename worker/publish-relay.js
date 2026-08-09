@@ -322,8 +322,12 @@ async function clearFail(env, ip){
 
 /* 純連線測試，不驗證密碼、不佔用登入錯誤次數額度。
    caps.files=true 讓編輯頁知道這個 Worker 已支援附件（照片存實體檔、同步分享預覽頁）。 */
+/* caps 是給前端判斷「這個 Worker 支援什麼」用的:
+   files   發布時可以附照片實體檔(舊版沒有,編輯頁會改走內嵌照片)
+   visitor 來賓報名的 entry 設定已填好 —— visitor.html 靠它決定要顯示內嵌表單,
+           還是退回「開新分頁到 Google 表單」的舊按鈕。 */
 async function handlePing(request, env){
-  return json(env, { ok:true, service:"member-directory-relay", caps:{ files:true } });
+  return json(env, { ok:true, service:"member-directory-relay", caps:{ files:true, visitor: visitorConfigured() } });
 }
 
 async function handleLogin(request, env){
@@ -751,6 +755,91 @@ async function handlePublish(request, env){
   return json(env, { ok:true, filesWritten:written, newHashes });
 }
 
+/* ══ 來賓報名(公開、免密碼)══════════════════════════════════════════════
+   visitor.html 上的內嵌表單送到這裡,由 Worker 轉送到 Google 表單的
+   formResponse 端點,資料照樣進原本那張表單與來賓 CRM。
+
+   為什麼要繞這一手,而不是讓瀏覽器直接打 Google:
+   跨網域的關係,瀏覽器**讀不到** Google 的回應 —— 送失敗時來賓看到的仍然是
+   「報名成功」,單子掉了沒有人會知道。走 Worker 就拿得到 Google 真正的 HTTP
+   狀態,失敗能請來賓重試。順便,這裡有 IP 限流與 honeypot,擋掉把 CRM 灌爆的
+   機器人(自己刻的表單等於繞過了 Google 表單頁面本身的防護)。
+
+   ★ 下面兩個設定要跟線上那張表單對得起來 ★
+   entry 編號是 Google 給每一題的 id,改題目重建時會變。到 Apps Script 執行
+   printVisitorFormEntryIds() 會把整段印出來,直接貼過來取代即可;
+   之後可以用 checkVisitorEntryIds() 確認有沒有跑掉。
+   兩者都不是機密(任何人在表單原始碼裡都看得到),放在這裡沒有安全問題。
+   留空 = 這個功能沒開,前台會自動退回「開新分頁到 Google 表單」的舊行為。 */
+const VISITOR_FORM_ID = "";        // 表單的 e/ 後面那段(1FAIpQLSc… 開頭)
+const VISITOR_ENTRY = {            // 欄位 → entry 編號
+  name: "", phone: "", line: "", job: "", referrer: "",
+};
+const VISITOR_TEXT_MAX = 100;
+const VISITOR_MAX_PER_WINDOW = 8;  // 同一 IP 在節流窗內最多報名幾次
+
+function visitorConfigured(){
+  return !!(VISITOR_FORM_ID && VISITOR_ENTRY.name && VISITOR_ENTRY.phone &&
+            VISITOR_ENTRY.line && VISITOR_ENTRY.job);
+}
+
+async function handleVisitor(request, env){
+  if(!visitorConfigured()) return json(env, { ok:false, error:"visitor_not_configured" }, 503);
+
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  let count = 0;
+  try{
+    requireKV(env);
+    const raw = await env.RATE_LIMIT.get("visitor:" + ip);
+    const d = raw ? JSON.parse(raw) : null;
+    if(d && Date.now() - d.windowStart <= FAIL_WINDOW_SECONDS*1000){
+      if(d.count >= VISITOR_MAX_PER_WINDOW) return json(env, { ok:false, error:"too_many_submissions" }, 429);
+      count = d.count;
+    }
+  }catch(e){
+    if(e && e.code === "rate_limit_kv_missing") return json(env, { ok:false, error:"rate_limit_unavailable" }, 500);
+  }
+
+  let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
+  body = body && typeof body === "object" ? body : {};
+
+  /* honeypot:畫面上看不到的欄位,只有機器人會填。填了就當成功回覆但不真的送出 ——
+     直接回錯誤等於告訴對方「這裡有陷阱」,換個寫法再來就是了。 */
+  if(String(body.website == null ? "" : body.website).trim()){
+    return json(env, { ok:true, skipped:true });
+  }
+
+  /* 沿用 intake 那支 str():剝掉控制字元、截長度。再把換行/tab 收成單一空白 ——
+     這幾欄都是單行,但字內的空白與連字號要保留(「陳 大文」「0912-345-678」不能被改掉)。 */
+  const t = v => str(v, VISITOR_TEXT_MAX).replace(/\s+/g, " ").trim();
+  const fields = { name:t(body.name), phone:t(body.phone), line:t(body.line), job:t(body.job), referrer:t(body.referrer) };
+  for(const k of ["name","phone","line","job"]){
+    if(!fields[k]) return json(env, { ok:false, error:"missing_field", field:k }, 400);
+  }
+
+  try{ await env.RATE_LIMIT.put("visitor:" + ip, JSON.stringify({ count: count+1, windowStart: Date.now() }), { expirationTtl: FAIL_WINDOW_SECONDS }); }catch(e){}
+
+  const form = new URLSearchParams();
+  for(const k of ["name","phone","line","job","referrer"]){
+    if(VISITOR_ENTRY[k] && fields[k]) form.set(VISITOR_ENTRY[k], fields[k]);
+  }
+  const url = "https://docs.google.com/forms/d/e/" + encodeURIComponent(VISITOR_FORM_ID) + "/formResponse";
+  try{
+    const r = await fetchWithTimeout(url, {
+      method:"POST",
+      headers:{ "Content-Type":"application/x-www-form-urlencoded;charset=UTF-8" },
+      body: form.toString(),
+    }, GITHUB_TIMEOUT_MS);
+    /* Google 收下會回 200(確認頁)。400 幾乎都是 entry 編號對不上或必填沒帶到 ——
+       那是設定問題,不是來賓的錯,所以回一個看得出來的錯誤碼而不是含糊的失敗。 */
+    if(r.status === 400) return json(env, { ok:false, error:"form_rejected" }, 502);
+    if(!r.ok) return json(env, { ok:false, error:"form_unreachable", status:r.status }, 502);
+    return json(env, { ok:true });
+  }catch(e){
+    return json(env, { ok:false, error: e && e.name === "AbortError" ? "form_timeout" : "form_unreachable" }, 502);
+  }
+}
+
 /* 公開的訪客瀏覽計數：不需要密碼、不佔登入錯誤額度。
    scope="site" 累計全站；scope="member"&id=<成員id> 累計單一成員頁，回傳遞增後的數字。
    讀-改-寫非原子（Workers KV 特性），對這種展示用計數可接受；偶爾平行存取可能少算一兩次。
@@ -866,6 +955,7 @@ export default {
       if(pathname === "/intake") return await handleIntake(request, env);
       if(pathname === "/health") return await handleHealth(request, env);
       if(pathname === "/views") return await handleViews(request, env);
+      if(pathname === "/visitor") return await handleVisitor(request, env);
       return json(env, { ok:false, error:"not_found" }, 404);
     }catch(e){
       return json(env, { ok:false, error:"server_error" }, 500);
