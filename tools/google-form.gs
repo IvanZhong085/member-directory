@@ -383,6 +383,19 @@ function onNewMemberSubmit(e) {
   } else {
     Logger.log("✗ 送出失敗(HTTP " + code + "):" + body + "\n   回應仍在試算表裡,可請網管手動處理。");
   }
+
+  /* 照片歸檔(選用,見 setPhotoArchiveFolder)。
+     刻意排在送出「之後」而且整段包起來:歸檔只是整理,失敗絕不能讓新夥伴的申請掉了。
+     照片這時已經讀成 base64 送出去了,搬動檔案不影響上面任何一步。 */
+  try {
+    archiveSubmissionPhotos_(applicant.name, [
+      { ids: photos.slice(0, 1),   label: "形象照" },
+      { ids: cards.slice(0, 1),    label: "名片" },
+      { ids: products.slice(0, 5), label: "商品照" },
+    ]);
+  } catch (err) {
+    Logger.log("⚠ 照片歸檔略過(不影響上面的申請):" + err);
+  }
 }
 
 /* Drive 上的照片 → data:image/jpeg;base64,…(名錄後台認得的格式)。
@@ -565,6 +578,22 @@ function checkNewMemberSetup() {
   for (var i = 0; i < all.length; i++) if (all[i].getHandlerFunction() === NEWMEMBER_TRIGGER) n++;
   Logger.log("送出觸發器    :" + (n ? n + " 個" : "✗ 沒有 —— 請跑 setupNewMemberTrigger"));
 
+  var fromProp = props.getProperty("PHOTO_ARCHIVE_FOLDER_ID");
+  var archiveId = fromProp || PHOTO_ARCHIVE_FOLDER_ID_DEFAULT;
+  var source = fromProp ? "指令碼屬性" : "程式碼預設值";
+  if (!archiveId) {
+    Logger.log("照片歸檔      :未啟用(要開就跑 setPhotoArchiveFolder(\"資料夾網址\"),或填 PHOTO_ARCHIVE_FOLDER_ID_DEFAULT)");
+  } else {
+    try {
+      var af = DriveApp.getFolderById(archiveId);
+      Logger.log("照片歸檔      :✅ " + af.getName() + "/新夥伴照片/(來源:" + source + ")");
+      Logger.log("                " + af.getUrl());
+      Logger.log("                ⚠ 照片會繼承這個資料夾的共用設定,請確認它不是「知道連結的任何人」");
+    } catch (err) {
+      Logger.log("照片歸檔      :✗ 資料夾打不開(可能被刪或沒權限,來源:" + source + "):" + err);
+    }
+  }
+
   if (!relay || !secret) return;
   // 故意送一份不完整的申請:secret 對的話會回 bad_applicant,代表這條路是通的
   var res = UrlFetchApp.fetch(relay + "/intake", {
@@ -575,6 +604,123 @@ function checkNewMemberSetup() {
   else if (body.indexOf("bad_secret") >= 0)    Logger.log("連線與密碼    :✗ INTAKE_SECRET 與 Cloudflare 上的不一樣");
   else if (body.indexOf("intake_disabled") >= 0) Logger.log("連線與密碼    :✗ Cloudflare 上還沒設 INTAKE_SECRET");
   else Logger.log("連線與密碼    :? HTTP " + res.getResponseCode() + " " + body);
+}
+
+/* ══ 照片自動歸檔 ══════════════════════════════════════════════════════
+   表單上傳的照片一律落在 Google 自己建的「(File responses)」資料夾,檔名是
+   「題目名稱 - 填答者姓名.jpg」全部混在一起,而且你手動整理完,下一筆送出又掉回去。
+   所以歸檔要讓程式在每次送出時自己做:
+
+       <你指定的資料夾>/新夥伴照片/<姓名>_<日期>/姓名_形象照.jpg
+                                                  姓名_名片.jpg
+                                                  姓名_商品照1.jpg …
+
+   幾個刻意的決定:
+   ① 用「移動」而不是「複製」——複製會佔兩份空間,而且日後看到兩張不知道哪張是本尊。
+      移動不改檔案 ID,所以回應試算表裡那條連結照樣點得開,這支腳本讀照片也不受影響。
+   ② 移進去之後,照片會**繼承目的資料夾的分享設定** —— 這正是重點:資料夾分享給誰,
+      誰就看得到照片,不必一張一張開權限。
+   ③ 沒設 PHOTO_ARCHIVE_FOLDER_ID 就整個跳過,不影響原本的運作(這是選用功能)。
+   ④ 整段包在 try/catch 裡、而且排在送出待認領區「之後」——歸檔失敗絕不能連累新夥伴
+      的申請送不出去。
+
+   設定方式:執行一次 setPhotoArchiveFolder("<資料夾網址或 ID>")。 */
+
+/* 指定歸檔資料夾。參數可以直接貼 Drive 網址,也可以只給 ID。
+   會實際寫入一次做權限測試 —— 設定當下就知道行不行,而不是等到有人填表才發現。 */
+function setPhotoArchiveFolder(folderIdOrUrl) {
+  var raw = String(folderIdOrUrl || "").trim();
+  if (!raw) throw new Error('請帶入資料夾網址或 ID,例如 setPhotoArchiveFolder("https://drive.google.com/drive/folders/xxxx")');
+  /* 從網址裡挑出 ID;直接給 ID 也吃得下。挑不出來就當場說清楚 ——
+     不然會把整串網址當成 ID 送去 Drive,錯誤訊息變成一長串網址,看不出是貼錯了。 */
+  var m = raw.match(/\/folders\/([-\w]+)/) || raw.match(/^([-\w]+)$/);
+  if (!m) throw new Error('看不出資料夾 ID。請貼資料夾網址(像 https://drive.google.com/drive/folders/xxxx)或只貼 ID,你給的是:' + raw);
+  var id = m[1];
+  var folder = DriveApp.getFolderById(id);  // 找不到或沒權限會在這裡拋錯,訊息比自己寫的清楚
+  var probe = childFolder_(folder, "新夥伴照片");   // 建得出子資料夾 = 真的有寫入權
+  PropertiesService.getScriptProperties().setProperty("PHOTO_ARCHIVE_FOLDER_ID", id);
+  Logger.log("✅ 照片歸檔資料夾已設定:" + folder.getName());
+  Logger.log("   照片會放進:" + folder.getName() + "/" + probe.getName() + "/<姓名>_<日期>/");
+  Logger.log("   " + folder.getUrl());
+  Logger.log("提醒:照片會繼承這個資料夾的分享設定,請確認它分享給的是你想給的人。");
+}
+
+/* 預設的歸檔資料夾。填了就不必再執行 setPhotoArchiveFolder ——
+   貼上這份程式碼、掛好觸發器,照片就會自動歸檔。留空字串則代表不啟用。
+
+   ⚠ 這個 repo 是公開的,任何人都讀得到下面這串 ID。
+      ID 本身不是密碼,能不能打開**完全取決於這個資料夾的「共用」設定**:
+        設成「限制」+ 逐一加人  → 拿到 ID 也打不開,安全。
+        設成「知道連結的任何人」→ 等於把裡面的來賓電話、LINE ID 公開給所有讀得到
+                                  這個 repo 的人,而且若權限是「編輯者」還能被刪檔。
+      所以填在這裡的前提是:那個資料夾的共用設定必須是「限制」。 */
+var PHOTO_ARCHIVE_FOLDER_ID_DEFAULT = "1wDCAN41GguTkRKN-6PKHxWjjXhZigZBt";
+
+/* 取得歸檔資料夾;沒設定或拿不到就回 null(呼叫端會安靜跳過歸檔)。
+   指令碼屬性優先於上面的預設值 —— 換帳號或臨時改目的地時,不必動程式碼。 */
+function photoArchiveFolder_() {
+  var id = PropertiesService.getScriptProperties().getProperty("PHOTO_ARCHIVE_FOLDER_ID")
+        || PHOTO_ARCHIVE_FOLDER_ID_DEFAULT;
+  if (!id) return null;
+  try { return DriveApp.getFolderById(id); }
+  catch (err) { Logger.log("⚠ 照片歸檔資料夾打不開(" + err + "),這次跳過歸檔"); return null; }
+}
+
+/* 找同名子資料夾,沒有才建 —— 每次送出都會呼叫,不能每次都長一個新的出來 */
+function childFolder_(parent, name) {
+  var it = parent.getFoldersByName(name);
+  return it.hasNext() ? it.next() : parent.createFolder(name);
+}
+
+/* Drive 檔名安全字元:斜線會被當成路徑分隔、控制字元會讓檔名看起來像空的。
+   中文、空白、連字號都是合法檔名字元,不動它們(把「陳 大文」變成「陳大文」只會讓人找不到)。
+   控制字元用 charCodeAt 逐字剔除,不寫進正規表示式 —— 這個檔要整份貼進 Apps Script 編輯器,
+   原始碼裡不該出現真的控制位元組。 */
+function safeFileName_(s) {
+  var raw = String(s == null ? "" : s).replace(/[\/\\:*?"<>|]/g, "");
+  var out = "";
+  for (var i = 0; i < raw.length; i++) {
+    var c = raw.charCodeAt(i);
+    if (c > 31 && c !== 127) out += raw.charAt(i);
+  }
+  out = out.trim();
+  return out.slice(0, 60) || "未具名";
+}
+
+/* 把這一筆送出的照片全部搬進歸檔資料夾並改成看得懂的檔名。
+   groups = [{ ids:[Drive 檔案 id…], label:"形象照" }, …] */
+function archiveSubmissionPhotos_(name, groups) {
+  var root = photoArchiveFolder_();
+  if (!root) return;                       // 沒設定 = 沒開這個功能
+  var person = safeFileName_(name);
+  var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyyMMdd");
+  var dest = childFolder_(childFolder_(root, "新夥伴照片"), person + "_" + stamp);
+
+  var moved = 0, failed = 0;
+  for (var g = 0; g < groups.length; g++) {
+    var ids = groups[g].ids || [], label = groups[g].label;
+    for (var i = 0; i < ids.length; i++) {
+      try {
+        var file = DriveApp.getFileById(ids[i]);
+        var ext = String(file.getName()).match(/\.[A-Za-z0-9]{1,5}$/);
+        file.setName(person + "_" + label + (ids.length > 1 ? (i + 1) : "") + (ext ? ext[0] : ""));
+        /* moveTo 是現行做法;萬一這個環境的 DriveApp 沒有(舊版執行階段),
+           退回「加到新資料夾 + 從舊資料夾移除」的老寫法,效果一樣。 */
+        try { file.moveTo(dest); }
+        catch (err) {
+          dest.addFile(file);
+          var parents = file.getParents();
+          while (parents.hasNext()) {
+            var p = parents.next();
+            if (p.getId() !== dest.getId()) { try { p.removeFile(file); } catch (e2) {} }
+          }
+        }
+        moved++;
+      } catch (err) { failed++; Logger.log("⚠ " + label + " 歸檔失敗:" + err); }
+    }
+  }
+  Logger.log("📁 照片已歸檔 " + moved + " 張" + (failed ? "(失敗 " + failed + " 張)" : "") +
+             " → " + root.getName() + "/新夥伴照片/" + dest.getName());
 }
 
 /* 建立「名冊鏡像」Google 試算表:A1 放 IMPORTDATA,名錄一發布就自動跟上(約每小時重抓)。
