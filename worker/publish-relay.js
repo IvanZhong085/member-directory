@@ -39,9 +39,10 @@ const FAIL_WINDOW_SECONDS = 15 * 60;     // 15 分鐘
 const MIN_LOGIN_MS = 300;                // 每次 /login 至少花這麼久才回應，拖慢暴力破解速度（也讓 timingSafeEqual 更難被計時分析）
 const GITHUB_TIMEOUT_MS = 15000;         // 呼叫 GitHub API 的逾時上限，避免請求無限期卡住
 
-/* 附件檔（照片、成員分享預覽頁）：編輯頁發布時可一併附上，逐一寫進 repo。
-   路徑白名單只允許 images/ 與 m/ 兩個資料夾、安全字元檔名、限定副檔名——
-   權杖雖只授權這個 repo，仍不給「寫任意路徑」的能力。 */
+/* 附件檔（照片）：編輯頁發布時可一併附上，逐一寫進 repo。
+   路徑白名單只允許 images/ 一個資料夾、安全字元檔名、限定副檔名——
+   權杖雖只授權這個 repo，仍不給「寫任意路徑」的能力。
+   （m/ 的成員分享頁是 Action 產生的產出物,不接受從瀏覽器寫入,理由見下方 FILE_PATH_RE。） */
 const MAX_FILES_PER_REQUEST = 25;               // 單次發布的附件上限（編輯頁會自動分批）
 const MAX_FILE_B64_CHARS = 3 * 1024 * 1024;     // 單一附件 base64 上限（約 2.2MB 原始檔）
 /* 只有 images/ 的圖片。m/ 的成員分享頁是 Action 產生的產出物,沒有人該從瀏覽器直接寫——
@@ -722,18 +723,29 @@ async function handleViews(request, env){
     return json(env, { ok:false, error:"bad_scope" }, 400);
   }
   let n = null;
+  let viewsReadOk = false;
   try{
     const raw = await kv.get(key);
+    viewsReadOk = true;                       // 讀到了(不論有沒有值);null 代表「這個 key 還不存在」
     if(raw != null) n = parseInt(raw, 10) || 0;
-  }catch(e){ /* 讀取失敗:當作還沒有值,往下走接手舊數字那條路 */ }
+  }catch(e){ /* VIEWS 讀取失敗:見下方,絕不接手、也絕不覆寫 */ }
+
+  /* VIEWS 這次讀不到目前的值(KV 暫時性抖動)就別寫回去。若硬要往下走,會用一個過時的數字
+     覆蓋掉較新的儲存值 —— 接手分支會拿 RATE_LIMIT 的舊值、否則退回 0,兩者都會讓前台
+     計數倒退(例如已接手到 620,抖一下就被寫成 501 或 1)。這是展示用計數器,這一次不計數
+     即可,前端拿到非 ok 會靜默隱藏該格,下一次讀成功就恢復。 */
+  if(!viewsReadOk){
+    return json(env, { ok:false, error:"views_unavailable" }, 200);
+  }
 
   /* 一次性接手舊數字:VIEWS 是新命名空間,綁上去的那一刻裡面是空的,計數會從 0 重來。
      舊值還躺在 RATE_LIMIT 裡(當年沒綁 VIEWS 時寫進去的,沒設過期時間),key 名稱兩邊
      完全一樣,所以第一次遇到某個 key 就去那裡撈一次,撈到就從那個數字接著加。
      全站總數與 93 位成員各自的數字都會自動接回來,不必手動一筆一筆抄。
 
-     這條路只「讀」RATE_LIMIT,不寫 —— 上面那段在意的是寫入額度,讀取不佔額度,
-     所以失敗範圍仍然是分開的。每個 key 也只會走這一次:接手後 VIEWS 就有值了。 */
+     只有在「VIEWS 讀取成功、且確定沒有這個 key(n 仍為 null)」時才接手 —— 讀取例外已在上面
+     擋掉,不會誤觸接手把較新值蓋掉。這條路只「讀」RATE_LIMIT,不寫 —— 上面那段在意的是寫入
+     額度,讀取不佔額度,失敗範圍仍分開。每個 key 也只會走這一次:接手後 VIEWS 就有值了。 */
   if(n === null){
     const old = env.RATE_LIMIT;
     if(old && typeof old.get === "function" && old !== kv){

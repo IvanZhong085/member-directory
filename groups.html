@@ -124,6 +124,14 @@
     .grid{grid-template-columns:repeat(2, 1fr);}
     .mast-date{position:static; display:block; margin-top:4px;}
   }
+  /* 存成 JPG 時暫時套用:把版面強制釘回桌面 A4 橫式 6 欄,不管當下螢幕多窄。
+     JPG 是「照著螢幕已排好的版面逐字重畫」,若在手機(窄螢幕 2 欄直式)下直接撷取,
+     產出的會是直式長圖、甚至高度超過瀏覽器 canvas 上限而失敗 —— 偏偏這功能就是為
+     iOS Safari/手機使用者而存在。這些選擇器比 @media screen 規則更具體,故能覆蓋它。
+     (桌面本來就是這個版面,套上去沒有任何變化。) */
+  .sheet.exporting{width:297mm; min-height:210mm; padding:7mm 9mm 13mm;}
+  .sheet.exporting .grid{grid-template-columns:repeat(6, 1fr);}
+  .sheet.exporting .mast-date{position:absolute; right:2px; bottom:8px; margin-top:0; display:block;}
 </style>
 </head>
 <body>
@@ -337,7 +345,6 @@
     /* A4 橫式 300dpi = 3508×2480。手機記憶體吃不下時退到 200、150dpi ——
        寧可解析度低一點,也不要按下去沒反應。 */
     var dpis = [300, 200, 150];
-    var basePx = sheet.getBoundingClientRect().width;
 
     function attempt(i){
       if(i >= dpis.length){
@@ -347,7 +354,15 @@
       }
       var targetW = Math.round(297 / 25.4 * dpis[i]);
       var cv;
-      try{ cv = paintSheet(targetW / basePx); }catch(e){ cv = null; }
+      /* 撷取期間把版面釘回桌面 A4:量寬與逐字重畫都必須在這個版面下進行,否則手機的
+         窄螢幕 2 欄版面會被畫進圖裡。paintSheet 是同步的,畫完 cv 已含像素,之後的
+         toBlob 不再碰 DOM,所以撷取一結束就能立刻還原,不會讓使用者看到寬版閃一下。 */
+      sheet.classList.add("exporting");
+      try{
+        var basePx = sheet.getBoundingClientRect().width;   // 在桌面版面下量,scaleK 才正確
+        cv = paintSheet(targetW / basePx);
+      }catch(e){ cv = null; }
+      finally{ sheet.classList.remove("exporting"); }
       if(!cv){ attempt(i + 1); return; }
 
       var name = (SITE.ORG_NAME || "產業小組表").replace(/[\\/:*?"<>|]/g, "") + "_產業小組表.jpg";

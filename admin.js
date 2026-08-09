@@ -1361,10 +1361,13 @@
     redoStack = []; pendingSnap = null;
     updateHistoryButtons();
   }
-  /* 文字欄位：focus 時先拍一張，第一次輸入才把那張存進復原堆疊 → 一整段編輯只算「一步」 */
+  /* 文字欄位：focus 時先拍一張，第一次輸入才把那張存進復原堆疊 → 一整段編輯只算「一步」。
+     這裡務必用 snapshot()（{data,pending} 物件），不能是裸的 clone(DATA)：commitPendingSnap
+     會把它 push 進「同一個」undoStack，而 undo() 的 restore() 讀的是 s.data / s.pending。
+     若存成裸陣列，undo 取到後 s.data 為 undefined → DATA=undefined → renderAll 崩潰、資料全毀。 */
   function wireTextInput(el, onInput){
     if(!el) return;
-    el.addEventListener("focus", () => { pendingSnap = clone(DATA); });
+    el.addEventListener("focus", () => { pendingSnap = snapshot(); });
     el.addEventListener("blur", () => { pendingSnap = null; });
     el.addEventListener("input", () => { commitPendingSnap(); onInput(el.value); });
   }
