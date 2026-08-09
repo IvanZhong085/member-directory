@@ -23,8 +23,11 @@
  * 相容性：沒有設定 ADMIN_USERS 時，仍會沿用舊的單一 ADMIN_PASSWORD，此時帳號固定為 admin。
  *    - 一般變數：GH_OWNER=IvanZhong085、GH_REPO=member-directory、GH_BRANCH=main、GH_PATH=data.js、
  *      ALLOWED_ORIGIN=https://ivanzhong085.github.io
- * 4. 到 Settings → Bindings → 新增 KV Namespace binding：Variable name 填 RATE_LIMIT，
- *    Namespace 新建一個（例如叫 member-directory-rate-limit）。
+ * 4. 到 Settings → Bindings → 新增 KV Namespace binding，一共兩個，**各自要有自己的 Namespace**：
+ *      RATE_LIMIT → 新建一個（例如 member-directory-rate-limit）：登入失敗次數，必要。
+ *      VIEWS      → 新建一個（例如 member-directory-views）：前台「累計瀏覽」那格，選用。
+ *    沒綁 VIEWS 只是不顯示計數，其他功能完全正常；千萬不要把兩個變數指到同一個 Namespace，
+ *    原因見下方 handleViews 的說明（瀏覽量會吃光寫入額度，連帶讓登入限流失效）。
  * 5. Save and deploy，把網址（https://xxx.workers.dev）貼到編輯頁「設定」裡的「後端服務網址」。
  *
  * 完整步驟另見 member-site/worker/README.md。
@@ -718,11 +721,30 @@ async function handleViews(request, env){
   } else {
     return json(env, { ok:false, error:"bad_scope" }, 400);
   }
-  let n = 0;
+  let n = null;
   try{
     const raw = await kv.get(key);
-    n = raw ? (parseInt(raw, 10) || 0) : 0;
-  }catch(e){ /* 讀取失敗就從 0 起算 */ }
+    if(raw != null) n = parseInt(raw, 10) || 0;
+  }catch(e){ /* 讀取失敗:當作還沒有值,往下走接手舊數字那條路 */ }
+
+  /* 一次性接手舊數字:VIEWS 是新命名空間,綁上去的那一刻裡面是空的,計數會從 0 重來。
+     舊值還躺在 RATE_LIMIT 裡(當年沒綁 VIEWS 時寫進去的,沒設過期時間),key 名稱兩邊
+     完全一樣,所以第一次遇到某個 key 就去那裡撈一次,撈到就從那個數字接著加。
+     全站總數與 93 位成員各自的數字都會自動接回來,不必手動一筆一筆抄。
+
+     這條路只「讀」RATE_LIMIT,不寫 —— 上面那段在意的是寫入額度,讀取不佔額度,
+     所以失敗範圍仍然是分開的。每個 key 也只會走這一次:接手後 VIEWS 就有值了。 */
+  if(n === null){
+    const old = env.RATE_LIMIT;
+    if(old && typeof old.get === "function" && old !== kv){
+      try{
+        const raw = await old.get(key);
+        if(raw != null) n = parseInt(raw, 10) || 0;
+      }catch(e){ /* 舊命名空間讀不到就從 0 起算 */ }
+    }
+  }
+  if(n === null || !(n >= 0)) n = 0;
+
   n += 1;
   try{ await kv.put(key, String(n)); }
   catch(e){ return json(env, { ok:false, error:"write_failed", count:n }, 200); }
