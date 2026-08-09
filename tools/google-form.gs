@@ -578,15 +578,19 @@ function checkNewMemberSetup() {
   for (var i = 0; i < all.length; i++) if (all[i].getHandlerFunction() === NEWMEMBER_TRIGGER) n++;
   Logger.log("送出觸發器    :" + (n ? n + " 個" : "✗ 沒有 —— 請跑 setupNewMemberTrigger"));
 
-  var archiveId = props.getProperty("PHOTO_ARCHIVE_FOLDER_ID");
+  var fromProp = props.getProperty("PHOTO_ARCHIVE_FOLDER_ID");
+  var archiveId = fromProp || PHOTO_ARCHIVE_FOLDER_ID_DEFAULT;
+  var source = fromProp ? "指令碼屬性" : "程式碼預設值";
   if (!archiveId) {
-    Logger.log("照片歸檔      :未啟用(選用功能,要開就跑 setPhotoArchiveFolder(\"資料夾網址\"))");
+    Logger.log("照片歸檔      :未啟用(要開就跑 setPhotoArchiveFolder(\"資料夾網址\"),或填 PHOTO_ARCHIVE_FOLDER_ID_DEFAULT)");
   } else {
     try {
       var af = DriveApp.getFolderById(archiveId);
-      Logger.log("照片歸檔      :✅ " + af.getName() + "/新夥伴照片/  " + af.getUrl());
+      Logger.log("照片歸檔      :✅ " + af.getName() + "/新夥伴照片/(來源:" + source + ")");
+      Logger.log("                " + af.getUrl());
+      Logger.log("                ⚠ 照片會繼承這個資料夾的共用設定,請確認它不是「知道連結的任何人」");
     } catch (err) {
-      Logger.log("照片歸檔      :✗ 資料夾打不開(可能被刪或沒權限):" + err);
+      Logger.log("照片歸檔      :✗ 資料夾打不開(可能被刪或沒權限,來源:" + source + "):" + err);
     }
   }
 
@@ -641,9 +645,22 @@ function setPhotoArchiveFolder(folderIdOrUrl) {
   Logger.log("提醒:照片會繼承這個資料夾的分享設定,請確認它分享給的是你想給的人。");
 }
 
-/* 取得歸檔資料夾;沒設定或拿不到就回 null(呼叫端會安靜跳過歸檔) */
+/* 預設的歸檔資料夾。填了就不必再執行 setPhotoArchiveFolder ——
+   貼上這份程式碼、掛好觸發器,照片就會自動歸檔。留空字串則代表不啟用。
+
+   ⚠ 這個 repo 是公開的,任何人都讀得到下面這串 ID。
+      ID 本身不是密碼,能不能打開**完全取決於這個資料夾的「共用」設定**:
+        設成「限制」+ 逐一加人  → 拿到 ID 也打不開,安全。
+        設成「知道連結的任何人」→ 等於把裡面的來賓電話、LINE ID 公開給所有讀得到
+                                  這個 repo 的人,而且若權限是「編輯者」還能被刪檔。
+      所以填在這裡的前提是:那個資料夾的共用設定必須是「限制」。 */
+var PHOTO_ARCHIVE_FOLDER_ID_DEFAULT = "1wDCAN41GguTkRKN-6PKHxWjjXhZigZBt";
+
+/* 取得歸檔資料夾;沒設定或拿不到就回 null(呼叫端會安靜跳過歸檔)。
+   指令碼屬性優先於上面的預設值 —— 換帳號或臨時改目的地時,不必動程式碼。 */
 function photoArchiveFolder_() {
-  var id = PropertiesService.getScriptProperties().getProperty("PHOTO_ARCHIVE_FOLDER_ID");
+  var id = PropertiesService.getScriptProperties().getProperty("PHOTO_ARCHIVE_FOLDER_ID")
+        || PHOTO_ARCHIVE_FOLDER_ID_DEFAULT;
   if (!id) return null;
   try { return DriveApp.getFolderById(id); }
   catch (err) { Logger.log("⚠ 照片歸檔資料夾打不開(" + err + "),這次跳過歸檔"); return null; }
