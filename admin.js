@@ -53,6 +53,14 @@
   let INDEX = [];              // [{code,name,id}...],決定分組順序
   const loadedBody = {};       // 路徑 → 載入當下的檔案內容(用來判斷「這組有沒有被改過」)
   const baseHashes = {};       // 路徑 → 載入當下的 SHA-256(發布時給 Worker 做版本落後偵測)
+  /* 路徑 → 「上一次發布送出去的內容」。送出前就寫進草稿,收到成功回應才清掉。
+     用途只有一個:發布其實已經寫進 GitHub、但這邊沒記到成功時(回應在網路上逾時遺失,
+     或同一次請求裡前面的檔寫成功、後面的失敗),重新整理後靠它認出「那次其實成功了」,
+     把 baseHashes 對齊到線上版本 —— 否則 baseHashes 會一直停在舊值,而 repo 已是新內容,
+     每次發布都被判成版本落後(stale_base),而且訊息還謊稱「有人在你編輯期間發布過」,
+     連重新整理都救不回來(草稿會把舊 baseHashes 再蓋回去),只能捨棄草稿、連帶丟掉還沒
+     發布的修改。見 reconcileWithLive()。 */
+  const sentBody = {};
 
   const dataPathOf = code => "data/" + String(code).trim().toLowerCase() + ".json";
   /* 分組代號只能是英數字:它同時是檔名(data/<代號>.json)與權限的判定依據。
@@ -74,6 +82,9 @@
     const bytes = new TextEncoder().encode(str);
     let bin = ""; for(const b of bytes) bin += String.fromCharCode(b);
     return btoa(bin);
+  }
+  function b64ToUtf8(b64){
+    return new TextDecoder().decode(Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
   }
   async function sha256Hex(bytes){
     const d = await crypto.subtle.digest("SHA-256", bytes);
@@ -187,7 +198,7 @@
          於是別人在這期間發布的修改會被這份舊草稿無聲蓋回去。 */
       localStorage.setItem(draftKey(), JSON.stringify({
         savedAt: Date.now(), data: DATA, pending: PENDING,
-        baseHashes: baseHashes, loadedBody: loadedBody,
+        baseHashes: baseHashes, loadedBody: loadedBody, sentBody: sentBody,
       }));
       saveState.textContent = "已自動儲存 " + new Date().toLocaleTimeString("zh-Hant",{hour:"2-digit",minute:"2-digit"});
       showDraftBanner(true);
@@ -211,6 +222,10 @@
     if(!raw) return;
     let parsed; try{ parsed = JSON.parse(raw); }catch(e){ return; }
     if(!parsed || !Array.isArray(parsed.data) || !parsed.data.length) return;
+    /* 先留住 loadData() 剛抓到的線上實況 —— 下面會被草稿蓋掉,但 reconcileWithLive()
+       需要拿它跟「上次送出去的內容」比對,才認得出「其實已經發布成功了」。 */
+    const liveHashes = Object.assign({}, baseHashes);
+    const liveBody = Object.assign({}, loadedBody);
     DATA = parsed.data;
     // 舊版草稿沒有 pending 欄位,那時就沿用剛從伺服器載到的清單
     if(Array.isArray(parsed.pending)) PENDING = parsed.pending;
@@ -225,13 +240,38 @@
       for(const k of Object.keys(loadedBody)) delete loadedBody[k];
       Object.assign(loadedBody, parsed.loadedBody);
     }
+    if(parsed.sentBody && typeof parsed.sentBody === "object"){
+      for(const k of Object.keys(sentBody)) delete sentBody[k];
+      Object.assign(sentBody, parsed.sentBody);
+    }
+    recoveredPaths = reconcileWithLive(liveHashes, liveBody);
     if(!DATA.some(g => g.id === selected)) selected = DATA.length ? DATA[0].id : null;
     hasDraft = true;
+  }
+  let recoveredPaths = [];
+  /* 「上次其實已經發布成功了,只是這邊沒記到」的自我修復。
+     判斷依據是內容本身:某個檔線上的內容 === 我們上次送出去的內容,就代表那次寫入
+     確實落地了(不管是我們寫的、還是別人剛好送了一模一樣的內容,結果都是 repo 已經
+     有我們要的東西)。這時把 baseHashes/loadedBody 對齊到線上版本,發布就不會再被
+     誤判成版本落後;那個檔也自然從「有變更」的清單裡消失,不會重送一次。
+     內容不一致就什麼都不做 —— 那是真的還沒寫進去(或別人改成了別的東西),
+     維持原本的保護,寧可擋下來也不要蓋掉別人。 */
+  function reconcileWithLive(liveHashes, liveBody){
+    const fixed = [];
+    for(const path of Object.keys(sentBody)){
+      if(liveBody[path] == null || liveBody[path] !== sentBody[path]) continue;
+      baseHashes[path] = liveHashes[path];
+      loadedBody[path] = liveBody[path];
+      delete sentBody[path];      // 已經對齊,不必再追蹤
+      fixed.push(path);
+    }
+    return fixed;
   }
   function discardDraft(){
     if(!confirm("捨棄尚未發布的變更，改回目前公開網站的內容？")) return;
     clearTimeout(saveTimer);
     dirty = false;
+    for(const k of Object.keys(sentBody)) delete sentBody[k];   // 草稿都不要了,復原線索一起清掉
     try{ localStorage.removeItem(draftKey()); }catch(e){}
     loadData().then(() => {
       showDraftBanner(false);
@@ -1252,8 +1292,9 @@
       const alignAfterChunk = (files, newHashes) => {
         Object.assign(baseHashes, newHashes || {});
         files.forEach(f => {
-          if(f.path.startsWith("data/")) loadedBody[f.path] = new TextDecoder().decode(
-            Uint8Array.from(atob(f.contentB64), c => c.charCodeAt(0)));
+          if(!f.path.startsWith("data/")) return;
+          loadedBody[f.path] = b64ToUtf8(f.contentB64);
+          delete sentBody[f.path];   // 已確認成功,不必再靠它復原
         });
       };
 
@@ -1264,6 +1305,14 @@
           sent += chunk.length;
           btn.textContent = "發布中…（檔案 " + sent + "/" + payload.files.length + "）";
         }
+        /* 送出「之前」先把這批資料檔的內容記進草稿。這一步是回應遺失時唯一的線索:
+           沒有它,下次開頁面就分不出「其實已經寫進去了」與「真的被別人搶先改掉」,
+           只能一律當成版本落後,把人卡死。照片附件不必記(沒有版本語意,重寫無妨)。 */
+        const sentThisChunk = chunk.filter(f => f.path.startsWith("data/"));
+        if(sentThisChunk.length){
+          sentThisChunk.forEach(f => { sentBody[f.path] = b64ToUtf8(f.contentB64); });
+          saveDraft();
+        }
         res = await workerFetch("/publish", { session, files: chunk, baseHashes });
         if(!res.ok) break;
         alignAfterChunk(chunk, res.newHashes);
@@ -1271,6 +1320,7 @@
       if(res.ok){
         clearTimeout(saveTimer);
         dirty = false;
+        for(const k of Object.keys(sentBody)) delete sentBody[k];   // 全部確認成功,復原線索用不到了
         try{ localStorage.removeItem(draftKey()); }catch(e){}
         showDraftBanner(false);
         hidePermBanner();
@@ -1582,6 +1632,12 @@
     // 登入當下資料還沒抓回來,組長的組名查不到(會顯示「找不到此組」),載完要再寫一次
     showWho();
     showDraftBanner(hasDraft);
+    /* 上次發布其實成功了、只是沒收到回應 —— 講清楚。使用者當時看到的是失敗訊息
+       (甚至是「有人在你編輯期間發布過」),不講的話他會以為修改還沒上線而重做一次。 */
+    if(recoveredPaths.length){
+      toast("上次發布其實已經成功了（" + recoveredPaths.length + " 個檔案），只是當時沒收到回應。" +
+            "已自動對齊，可以直接繼續編輯。", { duration: 10000 });
+    }
   }
   renderAll();
   validate();
