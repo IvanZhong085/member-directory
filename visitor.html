@@ -68,6 +68,9 @@
     display:flex; align-items:center; gap:9px; text-decoration:none; color:var(--ink);
     border:1px solid var(--hair); border-radius:13px; padding:11px 13px; background:#fff;
     transition:transform .15s, box-shadow .15s;
+    /* 格線項目預設 min-width:auto,擠不下時不會縮,整頁就被推出去橫向捲動(手機上很明顯)。
+       設成 0 才輪得到下面 .name 的 text-overflow:ellipsis 發揮作用。 */
+    min-width:0;
   }
   .gchip:hover{transform:translateY(-2px); box-shadow:0 8px 20px -10px rgba(27,28,34,.25);}
   .gchip .code{
@@ -94,7 +97,43 @@
     transition:transform .15s, background .15s;
   }
   .cta-btn:hover{transform:translateY(-2px); background:var(--red-dark);}
+  .cta-btn:disabled{opacity:.6; cursor:default; transform:none; box-shadow:none;}
   .cta-alt{font-size:12.5px; color:var(--muted); margin-top:12px;}
+
+  /* ── 內嵌報名表單(floating label)──
+     來賓直接在這一頁填完,不必跳到 Google 表單。
+     浮動標籤靠 :not(:placeholder-shown) 判斷「有沒有填字」,所以每個 input 都要有
+     placeholder=" "(一個空白),而且 label 必須排在 input 後面才選得到。 */
+  .vform{max-width:560px; margin:0 auto; text-align:left;}
+  .vgrid{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+  .vfield{position:relative;}
+  .vfield.span2{grid-column:1 / -1;}
+  .vfield input{
+    width:100%; box-sizing:border-box; height:56px; padding:22px 14px 8px;
+    font-size:15px; font-family:inherit; color:var(--ink);
+    background:#fff; border:1px solid var(--red-100); border-radius:12px;
+    outline:none; transition:border-color .15s, box-shadow .15s;
+  }
+  .vfield input:focus{border-color:var(--red); box-shadow:0 0 0 3px rgba(200,16,46,.12);}
+  .vfield label{
+    position:absolute; left:15px; top:18px; font-size:15px; color:var(--muted);
+    pointer-events:none; transition:transform .15s, color .15s;
+    transform-origin:left top; background:transparent;
+  }
+  .vfield input:focus + label,
+  .vfield input:not(:placeholder-shown) + label{
+    transform:translateY(-11px) scale(.74); color:var(--red);
+  }
+  .vfield input:not(:placeholder-shown):not(:focus) + label{color:var(--muted);}
+  .vfield.bad input{border-color:var(--red); background:var(--red-50);}
+  .vhint{font-size:11.5px; color:var(--muted); margin:10px 2px 0; line-height:1.6;}
+  .vmsg{margin-top:14px; font-size:14px; font-weight:700; line-height:1.7;}
+  .vmsg.ok{color:#1B7F4B;}
+  .vmsg.err{color:var(--red);}
+  .vform .cta-btn{margin-top:18px; border:0; cursor:pointer; font-family:inherit;}
+  /* honeypot:給機器人填的欄位,真人看不到也 tab 不到 */
+  .vhp{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden;}
+  @media (max-width:560px){ .vgrid{grid-template-columns:1fr;} }
 
   /* ── 頁尾 ── */
   .foot{border-top:1px solid var(--hair); background:var(--bg-soft); padding:22px 20px 30px; text-align:center;}
@@ -156,6 +195,20 @@
   <div class="cta-box">
     <h2>報名參訪</h2>
     <p>填 1 分鐘表單,我們會與你確認場次與座位。</p>
+    <!-- 內嵌表單:Worker 有設定好來賓表單時才顯示,否則退回下面那顆按鈕 -->
+    <form class="vform" id="cta-form" hidden novalidate>
+      <div class="vgrid">
+        <div class="vfield"><input id="v-name" name="name" placeholder=" " autocomplete="name" maxlength="100"><label for="v-name">姓名</label></div>
+        <div class="vfield"><input id="v-phone" name="phone" type="tel" placeholder=" " autocomplete="tel" maxlength="100"><label for="v-phone">電話</label></div>
+        <div class="vfield"><input id="v-line" name="line" placeholder=" " autocomplete="off" maxlength="100"><label for="v-line">LINE ID</label></div>
+        <div class="vfield"><input id="v-job" name="job" placeholder=" " autocomplete="organization-title" maxlength="100"><label for="v-job">職業</label></div>
+        <div class="vfield span2"><input id="v-ref" name="referrer" placeholder=" " autocomplete="off" maxlength="100"><label for="v-ref">引薦人姓名（選填）</label></div>
+      </div>
+      <div class="vhp" aria-hidden="true"><input id="v-hp" name="website" tabindex="-1" autocomplete="off" placeholder=" "><label for="v-hp">網站</label></div>
+      <button class="cta-btn" id="cta-submit" type="submit">送出報名</button>
+      <p class="vhint">電話與 LINE ID 僅供分會夥伴與你聯繫確認場次，不會公開在名錄網站上。</p>
+      <div class="vmsg" id="cta-msg" hidden role="status" aria-live="polite"></div>
+    </form>
     <a class="cta-btn" id="cta-btn" href="#" rel="noopener">我要報名參訪</a>
     <div class="cta-alt" id="cta-alt">也可以直接聯繫邀請你的分會夥伴完成報名。</div>
   </div>
@@ -218,6 +271,96 @@
       document.getElementById("cta-alt").textContent = "報名表單即將開通——請先聯繫邀請你的分會夥伴,或到會員名錄找到想認識的夥伴。";
     });
   }
+
+  /* ── 內嵌報名表單 ──────────────────────────────────────────────
+     資料送到自家 Worker,再由它轉給 Google 表單。為什麼不讓瀏覽器直接打 Google:
+     跨網域讀不到回應,送失敗時來賓看到的仍是「報名成功」,單子掉了沒人知道。
+     Worker 那一手讓我們拿得到真正的成功/失敗,也順便擋機器人。
+
+     Worker 還沒設定好 entry 編號時 caps.visitor 會是 false —— 那就維持原本
+     「開新分頁到 Google 表單」的按鈕,不要給來賓一個按了會失敗的表單。 */
+  (function(){
+    var form = document.getElementById("cta-form");
+    var relay = String(SITE.RELAY_URL || "").replace(/\/+$/, "");
+    if(!form || !relay) return;
+
+    var FIELDS = ["name", "phone", "line", "job", "referrer"];
+    var REQUIRED = ["name", "phone", "line", "job"];
+    var el = { name:"v-name", phone:"v-phone", line:"v-line", job:"v-job", referrer:"v-ref", website:"v-hp" };
+    var byKey = function(k){ return document.getElementById(el[k]); };
+    var msg = document.getElementById("cta-msg");
+    var btn = document.getElementById("cta-submit");
+
+    function say(text, kind){
+      msg.textContent = text;
+      msg.className = "vmsg " + (kind || "");
+      msg.hidden = false;
+    }
+    function clearBad(){
+      var bad = form.querySelectorAll(".vfield.bad");
+      for(var i = 0; i < bad.length; i++) bad[i].classList.remove("bad");
+    }
+
+    // 先問 Worker 支不支援;支援才把表單換上來
+    fetch(relay + "/ping", { method:"POST", headers:{ "Content-Type":"application/json" }, body:"{}" })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if(!d || !d.ok || !d.caps || !d.caps.visitor) return;   // 沒設定:維持舊按鈕
+        form.hidden = false;
+        cta.hidden = true;
+        document.getElementById("cta-alt").textContent = "送出後分會夥伴會與你聯繫確認場次與座位。";
+      })
+      .catch(function(){ /* 連不到就維持舊按鈕,來賓仍然報得了名 */ });
+
+    form.addEventListener("submit", function(e){
+      e.preventDefault();
+      clearBad();
+
+      var body = {}, missing = null;
+      for(var i = 0; i < FIELDS.length; i++){
+        var k = FIELDS[i];
+        body[k] = String(byKey(k).value || "").trim();
+      }
+      body.website = String(byKey("website").value || "");   // honeypot,真人一定是空的
+      for(var j = 0; j < REQUIRED.length; j++){
+        if(!body[REQUIRED[j]]){
+          var f = byKey(REQUIRED[j]);
+          f.parentNode.classList.add("bad");
+          if(!missing) { missing = f; }
+        }
+      }
+      if(missing){
+        say("這幾欄要填一下才送得出去。", "err");
+        missing.focus();
+        return;
+      }
+
+      btn.disabled = true;
+      var label = btn.textContent;
+      btn.textContent = "送出中…";
+      msg.hidden = true;
+
+      fetch(relay + "/visitor", {
+        method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body),
+      }).then(function(r){
+        return r.json().catch(function(){ return {}; });
+      }).then(function(d){
+        if(d && d.ok){
+          form.reset();
+          say("報名成功 ✔ 我們會盡快與你聯繫，確認場次與座位。", "ok");
+          btn.textContent = "已送出";
+          return;   // 成功就不要讓人重複送出
+        }
+        btn.disabled = false; btn.textContent = label;
+        if(d && d.error === "too_many_submissions") say("送出太頻繁了，請過幾分鐘再試一次。", "err");
+        else if(d && d.error === "missing_field") say("有必填欄位沒填到，請檢查後再送一次。", "err");
+        else say("送出失敗，你的資料沒有被記錄到。請再試一次，或直接聯繫邀請你的分會夥伴。", "err");
+      }).catch(function(){
+        btn.disabled = false; btn.textContent = label;
+        say("連不上報名服務，你的資料沒有被記錄到。請檢查網路後再試一次。", "err");
+      });
+    });
+  })();
 
   document.getElementById("btn-share").addEventListener("click", function(){
     var url = SITE.SITE_BASE + "visitor.html";
