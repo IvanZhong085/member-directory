@@ -54,6 +54,10 @@ const FILE_PATH_RE = /^images\/[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.(jpg|jpeg|png|we
 const DATA_PATH_RE = /^data\/(_index|_pending|[a-z0-9]{1,8})\.json$/;
 const MAX_DATA_B64_CHARS = 4 * 1024 * 1024;   // 單一分組檔 base64 上限(約 3MB 原始,含內嵌照片綽綽有餘)
 const PENDING_PATH = "data/_pending.json";
+/* 一個檔案最多讀進 Worker 記憶體多少位元組。git blobs API 本身容得下 100MB,但 Worker 只有
+   約 128MB,而讀一份 N 位元組的 JSON 峰值大約要 5N(base64 回應 → base64 字串 → 位元組陣列
+   → 解碼字串 → 解析後的物件)。8MB 對應峰值約 43MB,留了很寬的餘裕。 */
+const MAX_READ_BYTES = 8 * 1024 * 1024;
 
 /* 這個 session 可不可以寫這個路徑。
    總管理員:data/ 底下都可以。
@@ -237,6 +241,60 @@ function b64ToBytes(b64){
   for(let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
   return out;
 }
+/* 讀一個 repo 檔案的完整內容 + 它的 blob sha。
+
+   為什麼不能直接用 contents API 的 content 欄位:那個欄位**只在檔案 ≤1MB 時才有內容**。
+   超過 1MB 時 GitHub 仍回 200,但 content 是空字串、encoding 變成 "none"(size 照樣是
+   真實大小)。先前沒有分辨這件事,一個超過 1MB 的 data/_pending.json 就會造成兩種故障:
+     ・/intake 的 JSON.parse("") 直接拋錯 → 被外層 catch 成 502,新夥伴表單靜默收不到件
+     ・currentFileState 把「空內容」的 SHA-256 當成現行版本 → 與編輯頁(走 GitHub Pages
+       讀到完整檔案)算出來的雜湊永遠對不起來 → 組長認領一律被判 stale_base
+   一筆含名片與商品照的申請就足以讓 _pending.json 越過 1MB,所以這不是極端狀況。
+
+   >1MB 就改走 git blobs API(上限 100MB)。它吃的是 contents 回來的**同一個 blob sha**,
+   而 sha 就是內容本身的識別碼 —— 兩次讀取拿到的必然是同一份內容,中間就算有人推了新
+   commit 也不會讀到混血的結果,樂觀鎖的語意不受影響。
+
+   回傳:
+     { ok:true, bytes, sha }          讀到了(bytes/sha 皆為 null 代表檔案不存在)
+     { ok:false, error, status }      讀不到 —— 呼叫端各自決定要 fail-closed 還是跳過 */
+async function ghReadFile(env, headers, path){
+  let d;
+  try{
+    const url = contentsUrlFor(env, path) + "?ref=" + encodeURIComponent(env.GH_BRANCH || "main");
+    const r = await fetchWithTimeout(url, { headers }, GITHUB_TIMEOUT_MS);
+    if(r.status === 404) return { ok:true, bytes:null, sha:null };   // 還沒有這個檔,不是錯誤
+    if(r.status === 401 || r.status === 403) return { ok:false, error:"token_forbidden", status:r.status };
+    if(!r.ok) return { ok:false, error:"github_read_failed", status:r.status };
+    d = await r.json();
+  }catch(e){
+    return { ok:false, error: e && e.name === "AbortError" ? "github_timeout" : "github_unreachable" };
+  }
+  if(!d || typeof d.sha !== "string" || !d.sha) return { ok:false, error:"github_read_failed" };
+
+  // ≤1MB:內容就在 content 裡。空檔案(size 0)的 content 也是空字串,那是合法的。
+  if(d.encoding === "base64" && typeof d.content === "string" && (d.content !== "" || d.size === 0)){
+    return { ok:true, bytes: b64ToBytes(d.content), sha: d.sha };
+  }
+  // >1MB:content 是空的,改用 blob sha 去拿。先擋掉大到不該讀進 Worker 記憶體的檔案,
+  // 否則不是回錯誤而是整個 Worker 被 OOM 砍掉 —— 那種失敗更難查。
+  if(typeof d.size === "number" && d.size > MAX_READ_BYTES){
+    return { ok:false, error:"file_too_large", size:d.size, max:MAX_READ_BYTES };
+  }
+  try{
+    const b = await fetchWithTimeout(blobUrlFor(env, d.sha), { headers }, GITHUB_TIMEOUT_MS);
+    if(b.status === 401 || b.status === 403) return { ok:false, error:"token_forbidden", status:b.status };
+    if(!b.ok) return { ok:false, error:"github_read_failed", status:b.status };
+    const bd = await b.json();
+    if(!bd || bd.encoding !== "base64" || typeof bd.content !== "string"){
+      return { ok:false, error:"github_read_failed" };
+    }
+    return { ok:true, bytes: b64ToBytes(bd.content), sha: d.sha };
+  }catch(e){
+    return { ok:false, error: e && e.name === "AbortError" ? "github_timeout" : "github_unreachable" };
+  }
+}
+
 /* 現行檔案內容的 SHA-256。讀不到(檔案不存在、網路問題)回傳 null＝跳過比對:
    寧可放行,也不要因為一次讀取失敗就擋住所有人發布。 */
 /* 現行版本:內容的 SHA-256(拿來跟草稿的來源版本比對)+ GitHub 的 blob sha
@@ -245,13 +303,10 @@ function b64ToBytes(b64){
    讀不到(檔案不存在、網路問題)回 null;檔案不存在時回 { hash:null, sha:null }。 */
 async function currentFileState(env, headers, path){
   try{
-    const url = contentsUrlFor(env, path) + "?ref=" + encodeURIComponent(env.GH_BRANCH || "main");
-    const r = await fetchWithTimeout(url, { headers }, GITHUB_TIMEOUT_MS);
-    if(r.status === 404) return { hash:null, sha:null };   // 還沒有這個檔,不是錯誤
+    const r = await ghReadFile(env, headers, path);
     if(!r.ok) return null;
-    const d = await r.json();
-    if(!d || typeof d.content !== "string") return null;
-    return { hash: await sha256Hex(b64ToBytes(d.content)), sha: typeof d.sha === "string" ? d.sha : null };
+    if(r.bytes === null) return { hash:null, sha:null };   // 還沒有這個檔,不是錯誤
+    return { hash: await sha256Hex(r.bytes), sha: r.sha };
   }catch(e){ return null; }
 }
 
@@ -264,12 +319,9 @@ async function groupInternalId(env, headers, code){
   const want = String(code == null ? "" : code).trim().toLowerCase();
   if(!want) return null;
   try{
-    const url = contentsUrlFor(env, "data/_index.json") + "?ref=" + encodeURIComponent(env.GH_BRANCH || "main");
-    const r = await fetchWithTimeout(url, { headers }, GITHUB_TIMEOUT_MS);
-    if(!r.ok) return null;
-    const d = await r.json();
-    if(!d || typeof d.content !== "string") return null;
-    const idx = JSON.parse(new TextDecoder().decode(b64ToBytes(d.content)));
+    const r = await ghReadFile(env, headers, "data/_index.json");
+    if(!r.ok || r.bytes === null) return null;
+    const idx = JSON.parse(new TextDecoder().decode(r.bytes));
     if(!Array.isArray(idx)) return null;
     const hit = idx.find(e => e && typeof e.code === "string" && e.code.trim().toLowerCase() === want);
     return hit && typeof hit.id === "string" && hit.id ? hit.id : null;
@@ -402,6 +454,10 @@ async function handleHealth(request, env){
 function contentsUrlFor(env, path){
   return `https://api.github.com/repos/${encodeURIComponent(env.GH_OWNER)}/${encodeURIComponent(env.GH_REPO)}/contents/` +
     String(path).replace(/^\/+/, "").split("/").map(encodeURIComponent).join("/");
+}
+function blobUrlFor(env, sha){
+  return `https://api.github.com/repos/${encodeURIComponent(env.GH_OWNER)}/${encodeURIComponent(env.GH_REPO)}/git/blobs/` +
+    encodeURIComponent(sha);
 }
 
 /* 讀 sha（存在才需要）→ PUT 寫入一個檔案。回傳 {ok} 或 {ok:false, error, status} */
@@ -604,27 +660,34 @@ async function handleIntake(request, env){
   let pendingCount = 0;
   for(let attempt = 0; ; attempt++){
     let current = [], sha = null;
-    try{
-      const url = contentsUrlFor(env, PENDING_PATH) + "?ref=" + encodeURIComponent(env.GH_BRANCH || "main");
-      const r = await fetchWithTimeout(url, { headers }, GITHUB_TIMEOUT_MS);
-      if(r.ok){
-        const d = await r.json();
-        const parsed = JSON.parse(new TextDecoder().decode(b64ToBytes(d.content)));
-        if(Array.isArray(parsed)) current = parsed;
-        sha = typeof d.sha === "string" ? d.sha : null;   // ★ 留住 sha 當樂觀鎖,別像以前丟掉
-      } else if(r.status === 401 || r.status === 403){
-        return json(env, { ok:false, error:"token_forbidden" }, 502);
-      } else if(r.status !== 404){
-        return json(env, { ok:false, error:"github_read_failed", status:r.status }, 502);
-      }
-      // 404 = 還沒有這個檔,current 空、sha null(寫入時不帶 sha = 建立新檔)
-    }catch(e){
-      return json(env, { ok:false, error: e && e.name === "AbortError" ? "github_timeout" : "github_unreachable" }, 502);
+    const read = await ghReadFile(env, headers, PENDING_PATH);
+    if(!read.ok){
+      return json(env, { ok:false, error:read.error, status:read.status, size:read.size, max:read.max }, 502);
     }
+    if(read.bytes !== null){
+      /* 檔案在,但內容讀不懂(不是合法 JSON、或不是陣列)就 fail-closed。
+         原本這裡是「解析失敗就當成空清單」,而空清單接下來會被當成基底整份寫回去 ——
+         等於把所有還沒被認領的申請一次抹掉,而且表單那頭收到的是「送出成功」。
+         寧可這一筆退回請對方稍後再送(資料還留在回應試算表),也不要洗掉別人的申請。 */
+      let parsed;
+      try{ parsed = JSON.parse(new TextDecoder().decode(read.bytes)); }
+      catch(e){ return json(env, { ok:false, error:"pending_unreadable" }, 502); }
+      if(!Array.isArray(parsed)) return json(env, { ok:false, error:"pending_unreadable" }, 502);
+      current = parsed;
+      sha = read.sha;   // ★ 留住 sha 當樂觀鎖,別像以前丟掉
+    }
+    // read.bytes === null:還沒有這個檔,current 空、sha null(寫入時不帶 sha = 建立新檔)
     if(current.length >= MAX_PENDING) return json(env, { ok:false, error:"pending_full", max:MAX_PENDING }, 409);
 
     const next = current.concat([applicant]);
     const bytes = new TextEncoder().encode(JSON.stringify(next, null, 2) + "\n");
+    /* 寫入上限與讀取上限刻意是同一個數字:永遠不要寫出一份自己讀不回來的檔案。
+       沒有這道閘門的話,單筆上限 3MB × 50 筆理論上能長到 150MB —— 那時連 blobs API
+       都救不了,而且故障點會落在「讀」那一側,看起來像 GitHub 壞了,極難查。
+       擋在這裡的話,訊息是明確的:待認領區滿了,請組長先認領或清掉幾筆。 */
+    if(bytes.length > MAX_READ_BYTES){
+      return json(env, { ok:false, error:"pending_too_large", size:bytes.length, max:MAX_READ_BYTES }, 409);
+    }
     const res = await ghPutFile(env, headers, PENDING_PATH, bytesToB64(bytes),
                                 "新夥伴申請待認領：" + applicant.name, sha);
     if(res.ok){ pendingCount = next.length; break; }
