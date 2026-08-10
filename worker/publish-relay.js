@@ -771,9 +771,10 @@ async function handlePublish(request, env){
    之後可以用 checkVisitorEntryIds() 確認有沒有跑掉。
    兩者都不是機密(任何人在表單原始碼裡都看得到),放在這裡沒有安全問題。
    留空 = 這個功能沒開,前台會自動退回「開新分頁到 Google 表單」的舊行為。 */
-const VISITOR_FORM_ID = "";        // 表單的 e/ 後面那段(1FAIpQLSc… 開頭)
+const VISITOR_FORM_ID = "1FAIpQLScOoqaeS9M3Tq-vaaI6ic3bR1nIvnquSptsgtLiFd8a9EPIDg";
 const VISITOR_ENTRY = {            // 欄位 → entry 編號
-  name: "", phone: "", line: "", job: "", referrer: "",
+  name: "entry.1128131260", phone: "entry.1708639339", line: "entry.1952852401",
+  job: "entry.1596298967", referrer: "entry.798820908",
 };
 const VISITOR_TEXT_MAX = 100;
 const VISITOR_MAX_PER_WINDOW = 8;  // 同一 IP 在節流窗內最多報名幾次
