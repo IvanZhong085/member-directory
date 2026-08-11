@@ -173,6 +173,40 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 
 所以程式現在不再退而求其次：沒綁 `VIEWS` 就單純不計數。
 
+### 4-2. 綁定待認領照片的儲存空間（R2，**必要**）
+
+新夥伴填完表單、還沒被任何組長認領之前，他的照片（尤其是**名片**，上面通常有手機、Email、地址）要有地方放。這些照片**不可以**放進 `data/_pending.json` —— 那個檔在**公開 repo**，等於把還沒加入分會的人的名片公開給全世界，而且進了 git 歷史之後刪檔也移不掉。
+
+所以照片改存 Cloudflare R2 的**私有** bucket，`_pending.json` 只留文字與「不可公開讀取的物件引用」。**認領成功的那一刻**才把 web 版照片寫進 repo 的 `images/`。
+
+1. Cloudflare 左側 **R2 Object Storage** → **Create bucket**
+2. 名稱填 `member-directory-pending-images`（可自訂，binding 才是關鍵）
+3. **不要**開啟 Public Access／不要接自訂網域 —— 這個 bucket 必須是私有的
+4. 回到 Worker → **Settings** → **Bindings** → **Add binding** → **R2 bucket**
+5. **Variable name** 填 `PENDING_IMAGES`，bucket 選剛才建立的那個
+6. **Save and deploy**
+
+#### 設一條 lifecycle rule（強烈建議）
+
+7. 回到該 bucket → **Settings** → **Object lifecycle rules** → **Add rule**
+8. Prefix 填 `pending/`，設定「**30 天後刪除**」
+
+這條規則是最後一道保險。正常流程下，照片會在認領成功後立刻被刪掉；但如果 Worker 剛好在「Git commit 已成功、R2 還沒刪」之間中斷，就會留下沒有任何申請指向的孤兒物件。lifecycle rule 會把它們清掉，不需要人工介入。
+
+> **沒綁 `PENDING_IMAGES` 會怎樣**：`/intake` 一律回 `pending_image_store_unavailable`（HTTP 503），表單那頭會收到明確的失敗訊息，資料仍完整留在 Google 表單的回應試算表裡，可以補送。
+>
+> **程式刻意不提供「退回把照片寫進 `_pending.json`」的備援** —— 那個退路正是要消滅的東西：一旦退回去，未認領者的名片又會進公開 repo，而且是在沒有人察覺的情況下。
+
+#### 確認有沒有設定成功
+
+部署後打一次 `/ping`，`caps.pendingImages` 要是 `"r2-v1"`：
+
+```json
+{ "ok": true, "caps": { "pendingImages": "r2-v1", "claim": true, "read": true, "atomic": true } }
+```
+
+是 `false` 就代表 binding 沒生效，**這時候不要更新 Apps Script**（見下方部署順序）。
+
 ### 5. 拿到網址、貼進編輯頁
 
 1. 回到 Worker 總覽頁，複製網址（長得像 `https://member-directory-relay.你的帳號.workers.dev`）
@@ -186,6 +220,31 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 - **密碼錯太多次會暫時鎖住**（15 分鐘內錯 5 次），且每次登入都刻意加了一點點延遲，讓大量嘗試密碼變得更慢、更不划算。
 - **登入後的「通行證」（session）存在瀏覽器分頁的暫存區**，關掉分頁就消失，最長 30 分鐘要重新輸入密碼一次。這張通行證在有效期內可以用來發布——這是為了操作簡單所做的合理取捨，而不是遺漏。
 - Worker 的**程式碼本身**（這個 `publish-relay.js`）沒有任何密碼或權杖，可以放心保留在公開的 repo 裡。真正的機密（密碼、GitHub 權杖、簽章密鑰）只存在 Cloudflare 後台的「Secret」欄位，且該頁面只有登入 Cloudflare 的管理員看得到。
+
+## 升級到「待認領照片存私有 R2」的部署順序
+
+**順序不能顛倒。** 每一步都有一個明確的檢查點，沒過就不要往下走。
+
+| # | 動作 | 檢查點 |
+|---|---|---|
+| 1 | 建立 private R2 bucket（見 4-2） | bucket 存在、**沒有** Public Access |
+| 2 | 綁 `PENDING_IMAGES`、設 `pending/` 的 30 天 lifecycle rule | Bindings 清單裡看得到 |
+| 3 | **先**部署新版 Worker | 打 `/ping`，`caps.pendingImages === "r2-v1"` |
+| 4 | 若目前 `data/_pending.json` 還有舊格式（含 `data:image/`）的申請，用總管理員身分呼叫一次 `/migrate-pending` | 回應的 `migrated` 數字符合預期；`_pending.json` 不再含 `data:image/` |
+| 5 | 更新 Apps Script（`tools/google-form.gs`）與前端 | — |
+| 6 | 送一份**含 7 張照片**的測試申請 | R2 裡有 7 個物件、`_pending.json` 只有幾 KB、認領後 `images/` 有 7 張且 R2 被清空 |
+| 7 | 確認無誤後才處理／清掉舊的待認領資料 | — |
+
+`/migrate-pending` 是**可重跑**的：已經是新格式的項目會被跳過，不會重複上傳。它只改寫「目前的」`_pending.json`，**不會改寫 git 歷史**。
+
+### 回滾
+
+⚠ **不要直接部署只認得舊 data URL 的舊版 Worker。** 新格式的申請把照片放在 `photoRefs` 指向的 R2 物件裡，舊版 Worker 讀不懂那個欄位，認領時會建出一張**沒有照片**的成員卡，而申請已經從待認領區消失 —— 照片就再也接不回去了。
+
+要回滾的話，二選一：
+
+- **先把待認領區清空**（全部認領完或刪掉），確認 `_pending.json` 是 `[]`，再部署舊版；或
+- 回滾到**仍然看得懂 `photoRefs` 的版本**（本次的 Worker 同時支援新舊兩種格式，所以往前回滾到它是安全的）。
 
 ## 之後要做的維護
 

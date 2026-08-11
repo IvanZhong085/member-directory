@@ -471,11 +471,36 @@ function onNewMemberSubmit(e) {
     Logger.log("✗ 連不到發布服務:" + err + "(回應仍在試算表裡,可請網管手動處理)");
     return;
   }
+  /* ★ 真的把回應解析出來,不要只用字串比對。
+     照片改存私有 R2 之後,Worker 會在照片有問題時**整筆退回**(而不是像以前那樣
+     靜默丟掉一張照片仍回報成功)。所以這裡的紀錄必須讓人一眼看出:
+     這一筆到底進去了沒有、卡在哪一個欄位、要不要人工補送。 */
   var code = res.getResponseCode(), body = res.getContentText();
-  if (code === 200 && body.indexOf('"ok":true') >= 0) {
-    Logger.log("✅ 已送進待認領區:" + applicant.name + " " + body);
+  var out = null;
+  try { out = JSON.parse(body); } catch (err2) { out = null; }
+
+  if (code === 200 && out && out.ok === true) {
+    Logger.log("✅ 已送進待認領區:" + applicant.name +
+               "(pid " + out.pid + "、照片 " + (out.photos || 0) + " 張、目前共 " + out.pending + " 筆)");
+    /* Worker 回報的警告:記下是哪一位、哪一個欄位、什麼原因,但**不記照片內容**。 */
+    if (out.warnings && out.warnings.length) {
+      for (var wi = 0; wi < out.warnings.length; wi++) {
+        Logger.log("   ⚠ " + out.pid + " 欄位 " + out.warnings[wi].field + ":" + out.warnings[wi].reason);
+      }
+    }
   } else {
-    Logger.log("✗ 送出失敗(HTTP " + code + "):" + body + "\n   回應仍在試算表裡,可請網管手動處理。");
+    var why = out && out.error ? out.error : ("HTTP " + code);
+    var where = out && out.field ? "(欄位 " + out.field + ")" : "";
+    var hint =
+      why === "pending_image_store_unavailable" ? "Worker 還沒接上待認領照片的儲存空間(R2),請先完成設定再重送。" :
+      why === "pending_image_too_large"         ? "照片超過單張上限,請用較小的圖或降低表單上傳解析度。" :
+      why === "invalid_pending_image"           ? "照片格式不是名錄收得下的 JPEG/PNG/WebP。" :
+      why === "pending_full"                    ? "待認領區已滿,請組長先認領或刪除幾筆再重送。" :
+      why === "pending_entry_too_large"         ? "文字欄位太長,請縮短後重送。" :
+      "請把這行紀錄提供給網管。";
+    Logger.log("✗ 這一筆【沒有】進待認領區:" + applicant.name + " —— " + why + where +
+               "\n   " + hint +
+               "\n   回應仍完整留在試算表裡,修正後可請網管手動補送(不會遺失)。");
   }
 
   /* 照片歸檔(選用,見 setPhotoArchiveFolder)。
@@ -502,11 +527,11 @@ function onNewMemberSubmit(e) {
    ③ 有些檔案 Drive 始終不產縮圖 —— 退回用原檔,小張的照片這樣就夠了。
    全部失敗才回傳空字串(照片沒了,其他資料照樣進待認領區),並在紀錄裡寫清楚卡在哪。 */
 function driveImageDataUrl_(fileId, maxWidth, label) {
-  /* ★ 從 900 開始,而不是呼叫端傳進來的 maxWidth。
-     原本階梯是 [maxWidth, 600, 400] 且「取第一個小於上限的」,所以 maxWidth 那一級
-     只要沒超過上限就直接勝出 —— 一張名片因此進來 665KB base64,一筆申請就吃掉整個
-     待認領區預算的一半以上。900px 寬的名片字仍然看得清楚,檔案約 80~150KB。
-     maxWidth 保留在簽章上是為了呼叫端的可讀性,實際不再作為第一級。 */
+  /* 從 900 開始往下降,取**位元組上限之內能拿到的最大解析度**(不是「取最小的圖」)。
+     原本階梯是 [maxWidth, 600, 400],而呼叫端傳進來的 maxWidth 偏大,於是一張名片
+     進來 665KB。900px 寬的名片字仍然看得清楚,檔案約 80~150KB;拿不到才降到 700、500。
+     照片現在存在私有 R2、不進公開 repo,所以這個階梯只跟「畫質 vs 單張上限」有關,
+     與「同時能有幾筆待認領」已經完全脫鉤(見 worker 的 MAX_PENDING_ENTRY_BYTES)。 */
   var widths = [Math.min(maxWidth || 900, 900), 700, 500];
   var tag = (label || "照片") + "(" + fileId + ")";
   var state = { code: 0, note: "" };
@@ -642,13 +667,12 @@ function blobToDataUrl_(blob, tag) {
       return "";
     }
   }
-  var b64 = Utilities.base64Encode(blob.getBytes());
-  /* Worker 端單張上限 220KB base64,這裡留餘裕抓 180KB。
-     這個數字連動著「同時能有幾筆待認領」:單筆申請上限 500KB ÷ 5 張 ≈ 100KB/張,
-     整個待認領區 3MB ÷ 500KB ≈ 6 筆。要放寬請三個地方一起改,否則又會出現
-     「收得進來、送不出去」的區間(見 worker/publish-relay.js 的 MAX_DATA_BYTES)。 */
-  if (b64.length > 180 * 1024) return "";
-  return "data:" + type + ";base64," + b64;
+  var bytes = blob.getBytes();
+  /* Worker 端單張上限是**解碼後 200KB**(PENDING_IMG_BYTES_MAX),這裡以同樣的單位
+     留一點餘裕。照片改存私有 R2 之後,7 張都保得住,不會再因為「單筆總額」而被
+     靜默丟掉其中幾張 —— 所以這裡也不再做任何總額判斷。 */
+  if (bytes.length > 190 * 1024) return "";
+  return "data:" + type + ";base64," + Utilities.base64Encode(bytes);
 }
 
 /* 觸發器不見了(手動刪掉、或表單重建過)時用這個補回來。

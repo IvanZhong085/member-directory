@@ -1742,8 +1742,18 @@
      新夥伴自填表單送來的申請放在 data/_pending.json,所有組長都看得到。
      按「認領」= 在自己那一組建一張成員卡 + 把該筆從待認領清單移除,兩件事都只是
      本機草稿,要按「發布到網站」才真正生效(發布時會同時送出分組檔與待認領檔)。 */
+  /* 待認領區的縮圖。
+     ★ 新格式的照片存在**私有** R2,沒有公開網址,所以這裡拿不到預覽 —— 那是刻意的:
+       未認領者的名片不該有任何公開可讀的連結。要在後台預覽的話,需要另外做一支
+       「驗 session + 驗這一組有權看這個 pid」的 Worker 端點,而不是簽一個長效網址。
+       在那之前顯示佔位圖:認領本身完全不受影響。 */
   function pendingPhoto(a){
     return /^data:image\//.test(a.image || "") ? a.image : "";
+  }
+  function pendingPhotoCount(a){
+    const pr = a && a.photoRefs;
+    if(!pr) return /^data:image\//.test(a.image || "") ? 1 : 0;
+    return [pr.image, pr.card].concat(Array.isArray(pr.products) ? pr.products : []).filter(Boolean).length;
   }
   function renderPending(){
     const wrap = byId("pending-wrap"), list = byId("pending-list"), sub = byId("pending-sub");
@@ -1771,11 +1781,21 @@
           groups.map(g => '<option value="' + esc(g.id) + '">' + esc((g.code || "?") + " " + (g.name || "")) + '</option>').join("") +
           '</select>';
       return '<div class="pend-card" data-pid="' + esc(a.pid) + '">' +
-        (photo ? '<img class="pend-photo" src="' + esc(photo) + '" alt="' + esc(a.name) + ' 的照片">' : '<div class="pend-photo"></div>') +
+        (photo
+          ? '<img class="pend-photo" src="' + esc(photo) + '" alt="' + esc(a.name) + ' 的照片">'
+          : '<div class="pend-photo" title="照片存在私有空間，認領後才會進網站">' +
+            (pendingPhotoCount(a) ? '📷 ' + pendingPhotoCount(a) : '') + '</div>') +
         '<div class="pend-body">' +
           '<div class="pend-name">' + esc(a.name || "(未填姓名)") + '</div>' +
           (meta ? '<div class="pend-meta">' + meta + '</div>' : "") +
           '<div class="pend-at">申請時間：' + esc(fmtStamp(a.at, true) || "—") + '</div>' +
+          /* 收件時就有問題的照片(例如 Drive 拿不到縮圖)。醒目但不擋住其他操作 ——
+             組長仍然可以照常認領,只是會知道這一筆少了什麼、之後要手動補。 */
+          (Array.isArray(a.photoWarnings) && a.photoWarnings.length
+            ? '<div class="pend-warn">⚠ 這筆申請有照片沒有帶進來：' +
+              esc(a.photoWarnings.map(w => (w && w.field) || "?").join("、")) +
+              '（可以照常認領，之後手動補上）</div>'
+            : "") +
         '</div>' +
         '<div class="pend-actions">' + pickGroup +
           '<button class="btn btn-primary btn-sm" data-claim="' + esc(a.pid) + '" type="button">' +
@@ -1840,7 +1860,21 @@
     }
     const name = PENDING[i].name || "新夥伴";
     toast("認領中…");
-    const res = await workerFetch("/claim", { session, pid, group: g.code });
+    let res = await workerFetch("/claim", { session, pid, group: g.code });
+
+    /* ★ 照片在暫存區找不到時**預設擋下**,而不是預設放行。
+       要在明知缺圖的情況下認領,必須先把缺哪幾張列出來讓人確認 —— 那幾張之後只能
+       手動補,不該在使用者不知情的情況下建出一張沒有照片的成員卡。 */
+    if(res.error === "pending_image_missing"){
+      const labels = { image:"形象照", card:"名片" };
+      const miss = (res.fields || []).map(f => labels[f] || (f.indexOf("product") === 0 ? "商品照" + f.replace(/\D/g, "") : f));
+      const go = confirm(
+        `「${name}」有照片在暫存區找不到了。\n\n缺少：${miss.join("、") || "(未知)"}\n\n` +
+        `仍要認領嗎？\n（認領後這幾張會是空的，需要之後手動補上。其他資料不受影響。）`);
+      if(!go){ toast("已取消認領,這筆申請仍留在待認領區。", { duration:6000 }); return; }
+      res = await workerFetch("/claim", { session, pid, group: g.code, allowMissingImages:true });
+    }
+
     if(res.ok){
       await loadData();
       /* 先把選取切到目標組再畫面重繪 —— 反過來的話這一輪畫的還是舊的選取。
@@ -1858,6 +1892,16 @@
     }
     if(res.error === "group_renamed"){
       toast("你這一組的代號已被總管理員改過，請重新整理頁面後再試。", { warn:true, duration: 8000 });
+      return;
+    }
+    if(res.error === "pending_image_corrupt"){
+      toast(`「${name}」的照片在暫存區壞掉了（${res.field || ""}），認領已中止，這筆申請仍完整保留。` +
+            `請聯繫總管理員。`, { warn:true, duration: 10000 });
+      return;
+    }
+    if(res.error === "pending_image_store_unavailable"){
+      toast("發布服務還沒接上照片暫存空間，暫時無法認領。請聯繫總管理員完成設定。",
+            { warn:true, duration: 9000 });
       return;
     }
     if(res.error === "session_expired" || res.httpStatus === 401){

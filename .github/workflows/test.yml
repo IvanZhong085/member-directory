@@ -35,6 +35,9 @@ jobs:
       - name: 併發回歸測試
         run: node tests/concurrency.test.mjs
 
+      - name: 待認領照片（私有 R2）測試
+        run: node tests/pending-r2.test.mjs
+
       - name: 待認領區容量測試
         run: node tests/capacity.test.mjs
 

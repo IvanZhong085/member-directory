@@ -119,6 +119,52 @@ export class FakeGitHub {
   }
 }
 
+/* 假的 R2 bucket。介面對齊 Cloudflare Workers 的 R2Bucket:put/get/delete/head。
+   ★ 可以指定某個操作失敗 —— 「第 N 張上傳失敗時前 N-1 張要被清掉」這種保證,
+     只有能注入失敗才驗得出來。 */
+export class FakeR2 {
+  constructor(){
+    this.objects = new Map();     // key → Uint8Array
+    this.meta = new Map();        // key → { contentType }
+    this.calls = [];              // { op, key } 依序記錄
+    this.fail = null;             // { op, key?, nth? } 符合就丟錯
+    this._n = { put:0, get:0, delete:0, head:0 };
+  }
+  _check(op, key){
+    this.calls.push({ op, key });
+    this._n[op]++;
+    const f = this.fail;
+    if(!f || f.op !== op) return;
+    if(f.key !== undefined && f.key !== key) return;
+    if(typeof f.nth === "number" && f.nth !== this._n[op]) return;
+    if(f.once) this.fail = null;
+    throw new Error("FakeR2 injected failure: " + op + " " + key);
+  }
+  async put(key, bytes, opts){
+    this._check("put", key);
+    this.objects.set(key, new Uint8Array(bytes));
+    this.meta.set(key, { contentType: opts && opts.httpMetadata && opts.httpMetadata.contentType });
+    return { key };
+  }
+  async get(key){
+    this._check("get", key);
+    if(!this.objects.has(key)) return null;
+    const bytes = this.objects.get(key);
+    return {
+      key,
+      async arrayBuffer(){ return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); },
+    };
+  }
+  async delete(key){ this._check("delete", key); this.objects.delete(key); this.meta.delete(key); }
+  async head(key){
+    this._check("head", key);
+    return this.objects.has(key) ? { key, size: this.objects.get(key).length } : null;
+  }
+  keys(){ return [...this.objects.keys()].sort(); }
+  /* 直接把某個物件的內容換掉(不經過 put),用來模擬毀損 */
+  corrupt(key, bytes){ this.objects.set(key, new Uint8Array(bytes)); }
+}
+
 export function loadWorker(path, fs){
   const src = fs.readFileSync(path, "utf8").replace(/^export default/m, "const __worker =");
   return new Function(`${src}\nreturn { __worker, makeSession };`)();
