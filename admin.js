@@ -62,7 +62,14 @@
   let DATA = [];
   let INDEX = [];              // [{code,name,id}...],決定分組順序
   const loadedBody = {};       // 路徑 → 載入當下的檔案內容(用來判斷「這組有沒有被改過」)
-  const baseHashes = {};       // 路徑 → 載入當下的 SHA-256(發布時給 Worker 做版本落後偵測)
+  const baseHashes = {};       // 路徑 → 載入當下的 SHA-256(草稿的三方比較用)
+  /* 路徑 → 載入當下的 git blob sha。發布時一併送給 Worker:它拿一次 recursive tree
+     就能比對全部檔案,不必為了版本檢查逐檔重讀(子請求預算很緊,見 Worker 的說明)。 */
+  const baseBlobShas = {};
+  /* 分組 id → 載入當下的檔案路徑。改名時要靠它知道「舊檔是哪一個」並一起刪掉 ——
+     否則舊檔會留下來變成孤兒:build-data.mjs 只讀 _index 列出的檔,而持有舊分頁的
+     組長還能繼續寫進去,兩邊都顯示成功,資料卻永遠不會出現在網站上。 */
+  const originalPathByGroupId = {};
   /* 路徑 → 「上一次發布送出去的內容」。送出前就寫進草稿,收到成功回應才清掉。
      用途只有一個:發布其實已經寫進 GitHub、但這邊沒記到成功時(回應在網路上逾時遺失,
      或同一次請求裡前面的檔寫成功、後面的失敗),重新整理後靠它認出「那次其實成功了」,
@@ -131,7 +138,9 @@
         const out = {};
         for(const p of paths){
           const f = res.files[p];
-          out[p] = (f && f.exists) ? { json: JSON.parse(f.text), text: f.text, hash: f.hash } : null;
+          out[p] = (f && f.exists)
+            ? { json: JSON.parse(f.text), text: f.text, hash: f.hash, blobSha: f.blobSha }
+            : null;
         }
         return out;
       }
@@ -149,12 +158,13 @@
   }
   /* 依角色載入:總管理員 13 個檔,組長 2 個(結構 + 自己那組) */
   async function loadData(){
-    await (capsReady || refreshCaps());     // 要先知道 Worker 支不支援 /read 才決定從哪讀
+    await ensureCaps();     // 要先知道 Worker 支不支援 /read 才決定從哪讀
     const IDX = "data/_index.json";
     const first = await fetchMany([IDX]);
     if(!first[IDX]) throw new Error("讀不到 " + IDX);
     INDEX = first[IDX].json;
     baseHashes[IDX] = first[IDX].hash;
+    baseBlobShas[IDX] = first[IDX].blobSha || "";
     loadedBody[IDX] = first[IDX].text;
 
     const code = myGroupCode().trim().toLowerCase();
@@ -170,6 +180,8 @@
       const f = got[path];
       if(!f) throw new Error("讀不到 " + path);
       baseHashes[path] = f.hash;
+      baseBlobShas[path] = f.blobSha || "";
+      originalPathByGroupId[e.id] = path;      // 改名時要靠它刪掉舊檔
       loadedBody[path] = serializeBody(groupBody(f.json));
       next.push({ code: e.code, name: e.name, leader: f.json.leader ?? "", room: f.json.room ?? "",
                   members: f.json.members ?? [], id: e.id, recruiting: f.json.recruiting ?? [] });
@@ -180,10 +192,12 @@
     if(p){
       PENDING = Array.isArray(p.json) ? p.json : [];
       baseHashes[PENDING_PATH] = p.hash;
+      baseBlobShas[PENDING_PATH] = p.blobSha || "";
       loadedBody[PENDING_PATH] = p.text;
     } else {
       PENDING = [];
       delete baseHashes[PENDING_PATH];
+      delete baseBlobShas[PENDING_PATH];
       loadedBody[PENDING_PATH] = null;
     }
     fixSelected();
@@ -249,21 +263,45 @@
      這裡不做複雜的合併:偵測到同一個範圍已經有分頁開著,後開的那個就停止自動存草稿
      (記憶體裡照樣能編輯、也能發布),並且明白告訴使用者。不寫,就不會蓋掉對方。 */
   let tabChannel = null, tabIsSecondary = false;
-  const TAB_ID = Math.random().toString(36).slice(2);
+  const TAB_ID = Date.now().toString(36) + "-" + Math.random().toString(36).slice(2);
+  const tabPeers = new Map();            // 其他分頁的 id → 最後一次聽到它的時間
+  const TAB_BEAT_MS = 2000, TAB_STALE_MS = 5000;
+  /* 誰是 primary 由 id 的字典序決定 —— 每個分頁各自算,結論必然一致,不需要協商,
+     也不會出現「兩邊都把自己標成 secondary」而全都不存草稿的情況。
+     原分頁關掉之後心跳就停了,5 秒內會被清掉,剩下的分頁自動接手(原本永遠接不了手)。 */
+  function recomputePrimary(){
+    const now = Date.now();
+    for(const [id, t] of tabPeers){ if(now - t > TAB_STALE_MS) tabPeers.delete(id); }
+    let smallest = TAB_ID;
+    for(const id of tabPeers.keys()) if(id < smallest) smallest = id;
+    const was = tabIsSecondary;
+    tabIsSecondary = (smallest !== TAB_ID);
+    if(tabIsSecondary && !was){
+      toast("另一個分頁已經開著同一份後台。為避免兩邊的草稿互相覆蓋，這個分頁不會自動儲存草稿——" +
+            "請關掉其中一個分頁再繼續編輯。", { warn:true, duration:15000 });
+    } else if(!tabIsSecondary && was){
+      toast("另一個分頁已關閉，這個分頁恢復自動儲存草稿。", { duration:6000 });
+      saveDraft();
+    }
+  }
   function startTabGuard(){
     if(typeof BroadcastChannel === "undefined") return;
     try{ tabChannel = new BroadcastChannel("member-directory-admin:" + draftKey()); }catch(e){ return; }
     tabChannel.onmessage = ev => {
       const d = ev && ev.data || {};
-      if(d.id === TAB_ID) return;
-      if(d.type === "hello"){ try{ tabChannel.postMessage({ type:"here", id:TAB_ID }); }catch(e){} }
-      else if(d.type === "here" && !tabIsSecondary){
-        tabIsSecondary = true;
-        toast("另一個分頁已經開著同一份後台。為避免兩邊的草稿互相覆蓋，這個分頁不會自動存草稿——" +
-              "請關掉其中一個分頁再繼續編輯。", { warn:true, duration:15000 });
-      }
+      if(!d.id || d.id === TAB_ID) return;
+      if(d.type === "bye") tabPeers.delete(d.id); else tabPeers.set(d.id, Date.now());
+      recomputePrimary();
     };
-    try{ tabChannel.postMessage({ type:"hello", id:TAB_ID }); }catch(e){}
+    const beat = () => {
+      try{ tabChannel.postMessage({ type:"beat", id:TAB_ID }); }catch(e){}
+      recomputePrimary();
+    };
+    beat();
+    setInterval(beat, TAB_BEAT_MS);
+    window.addEventListener("beforeunload", () => {
+      try{ tabChannel.postMessage({ type:"bye", id:TAB_ID }); }catch(e){}
+    });
   }
   function showDraftBanner(on){ draftBanner.classList.toggle("show", !!on); }
   /* 唯讀帳號不留草稿。除了「本來就沒東西可存」之外還有一個實際理由:草稿的鍵對
@@ -297,6 +335,13 @@
   function scheduleSave(){ dirty = true; clearTimeout(saveTimer); saveTimer = setTimeout(saveDraft, 400); }
   function manualSave(){
     clearTimeout(saveTimer);
+    /* ★ 這個分頁不是 primary 時 saveDraft() 其實什麼都不會寫,原本卻照樣回報
+       「已暫存到這台裝置」—— 使用者因此以為東西存起來了,關掉分頁就沒了。 */
+    if(tabIsSecondary){
+      toast("這個分頁沒有在儲存草稿（另一個分頁開著同一份後台），所以**沒有暫存**。" +
+            "請關掉另一個分頁再存一次，或直接按「發布到網站」。", { warn:true, duration:11000 });
+      return;
+    }
     saveDraft();   // 立即寫入瀏覽器草稿
     toast("已暫存到這台裝置（尚未發布到網站）");
   }
@@ -1282,13 +1327,27 @@
      解不開。改成 promise:發布前一定會等它,而且失敗時不再靜默降級成舊行為。
      外層呼叫點不是 async,所以不能只加一個 await —— 要留住 promise 讓發布時去等。 */
   function refreshCaps(){
-    capsReady = (async () => {
+    const p = (async () => {
       const res = await workerFetch("/ping");
       if(res && res.ok && res.caps){ workerCaps = res.caps; return true; }
       workerCaps = {};
       return false;
     })();
-    return capsReady;
+    capsReady = p;
+    return p;
+  }
+  /* ★ 只快取**成功**的偵測結果。
+     原本失敗的 promise 也會留在 capsReady 裡,而 promise 本身是 truthy,於是
+     `await (capsReady || refreshCaps())` 之後永遠不會再問一次 —— 第一次 /ping 剛好
+     失敗(Worker 冷啟動、網路抖一下),整個分頁就再也發布不了,而畫面還在叫使用者
+     「稍候幾秒再按一次」:按幾次都一樣,只能重新整理。
+     這裡在失敗後把 capsReady 清掉(且只清掉自己那一顆,避免蓋到別人剛啟動的偵測),
+     下一次操作就會重新偵測。換 Worker 網址時 refreshCaps() 也會覆寫它。 */
+  async function ensureCaps(){
+    const pending = capsReady || refreshCaps();
+    const ok = await pending;
+    if(!ok && capsReady === pending) capsReady = null;
+    return ok;
   }
 
   /* 檔名要通得過 Worker 的路徑白名單:開頭必須是英數,其餘只留 [A-Za-z0-9._-]。
@@ -1354,7 +1413,39 @@
       const idx = JSON.stringify(DATA.map(g => ({ code: g.code, name: g.name, id: g.id })), null, 2) + "\n";
       if(idx !== loadedBody["data/_index.json"]) files.push({ path: "data/_index.json", contentB64: utf8ToB64(idx) });
     }
-    return { files };
+    /* ★ 改名:分組代號改了,檔案路徑就跟著變。新檔會被送出,但**舊檔不會自己消失** ——
+       Worker 沒有任何 DELETE,而 build-data.mjs 只讀 _index 列出的檔,於是舊檔變成
+       沒有人會讀的孤兒。更糟的是在它被刪掉之前,持有舊分頁的組長還能繼續寫進去:
+       兩邊都顯示「已發布!」,資料卻永遠不會出現在網站上。
+       所以改名時要把舊路徑一起送出去刪掉,而且必須和新檔在**同一個 commit** 裡,
+       中間不能存在「_index 指向新檔、新檔卻還不存在」的狀態(那會讓產線整條失敗)。 */
+    const remove = [];
+    for(const g of DATA){
+      const orig = originalPathByGroupId[g.id];
+      const now = dataPathOf(g.code);
+      if(orig && orig !== now && remove.indexOf(orig) < 0) remove.push(orig);
+    }
+    return { files, remove };
+  }
+
+  /* 發布成功後,把記憶體裡還是 base64 的照片換成剛寫進去的檔名。
+     少了這一步,同一個分頁再按一次發布會把同一批照片整批重送 —— 產生一個 tree 其實
+     沒有變化的空 commit,而且白白吃掉子請求預算。檔名由內容雜湊決定,所以這裡重算
+     出來的名字與剛才送出去的必然一致。 */
+  async function normalizePhotosInMemory(){
+    for(const g of DATA){
+      for(const m of g.members){
+        const pic = await embeddedPhoto(m.image, fileSafeId(m.id) + "_x");
+        if(pic) m.image = pic.name;
+        const card = await embeddedPhoto(m.card, fileSafeId(m.id) + "_card");
+        if(card) m.card = card.name;
+        const prods = m.products || [];
+        for(let i = 0; i < prods.length; i++){
+          const prod = await embeddedPhoto(prods[i], fileSafeId(m.id) + "_p" + (i + 1));
+          if(prod) prods[i] = prod.name;
+        }
+      }
+    }
   }
 
   let publishing = false;
@@ -1389,7 +1480,7 @@
       /* ★ 一定要先確認 Worker 支援什麼才動手組 payload。
          沒問到就發布的話,照片會以 base64 內嵌進分組檔(見 refreshCaps 的說明),
          那是一條會把人帶進死迴圈的路 —— 寧可擋下來請他重試。 */
-      const capsOk = await (capsReady || refreshCaps());
+      const capsOk = await ensureCaps();
       if(!capsOk || !workerCaps.files){
         toast("暫時連不到發布服務（或它尚未升級），為避免照片被錯誤地寫進資料檔，這次先不發布。" +
               "請稍候幾秒再按一次。", { warn:true, duration:8000 });
@@ -1416,58 +1507,46 @@
         if(!okOverride) return false;
         hit.forEach(p => conflictPaths.delete(p));   // 已經問過了,不再重複打擾
       }
-      /* 照片與分組檔一起送:Worker 會先寫照片、再寫分組檔,任一步失敗就整批中止,
-         公開網站不會出現「資料檔指向不存在照片」的狀態。單次上限 25 檔,
-         12 組 + 結構檔 + 照片極少同時超過,超過時由 Worker 明確回報 too_many_files。 */
-      const CHUNK = 20;
-      /* 照片先送、分組檔一律留到最後一批一起送。
-         分組檔跨批的話,中途失敗就會留下「有的組更新了、有的還是舊的」——
-         而使用者看到的訊息是「這次修改沒有上線,可以稍後再試」,那句話是錯的。
-         分組檔最多十幾個(12 組 + 結構檔 + 待認領區),低於單次上限,永遠塞得進同一批。 */
-      const assets = payload.files.filter(f => !f.path.startsWith("data/"));
-      const datas  = payload.files.filter(f => f.path.startsWith("data/"));
-      const chunks = [];
-      if(payload.files.length <= CHUNK){
-        /* 一批送得完就一批送。Worker 在單一請求內會先寫照片、再寫分組檔,任一步失敗
-           就整批中止 —— 這是最好的情況,沒必要為了分批的規則把它拆開多跑一趟。 */
-        chunks.push(payload.files);
-      } else {
-        for(let i = 0; i < assets.length; i += CHUNK) chunks.push(assets.slice(i, i + CHUNK));
-        if(datas.length) chunks.push(datas);
+      /* ★ 一次發布 = 一個請求 = 一個 commit。**不再自動分批。**
+         原本超過 20 檔會先送幾批純 images/、最後才送資料檔。那樣做有兩個後果:
+         ・前面幾批已經推進 main,若最後一批失敗,repo 就停在「有照片、沒有資料」的
+           半套狀態,而使用者看到的是「這次修改沒有上線」;
+         ・那些純照片的 commit 不符合 sync.yml 的 paths 條件,不會觸發同步流程,
+           卻會讓正在跑的同步推送被拒 —— 重試次數耗盡後前台會停在舊版且沒有告警。
+         檔案太多時改成請使用者分幾次做,並且講清楚為什麼不自動拆。 */
+      const MAX_FILES = 20;    // 與 Worker 的 MAX_FILES_PER_REQUEST 一致
+      if(payload.files.length > MAX_FILES){
+        toast("這次要寫入 " + payload.files.length + " 個檔案，超過單次上限（" + MAX_FILES + "）。" +
+              "請分幾次發布：先處理一部分成員的照片，發布之後再繼續其餘的。" +
+              "（一次發布必須是一個提交，所以不會自動拆批。）", { warn:true, duration:14000 });
+        return false;
       }
 
-      /* 每一批成功就立刻對齊狀態。原本只在**最後一批**成功時才更新,於是中途失敗後
-         baseHashes 還是舊值、repo 裡卻已經是新內容 —— 使用者照提示「再試一次」,
-         第一批那些檔立刻被判成版本落後,人就被推進「重新整理 = 前面的編輯全部重做」。 */
-      const alignAfterChunk = (files, newHashes) => {
-        Object.assign(baseHashes, newHashes || {});
-        files.forEach(f => {
+      /* 送出「之前」先把資料檔的內容記進草稿。這一步是回應遺失時唯一的線索:
+         沒有它,下次開頁面就分不出「其實已經寫進去了」與「真的被別人搶先改掉」,
+         只能一律當成版本落後,把人卡死。照片附件不必記(檔名由內容決定,重寫無妨)。 */
+      const sentData = payload.files.filter(f => f.path.startsWith("data/"));
+      if(sentData.length){
+        sentData.forEach(f => { sentBody[f.path] = b64ToUtf8(f.contentB64); });
+        saveDraft();
+      }
+      const res = await workerFetch("/publish", {
+        session, files: payload.files, remove: payload.remove, baseHashes, baseBlobShas,
+      });
+      if(res.ok){
+        Object.assign(baseHashes, res.newHashes || {});
+        Object.assign(baseBlobShas, res.newBlobShas || {});
+        payload.files.forEach(f => {
           if(!f.path.startsWith("data/")) return;
           loadedBody[f.path] = b64ToUtf8(f.contentB64);
-          delete sentBody[f.path];   // 已確認成功,不必再靠它復原
+          delete sentBody[f.path];
         });
-      };
-
-      let res = { ok:false, error:"network" };
-      let sent = 0;
-      for(const chunk of chunks){
-        if(payload.files.length > CHUNK){
-          sent += chunk.length;
-          btn.textContent = "發布中…（檔案 " + sent + "/" + payload.files.length + "）";
-        }
-        /* 送出「之前」先把這批資料檔的內容記進草稿。這一步是回應遺失時唯一的線索:
-           沒有它,下次開頁面就分不出「其實已經寫進去了」與「真的被別人搶先改掉」,
-           只能一律當成版本落後,把人卡死。照片附件不必記(沒有版本語意,重寫無妨)。 */
-        const sentThisChunk = chunk.filter(f => f.path.startsWith("data/"));
-        if(sentThisChunk.length){
-          sentThisChunk.forEach(f => { sentBody[f.path] = b64ToUtf8(f.contentB64); });
-          saveDraft();
-        }
-        res = await workerFetch("/publish", { session, files: chunk, baseHashes });
-        if(!res.ok) break;
-        alignAfterChunk(chunk, res.newHashes);
-      }
-      if(res.ok){
+        /* 改名成功之後,舊路徑已經被刪掉了 —— 把追蹤基準對齊到新路徑,
+           否則下一次發布會再送一次同樣的刪除(而且那時舊檔已經不在,會被判 stale)。 */
+        for(const p of (payload.remove || [])){ delete baseHashes[p]; delete baseBlobShas[p]; delete loadedBody[p]; }
+        for(const g of DATA) originalPathByGroupId[g.id] = dataPathOf(g.code);
+        // 記憶體裡的 base64 換成剛寫進去的檔名,避免下一次發布重送同一批照片
+        await normalizePhotosInMemory();
         clearTimeout(saveTimer);
         dirty = false;
         for(const k of Object.keys(sentBody)) delete sentBody[k];   // 全部確認成功,復原線索用不到了
@@ -1763,8 +1842,13 @@
       return;
     }
     /* 認領會立刻寫進網站,而本機草稿不會跟著送出去。兩者混在一起會讓「發布」的
-       版本基準對不上,所以要求先把手上的修改處理掉 —— 講清楚比事後解釋容易。 */
-    if(dirty){
+       版本基準對不上,所以要求先把手上的修改處理掉 —— 講清楚比事後解釋容易。
+       ★ 這裡一定要用 hasUnpublishedChanges() 而不是 dirty:dirty 只代表「距離上次
+         自動存檔之後又動過」,存檔完成(400ms)就會被清成 false。用 dirty 判斷的話,
+         草稿明明還沒發布卻會放行認領,而認領成功後的 loadData() 會把畫面換成線上資料
+         —— 剛才的編輯從畫面上消失,使用者再改一個字,下一次自動存檔就用新畫面覆蓋掉
+         原本的草稿,那才是真正的資料遺失。 */
+    if(hasUnpublishedChanges()){
       toast("你還有尚未發布的修改。請先按「發布到網站」（或捨棄變更），再進行認領。",
             { warn:true, duration:9000 });
       return;
@@ -1773,8 +1857,11 @@
     toast("認領中…");
     const res = await workerFetch("/claim", { session, pid, group: g.code });
     if(res.ok){
-      await loadData(); renderAll();
-      selected = gid;
+      await loadData();
+      /* 先把選取切到目標組再畫面重繪 —— 反過來的話這一輪畫的還是舊的選取。
+         loadData() 之後 DATA 是全新的物件,gid 不一定還在(例如同時被改名),
+         所以要用 fixSelected() 兜底。 */
+      selected = gid; fixSelected(); renderAll();
       toast(`已認領「${name}」到「${g.code}」，並且**已經寫進網站**（不必再按發布）。` +
             `已標記為「資料需確認」，請確認資料後再發布一次。`, { duration: 9000 });
       return;

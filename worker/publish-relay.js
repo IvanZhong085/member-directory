@@ -43,7 +43,12 @@ const GITHUB_TIMEOUT_MS = 15000;         // 呼叫 GitHub API 的逾時上限，
    路徑白名單只允許 images/ 一個資料夾、安全字元檔名、限定副檔名——
    權杖雖只授權這個 repo，仍不給「寫任意路徑」的能力。
    （m/ 的成員分享頁是 Action 產生的產出物,不接受從瀏覽器寫入,理由見下方 FILE_PATH_RE。） */
-const MAX_FILES_PER_REQUEST = 25;               // 單次發布的附件上限（編輯頁會自動分批）
+/* 單次發布的檔案上限。這個數字受 Cloudflare Workers **免費方案單次呼叫 50 個子請求**
+   的限制:一次發布的成本是「N 個 blob(只做一次)+ 每次重試 6 個」,所以 20 個檔案配上
+   3 次重試約 38 個子請求,留有餘裕。編輯頁不再自動分批 —— 分批會產生「只有照片的
+   commit」先推進 main,那些 commit 不符合 sync.yml 的 paths 條件、不會觸發同步,
+   卻會讓正在跑的同步流程推送被拒。 */
+const MAX_FILES_PER_REQUEST = 20;
 const MAX_FILE_B64_CHARS = 3 * 1024 * 1024;     // 單一附件 base64 上限（約 2.2MB 原始檔）
 /* 只有 images/ 的圖片。m/ 的成員分享頁是 Action 產生的產出物,沒有人該從瀏覽器直接寫——
    而它與編輯頁同源,能寫任意 .html 就等於能在站上放一頁自己的 JavaScript 去偷別人的登入
@@ -264,10 +269,15 @@ function b64ToBytes(b64){
    回傳:
      { ok:true, bytes, sha }          讀到了(bytes/sha 皆為 null 代表檔案不存在)
      { ok:false, error, status }      讀不到 —— 呼叫端各自決定要 fail-closed 還是跳過 */
-async function ghReadFile(env, headers, path){
+async function ghReadFile(env, headers, path, ref){
   let d;
   try{
-    const url = contentsUrlFor(env, path) + "?ref=" + encodeURIComponent(env.GH_BRANCH || "main");
+    /* ★ ref 可以是 commit sha。傳 sha 進來時,讀到的是**那個 commit 的快照**,
+       而不是「此刻的 main」—— 檢查與寫入之間別人推了東西也不會讀到混血的組合。
+       這件事在改名情境下是關鍵:若 _index 讀的是移動中的 main、而 commit 建在另一個
+       head 上,就會出現「代號檢查通過、但寫進去的是改名前的舊檔」這種兩邊都成功、
+       資料卻掉進孤兒檔的結果。 */
+    const url = contentsUrlFor(env, path) + "?ref=" + encodeURIComponent(ref || env.GH_BRANCH || "main");
     const r = await fetchWithTimeout(url, { headers }, GITHUB_TIMEOUT_MS);
     if(r.status === 404) return { ok:true, bytes:null, sha:null };   // 還沒有這個檔,不是錯誤
     if(r.status === 401 || r.status === 403) return { ok:false, error:"token_forbidden", status:r.status };
@@ -301,31 +311,21 @@ async function ghReadFile(env, headers, path){
   }
 }
 
-/* 現行檔案內容的 SHA-256。讀不到(檔案不存在、網路問題)回傳 null＝跳過比對:
-   寧可放行,也不要因為一次讀取失敗就擋住所有人發布。 */
-/* 現行版本:內容的 SHA-256(拿來跟草稿的來源版本比對)+ GitHub 的 blob sha
-   (寫入時要原封不動帶回去,那是 GitHub contents API 的樂觀鎖)。
-   兩個值必須來自**同一次讀取** —— 分開讀就等於在檢查與寫入之間開了一個窗口。
-   讀不到(檔案不存在、網路問題)回 null;檔案不存在時回 { hash:null, sha:null }。 */
-async function currentFileState(env, headers, path){
-  try{
-    const r = await ghReadFile(env, headers, path);
-    if(!r.ok) return null;
-    if(r.bytes === null) return { hash:null, sha:null };   // 還沒有這個檔,不是錯誤
-    return { hash: await sha256Hex(r.bytes), sha: r.sha };
-  }catch(e){ return null; }
-}
+/* (原本這裡有 currentFileState():逐檔讀回來算 SHA-256 做版本比對。
+    已被 ghTreeMap() + verifyVersions() 取代 —— 一次 recursive tree 就能拿到所有檔案的
+    blob sha,不必每個檔各讀一次。那樣做的成本在 Cloudflare Workers 免費方案上是實際的:
+    單次呼叫只有 50 個子請求,14 個資料檔加上一次重試就會越界。) */
 
 /* 組長分組代號(session.g,如 "A1")→ 分組內部 id(如 "g3")。
    照片檔名是 fileSafeId(成員id)+後綴,而成員 id 一律以「分組內部 id + _m…」開頭
    (uid(g.id+"_m")),成員也不會跨組搬動(moveMember 只在組內換位),所以某組所有照片的
    檔名都以該組內部 id 為前綴。用它來判斷組長能不能寫某張 images/ 附件。
    對應關係只存在 data/_index.json,這裡讀一次;讀不到或查無此代號回 null,呼叫端 fail-closed。 */
-async function groupInternalId(env, headers, code){
+async function groupInternalId(env, headers, code, ref){
   const want = String(code == null ? "" : code).trim().toLowerCase();
   if(!want) return null;
   try{
-    const r = await ghReadFile(env, headers, "data/_index.json");
+    const r = await ghReadFile(env, headers, "data/_index.json", ref);
     if(!r.ok || r.bytes === null) return null;
     const idx = JSON.parse(new TextDecoder().decode(r.bytes));
     if(!Array.isArray(idx)) return null;
@@ -560,17 +560,51 @@ async function ghHead(env, headers, branch){
   return { ok:true, commitSha, treeSha };
 }
 
+/* 一次拿到某棵 tree 底下所有檔案的 blob sha(路徑 → sha)。
+   ★ 這一支是子請求預算的關鍵。原本每個要寫的檔都要單獨讀一次來比對雜湊,14 個資料檔
+     就是 14 次;加上重試很容易越過 Cloudflare Workers 免費方案「單次呼叫 50 個子請求」
+     的上限,而越界的表現是整個發布失敗、訊息還是「連不到 GitHub」。
+     改成一次 recursive tree 之後,不管幾個檔都只花 1 次。 */
+async function ghTreeMap(env, headers, treeSha){
+  const r = await ghJson(env, headers, "git/trees/" + encodeURIComponent(treeSha) + "?recursive=1");
+  if(!r.ok) return r;
+  const map = new Map();
+  for(const e of (r.data && r.data.tree) || []){
+    if(e && e.type === "blob" && typeof e.path === "string") map.set(e.path, e.sha);
+  }
+  // truncated = tree 太大沒回完。寧可擋下也不要基於不完整的清單做版本判斷
+  if(r.data && r.data.truncated) return { ok:false, error:"tree_truncated" };
+  return { ok:true, map };
+}
+
 /* files:[{ path, contentB64 }] 或 { path, remove:true }(刪檔,改名時要用)
    回傳 { ok:true, commitSha } / { ok:false, error } */
-async function ghCommitFiles(env, headers, branch, files, message, baseCommitSha, baseTreeSha){
-  const entries = [];
+/* 第一階段:把所有檔案做成 blob。
+   ★ 這一步刻意放在重試迴圈**外面**。blob 是內容定址的,建立它不會動到 ref,也就
+     不會產生任何「已上線」的效果 —— 所以只需要做一次,重試時不必重來。
+     這對子請求預算是決定性的:Cloudflare Workers 免費方案單次呼叫只有 50 個子請求,
+     若每次重試都重建全部 blob,14 個檔案重試兩次就會越界,而越界的表現是整個發布失敗、
+     訊息卻是「連不到 GitHub」。分開之後,每次重試只花 6 個子請求。 */
+async function ghCreateBlobs(env, headers, files){
+  const blobShas = {};
   for(const f of files){
-    if(f.remove){ entries.push({ path:f.path, mode:"100644", type:"blob", sha:null }); continue; }
+    if(f.remove) continue;
     const blob = await ghJson(env, headers, "git/blobs", {
       method:"POST", body: JSON.stringify({ content: f.contentB64, encoding:"base64" }),
     });
     if(!blob.ok) return blob;
-    entries.push({ path:f.path, mode:"100644", type:"blob", sha: blob.data.sha });
+    blobShas[f.path] = blob.data.sha;
+  }
+  return { ok:true, blobShas };
+}
+
+/* 第二階段:把已經建好的 blob 掛上 tree、建 commit、更新一次 ref。
+   ref 更新失敗時什麼都沒有生效,呼叫端可以直接用同一批 blob 重試。 */
+async function ghCommitFiles(env, headers, branch, files, message, baseCommitSha, baseTreeSha, blobShas){
+  const entries = [];
+  for(const f of files){
+    if(f.remove){ entries.push({ path:f.path, mode:"100644", type:"blob", sha:null }); continue; }
+    entries.push({ path:f.path, mode:"100644", type:"blob", sha: blobShas[f.path] });
   }
   const tree = await ghJson(env, headers, "git/trees", {
     method:"POST", body: JSON.stringify({ base_tree: baseTreeSha, tree: entries }),
@@ -590,7 +624,7 @@ async function ghCommitFiles(env, headers, branch, files, message, baseCommitSha
   if(upd.status === 422 || upd.status === 409) return { ok:false, error:"ref_moved" };
   if(upd.status === 401 || upd.status === 403) return { ok:false, error:"token_forbidden", status:upd.status };
   if(!upd.ok) return { ok:false, error:"github_write_failed", status:upd.status };
-  return { ok:true, commitSha: commit.data.sha };
+  return { ok:true, commitSha: commit.data.sha, blobShas };
 }
 
 /* base64 基本檢查：字元集合法且長度合理（避免把垃圾塞進 GitHub API 才被打回） */
@@ -820,7 +854,8 @@ async function handleRead(request, env){
     files[p] = r.bytes === null ? { exists:false } : {
       exists:true,
       text: new TextDecoder().decode(r.bytes),
-      hash: await sha256Hex(r.bytes),
+      hash: await sha256Hex(r.bytes),   // 內容雜湊:給草稿的三方比較用
+      blobSha: r.sha,                   // git blob sha:給發布時的版本檢查用(省掉逐檔重讀)
     };
   }
   return json(env, { ok:true, files });
@@ -895,12 +930,22 @@ async function handleClaim(request, env){
   const dataPath = "data/" + code.toLowerCase() + ".json";
   if(!canWriteDataFile(sess, dataPath)) return json(env, { ok:false, error:"forbidden_path", path:dataPath }, 403);
 
-  const MAX_TRIES = 4;
+  const MAX_TRIES = 3;   // 同上:/claim 每輪還要多讀 _index/pending/分組檔
   for(let attempt = 0; ; attempt++){
-    const gid = await groupInternalId(env, headers, code);
+    /* ★ 先取 head,之後所有讀取都釘在這個快照。代號解析、待認領區、分組檔必須來自
+       **同一個 commit** —— 否則會出現「代號檢查在改名前通過、寫入落在改名後」的交錯:
+       兩邊都回報成功,但成員卡寫進了正式名錄不會讀取的孤兒檔,而申請已經從待認領區
+       消失,等於一筆申請憑空蒸發。 */
+    const head = await ghHead(env, headers, env.GH_BRANCH || "main");
+    if(!head.ok) return json(env, { ok:false, error:head.error, status:head.status }, 502);
+    const REF = head.commitSha;
+    const tm = await ghTreeMap(env, headers, head.treeSha);
+    if(!tm.ok) return json(env, { ok:false, error:tm.error }, 502);
+
+    const gid = await groupInternalId(env, headers, code, REF);
     if(!gid) return json(env, { ok:false, error:"group_renamed", group:code }, 409);
 
-    const pend = await ghReadFile(env, headers, PENDING_PATH);
+    const pend = await ghReadFile(env, headers, PENDING_PATH, REF);
     if(!pend.ok) return json(env, { ok:false, error:pend.error, status:pend.status }, 502);
     let list = [];
     if(pend.bytes){
@@ -912,7 +957,7 @@ async function handleClaim(request, env){
     // ★★ 這一行就是重複認領的擋門:別人先認領走了,這裡就找不到了 ★★
     if(idx < 0) return json(env, { ok:false, error:"already_claimed", pid }, 409);
 
-    const grp = await ghReadFile(env, headers, dataPath);
+    const grp = await ghReadFile(env, headers, dataPath, REF);
     if(!grp.ok) return json(env, { ok:false, error:grp.error, status:grp.status }, 502);
     if(!grp.bytes) return json(env, { ok:false, error:"group_missing", path:dataPath }, 409);
     let groupBody;
@@ -936,13 +981,15 @@ async function handleClaim(request, env){
     files.push({ path: dataPath,     contentB64: bytesToB64(enc.encode(JSON.stringify(groupBody, null, 2) + "\n")) });
     files.push({ path: PENDING_PATH, contentB64: bytesToB64(enc.encode(JSON.stringify(list, null, 2) + "\n")) });
 
-    const baseHashes = {};
-    baseHashes[dataPath] = await sha256Hex(grp.bytes);
-    baseHashes[PENDING_PATH] = pend.bytes ? await sha256Hex(pend.bytes) : "";
+    /* 版本基準用剛才那棵 tree 裡的 blob sha —— 與我們讀到的內容來自同一個快照,
+       而且不必再為了比對多讀一次檔案(子請求預算很緊,見 ghTreeMap 的說明)。 */
+    const baseBlobShas = {};
+    if(tm.map.has(dataPath)) baseBlobShas[dataPath] = tm.map.get(dataPath);
+    if(tm.map.has(PENDING_PATH)) baseBlobShas[PENDING_PATH] = tm.map.get(PENDING_PATH);
 
     const who = String(sess.u || "").slice(0, 32);
     const r = await commitWithVersionCheck(env, headers, {
-      files, remove: [], baseHashes, sess,
+      files, remove: [], baseHashes:{}, baseBlobShas, assetPaths: files.filter(f => !f.path.startsWith("data/")).map(f => f.path), sess,
       message: "認領新夥伴：" + (member.name || "") + "（" + code.toUpperCase() + "・" + who + "）",
     });
     if(r.ok){
@@ -1024,16 +1071,9 @@ async function handlePublish(request, env){
      (檔名全寫在公開的 data.js 裡,不必猜)。所以組長送 images/ 附件時,要求檔名前綴等於
      自己那組的內部 id;owner 不受限。內部 id 由 _index.json 解析,讀不到就 fail-closed
      (寧可這次發不出去、要求重試,也不要放行一次可能的越權覆寫)。 */
-  if(sessionRole(sess) === "leader"){
-    const assetPaths = fileList.filter(f => !f.path.startsWith("data/")).map(f => f.path);
-    if(assetPaths.length){
-      const gid = await groupInternalId(env, headers, sess.g);
-      if(!gid) return json(env, { ok:false, error:"group_unresolved", group: sess.g || "" }, 403);
-      const prefix = "images/" + gid + "_";
-      const bad = assetPaths.find(p => !p.startsWith(prefix));
-      if(bad) return json(env, { ok:false, error:"forbidden_asset", path: bad, group: sess.g || "" }, 403);
-    }
-  }
+  /* images/ 附件的跨組授權檢查已經移進 commitWithVersionCheck —— 它必須與版本比對用
+     **同一個 commit 快照**來解析 _index,否則會出現「授權在改名前通過、寫入落在改名後」
+     的交錯。留在這裡的話,那個檢查讀的是移動中的 main。 */
 
   const baseHashes = (body && typeof body.baseHashes === "object" && body.baseHashes) || {};
   const removePaths = sanitizeRemovals(body && body.remove, sess);
@@ -1042,10 +1082,13 @@ async function handlePublish(request, env){
   const label = describeFiles(fileList);
   const r = await commitWithVersionCheck(env, headers, {
     files: fileList, remove: removePaths.list, baseHashes, sess,
+    baseBlobShas: (body && typeof body.baseBlobShas === "object" && body.baseBlobShas) || {},
+    assetPaths: fileList.filter(f => !f.path.startsWith("data/")).map(f => f.path),
     message: "更新會員名錄・" + label + by,
   });
   if(!r.ok) return json(env, r.body, r.status);
-  return json(env, { ok:true, filesWritten: fileList.length, newHashes: r.newHashes, commit: r.commitSha });
+  return json(env, { ok:true, filesWritten: fileList.length, newHashes: r.newHashes,
+                     newBlobShas: r.newBlobShas, commit: r.commitSha });
 }
 
 /* 這次發布動到什麼,寫進 commit 訊息 */
@@ -1072,59 +1115,156 @@ function sanitizeRemovals(raw, sess){
   return { list };
 }
 
+/* 版本比對。回傳 null = 通過,否則回傳可以直接送出去的錯誤物件。 */
+async function verifyVersions(env, headers, o){
+  const { files, remove, baseHashes, baseBlobShas, treeMap, ref } = o;
+  const blobs = (baseBlobShas && typeof baseBlobShas === "object") ? baseBlobShas : {};
+
+  const cmp = async (path, isRemoval) => {
+    const cur = treeMap.get(path);                 // undefined = 這個快照裡沒有這個檔
+    const wantBlob = blobs[path];
+    const wantHash = baseHashes[path];
+    const hasBase = (typeof wantBlob === "string" && wantBlob) || (typeof wantHash === "string" && wantHash);
+
+    if(!hasBase){
+      /* 沒有版本基準:新增檔案 → create-only;刪除檔案 → 一律拒絕(等於盲刪) */
+      if(isRemoval) return { ok:false, status:400, body:{ ok:false, error:"remove_without_base", path } };
+      if(cur) return { ok:false, status:409, body:{ ok:false, error:"already_exists", path } };
+      return null;
+    }
+    /* ★ 有版本基準、但檔案已經不在了 = 別人在這期間刪掉或改名了它。
+       原本這種情況會被當成「檔案不存在」而**重新建立** —— 等於把別人剛刪掉的檔案復活;
+       在改名場景下就是把資料寫回一個沒有人會讀的孤兒檔,而且雙方都收到成功。 */
+    if(!cur) return { ok:false, status:409, body:{ ok:false, error:"stale_base", reason:"file_deleted", path } };
+
+    if(typeof wantBlob === "string" && wantBlob){
+      if(wantBlob !== cur){
+        return { ok:false, status:409, body:{ ok:false, error:"stale_base", path, currentBlob:cur } };
+      }
+      return null;
+    }
+    // 舊版前端只送 sha256:得把檔案讀回來算一次(釘在同一個快照上)
+    const r = await ghReadFile(env, headers, path, ref);
+    if(!r.ok || r.bytes === null) return { ok:false, status:503, body:{ ok:false, error:"version_check_failed", path } };
+    const h = await sha256Hex(r.bytes);
+    if(h !== wantHash) return { ok:false, status:409, body:{ ok:false, error:"stale_base", path, currentHash:h } };
+    return null;
+  };
+
+  for(const f of files){
+    if(!f.path.startsWith("data/")) continue;
+    const bad = await cmp(f.path, false);
+    if(bad) return bad;
+  }
+  for(const p of (remove || [])){
+    const bad = await cmp(p, true);
+    if(bad) return bad;
+  }
+  return null;
+}
+
+/* 提交之後,_index 列到的每個代號都必須有對應的分組檔存在。 */
+async function checkIndexInvariant(env, headers, o){
+  const { files, remove, treeMap, ref } = o;
+  const idxFile = files.find(f => f.path === "data/_index.json");
+  const removals = new Set(remove || []);
+  const touchesGroups = removals.size > 0 || files.some(f => /^data\/[a-z0-9]{1,8}\.json$/.test(f.path));
+  if(!idxFile && !touchesGroups) return null;      // 這次提交碰不到這個不變式
+
+  let idxText;
+  if(idxFile){
+    try{ idxText = new TextDecoder().decode(b64ToBytes(idxFile.contentB64)); }
+    catch(e){ return { ok:false, status:400, body:{ ok:false, error:"bad_file_content", path:"data/_index.json" } }; }
+  } else {
+    const r = await ghReadFile(env, headers, "data/_index.json", ref);
+    if(!r.ok || r.bytes === null){
+      return { ok:false, status:503, body:{ ok:false, error:"version_check_failed", path:"data/_index.json" } };
+    }
+    idxText = new TextDecoder().decode(r.bytes);
+  }
+  let idx;
+  try{ idx = JSON.parse(idxText); }
+  catch(e){ return { ok:false, status:400, body:{ ok:false, error:"bad_data_file", path:"data/_index.json", reason:"index_not_json" } }; }
+  if(!Array.isArray(idx)){
+    return { ok:false, status:400, body:{ ok:false, error:"bad_data_file", path:"data/_index.json", reason:"index_not_array" } };
+  }
+
+  const after = new Set(treeMap.keys());           // 提交之後會存在的檔案
+  for(const p of removals) after.delete(p);
+  for(const f of files) after.add(f.path);
+
+  for(const e of idx){
+    const code = e && typeof e.code === "string" ? e.code.trim().toLowerCase() : "";
+    if(!code) continue;
+    const p = "data/" + code + ".json";
+    if(!after.has(p)){
+      return { ok:false, status:409, body:{ ok:false, error:"index_missing_group", code:(e && e.code) || "", path:p } };
+    }
+  }
+  return null;
+}
+
 /* 逐檔版本比對 + 單一 commit 寫入,ref 被搶就重讀重試。
    回傳 { ok:true, newHashes, commitSha } 或 { ok:false, body, status }。 */
 async function commitWithVersionCheck(env, headers, opts){
   const { files, remove, baseHashes, sess, message } = opts;
   const branch = env.GH_BRANCH || "main";
-  const MAX_TRIES = 4;
+  const MAX_TRIES = 3;   // 子請求預算:N 個 blob(一次)+ 每次重試 6 個,見 MAX_FILES_PER_REQUEST
+
+  const { baseBlobShas, assetPaths } = opts;
+  /* 先把所有 blob 建好(一次就好,重試不必重來,見 ghCreateBlobs) */
+  const made = await ghCreateBlobs(env, headers, files);
+  if(!made.ok) return { ok:false, status:502, body:{ ok:false, error:made.error, status:made.status } };
 
   for(let attempt = 0; ; attempt++){
-    /* ★ 組長的分組代號是否仍在 _index 裡。
-       總管理員把 A1 改名成 B1 之後,舊的 data/a1.json 不會被刪除,而組長的 session 仍帶
-       著 A1 —— canWriteDataFile 比對的是 session 與路徑(兩者都還是 a1),它根本不讀
-       _index,所以會放行。結果是組長的修改寫進一個沒有人會讀的孤兒檔,而**雙方都看到
-       「已發布!」**。這裡補上唯一擋得住的檢查:代號查不到就拒絕。 */
-    if(sessionRole(sess) === "leader" && files.some(f => f.path.startsWith("data/"))){
-      const gid = await groupInternalId(env, headers, sess.g);
-      if(!gid) return { ok:false, status:409, body:{ ok:false, error:"group_renamed", group: sess.g || "" } };
-    }
-
+    /* ★★ 順序很重要:先取 head,之後**所有**讀取都釘在 head.commitSha 這個快照上 ★★
+       原本 groupInternalId() 跑在 ghHead() 之前,讀的是移動中的 main。於是會出現:
+       組長的代號檢查在「改名前」通過、而 commit 建在「改名後」的 head 上 —— 兩邊都
+       回報成功,但成員卡寫進了正式名錄不會讀取的孤兒檔,而申請已經從待認領區消失。 */
     const head = await ghHead(env, headers, branch);
     if(!head.ok) return { ok:false, status:502, body:{ ok:false, error:head.error, status:head.status } };
+    const REF = head.commitSha;
 
-    for(const f of files){
-      if(!f.path.startsWith("data/")) continue;
-      const st = await currentFileState(env, headers, f.path);
-      /* ★ 讀不到就 fail-closed。原本這裡是 continue(跳過比對),但那同時也讓這個檔
-         失去樂觀鎖(路徑不會進 pinned,寫入時就變成「重讀最新 sha 再蓋」)——
-         一次讀取抖動等於兩道鎖同時消失,舊草稿可以無聲蓋掉別人剛寫的內容。
-         寧可回一個明確的暫時性錯誤請人重試,也不要靜默覆蓋。 */
-      if(!st) return { ok:false, status:503, body:{ ok:false, error:"version_check_failed", path:f.path } };
-      const want = baseHashes[f.path];
-      if(typeof want === "string" && want){
-        if(st.hash && st.hash !== want){
-          return { ok:false, status:409, body:{ ok:false, error:"stale_base", path:f.path, currentHash: st.hash } };
+    const tm = await ghTreeMap(env, headers, head.treeSha);
+    if(!tm.ok) return { ok:false, status:502, body:{ ok:false, error:tm.error, status:tm.status } };
+    const treeMap = tm.map;
+
+    /* 組長的分組代號是否仍在 _index 裡（用同一個快照讀）。 */
+    if(sessionRole(sess) === "leader" && (files.some(f => f.path.startsWith("data/")) || (remove||[]).length)){
+      const gid = await groupInternalId(env, headers, sess.g, REF);
+      if(!gid) return { ok:false, status:409, body:{ ok:false, error:"group_renamed", group: sess.g || "" } };
+      // images/ 附件的跨組授權也要用同一個快照,理由同上
+      for(const p of (assetPaths || [])){
+        if(!p.startsWith("images/" + gid + "_")){
+          return { ok:false, status:403, body:{ ok:false, error:"forbidden_asset", path:p, group: sess.g || "" } };
         }
-      } else if(st.hash){
-        /* 沒有 baseHash = 使用者以為這是新建的檔(新增分組),但它已經存在。
-           ★ 原本這種情況會**跳過檢查**直接覆蓋:兩個人各自新增同一個代號時,後寫的
-             會靜默蓋掉先寫的,而雙方都看到「已發布!」。改成 create-only。
-             注意不能改用前端的 loadedBody != null 來擋 —— 那會讓新增分組的檔案
-             永遠送不出去。界線必須畫在伺服器這一側。 */
-        return { ok:false, status:409, body:{ ok:false, error:"already_exists", path:f.path } };
       }
     }
 
+    /* 版本比對。優先用 git blob sha(前端從 /read 拿到的),那樣整批只需要上面那一次
+       recursive tree,不必逐檔再讀一遍。舊版前端只送 sha256 時才退回逐檔讀取。 */
+    const conflict = await verifyVersions(env, headers, { files, remove, baseHashes, baseBlobShas, treeMap, ref:REF });
+    if(conflict) return conflict;
+
+    /* ★ F21:_index 列到的每一組,提交之後都必須有對應的分組檔。
+       原本這個不變式只活在前端的送出順序裡,伺服器端完全沒有守 —— 直接呼叫 /publish
+       送一份列出 X 的 _index,就能建出一個**永久無效**的 commit:之後 build-data.mjs
+       每次都 throw,整條產線停住,而前台凍結在舊版且沒有任何告警。 */
+    const bad = await checkIndexInvariant(env, headers, { files, remove, treeMap, ref:REF });
+    if(bad) return bad;
+
     const payload = files.map(f => ({ path:f.path, contentB64:f.contentB64 }))
                          .concat((remove || []).map(p => ({ path:p, remove:true })));
-    const res = await ghCommitFiles(env, headers, branch, payload, message, head.commitSha, head.treeSha);
+    const res = await ghCommitFiles(env, headers, branch, payload, message, head.commitSha, head.treeSha, made.blobShas);
     if(res.ok){
       const newHashes = {};
       for(const f of files){
         if(f.path.startsWith("data/")) newHashes[f.path] = await sha256Hex(b64ToBytes(f.contentB64));
       }
-      return { ok:true, newHashes, commitSha: res.commitSha };
+      /* 一併回傳新的 blob sha:下一次發布的版本基準要用它。
+         少了這個,前端的 baseBlobShas 會停在發布前的值,而 repo 已經是新的 —— 下一次
+         發布會被自己剛寫進去的內容判成版本落後(而且訊息還說是別人改的)。 */
+      return { ok:true, newHashes, newBlobShas: made.blobShas, commitSha: res.commitSha };
     }
     /* ref 在我們讀 head 之後被別人推進了。這一次的 commit 完全沒有生效(ref 沒動),
        所以重讀重試是安全的 —— 重試時會重新比對各檔雜湊,真的有人改到同一個檔就會
