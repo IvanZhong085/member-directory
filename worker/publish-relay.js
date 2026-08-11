@@ -700,8 +700,14 @@ function checkDataFileBody(path, text){
    沒被認領的人不會在 repo 留下任何圖檔。 */
 const INTAKE_TEXT_MAX = 400;          // 單一文字欄位
 const INTAKE_LIST_MAX = 12;           // 陣列欄位的項目數
-const INTAKE_IMG_B64_MAX = 700 * 1024;   // 單張照片 base64(約 500KB 原始)
-const INTAKE_TOTAL_B64_MAX = 3 * 1024 * 1024;  // 一份申請所有照片加總
+/* ★ 單筆申請的照片預算必須是**整個待認領區預算的一個小分數**,不能等於它。
+   原本 INTAKE_TOTAL_B64_MAX 是 3MB,而 MAX_DATA_BYTES(整個 _pending.json)也是 3MB
+   —— 一筆申請就被允許吃掉整個收件預算。實測那筆測試申請 1.57MB,已經佔掉一半以上,
+   再來一筆帶完整照片的就會讓表單回 pending_too_large 而停止收件。
+   改成 500KB 之後,同時可以容納約 6 筆待認領,而照片對名錄的顯示尺寸仍然綽綽有餘
+   (前台形象照約 200px、名片點開約 800px、商品照約 400px)。 */
+const INTAKE_IMG_B64_MAX = 220 * 1024;         // 單張照片 base64(約 165KB 原始)
+const INTAKE_TOTAL_B64_MAX = 500 * 1024;       // 一份申請所有照片加總
 const INTAKE_MAX_PER_WINDOW = 20;     // 同一 IP 在節流窗內最多送幾份
 const DATA_IMG_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
 

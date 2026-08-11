@@ -272,10 +272,8 @@
   function recomputePrimary(){
     const now = Date.now();
     for(const [id, t] of tabPeers){ if(now - t > TAB_STALE_MS) tabPeers.delete(id); }
-    let smallest = TAB_ID;
-    for(const id of tabPeers.keys()) if(id < smallest) smallest = id;
     const was = tabIsSecondary;
-    tabIsSecondary = (smallest !== TAB_ID);
+    tabIsSecondary = !AdminLogic.isPrimaryTab(TAB_ID, [...tabPeers.keys()]);
     if(tabIsSecondary && !was){
       toast("另一個分頁已經開著同一份後台。為避免兩邊的草稿互相覆蓋，這個分頁不會自動儲存草稿——" +
             "請關掉其中一個分頁再繼續編輯。", { warn:true, duration:15000 });
@@ -374,16 +372,8 @@
        標成衝突並鎖住,發布前一定會問過人。既不會無聲覆蓋,也不會丟掉任何編輯。 */
     conflictPaths.clear();
     const draftBase = (parsed.baseHashes && typeof parsed.baseHashes === "object") ? parsed.baseHashes : null;
-    if(draftBase){
-      for(const path of Object.keys(liveHashes)){
-        const b = draftBase[path];
-        if(typeof b === "string" && b && b !== liveHashes[path]) conflictPaths.add(path);
-      }
-    } else {
-      /* 舊格式草稿:沒有版本資訊,無法安全地與線上比對。整份標成衝突 —— 使用者仍看得到
-         自己的內容(可以複製或選擇覆蓋),但不會在不知情的情況下蓋掉別人。 */
-      for(const path of Object.keys(liveHashes)) conflictPaths.add(path);
-    }
+    // 純邏輯抽在 admin-logic.js,才有辦法寫自動測試(見 tests/logic.test.mjs)
+    AdminLogic.computeConflicts(draftBase, liveHashes).forEach(p => conflictPaths.add(p));
     if(parsed.sentBody && typeof parsed.sentBody === "object"){
       for(const k of Object.keys(sentBody)) delete sentBody[k];
       Object.assign(sentBody, parsed.sentBody);
@@ -1419,12 +1409,7 @@
        兩邊都顯示「已發布!」,資料卻永遠不會出現在網站上。
        所以改名時要把舊路徑一起送出去刪掉,而且必須和新檔在**同一個 commit** 裡,
        中間不能存在「_index 指向新檔、新檔卻還不存在」的狀態(那會讓產線整條失敗)。 */
-    const remove = [];
-    for(const g of DATA){
-      const orig = originalPathByGroupId[g.id];
-      const now = dataPathOf(g.code);
-      if(orig && orig !== now && remove.indexOf(orig) < 0) remove.push(orig);
-    }
+    const remove = AdminLogic.computeRenameRemovals(DATA, originalPathByGroupId, dataPathOf);
     return { files, remove };
   }
 

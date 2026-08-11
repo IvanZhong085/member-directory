@@ -15,6 +15,7 @@ export class FakeGitHub {
     this.commits = new Map();    // commitSha → { tree, parent, message }
     this.blobs = new Map();      // blobSha → content
     this.trees.set("t0", new Map(Object.entries(files)));
+    for(const c of Object.values(files)) this.blobs.set(blobShaOf(c), c);   // 供 git/blobs 的 GET 取用
     this.commits.set("c0", { tree:"t0", parent:null, message:"init" });
     this.head = "c0";
     this.refRejects = 0;
@@ -48,6 +49,14 @@ export class FakeGitHub {
         return J({ sha:m[1], truncated:false,
           tree:[...map.entries()].map(([path, c]) => ({ path, type:"blob", sha: blobShaOf(c) })) });
       }
+      /* git blobs 的 GET:contents API 對 >1MB 的檔案不給內容,Worker 會改走這裡。
+         少了這一段,只要待認領區超過 1MB 測試就會假性失敗(而那正是要驗的路徑)。 */
+      if((m = u.match(/\/git\/blobs\/([^/?]+)$/)) && method === "GET"){
+        const c = self.blobs.get(m[1]);
+        if(c === undefined) return J({}, 404);
+        return J({ sha:m[1], size: Buffer.byteLength(c), encoding:"base64",
+                   content: Buffer.from(c).toString("base64").replace(/(.{60})/g, "$1\n") });
+      }
       if(u.endsWith("/git/blobs") && method === "POST"){
         const b = JSON.parse(init.body);
         const content = Buffer.from(b.content, "base64").toString("utf8");
@@ -60,7 +69,7 @@ export class FakeGitHub {
         const next = new Map(self.trees.get(b.base_tree));
         for(const e of b.tree){
           if(e.sha === null) next.delete(e.path);
-          else next.set(e.path, self.blobs.get(e.sha));
+          else next.set(e.path, self.blobs.get(e.sha));   // POST 建立時已記進 blobs
         }
         const sha = self.treeShaFor(next);
         self.trees.set(sha, next);
@@ -81,6 +90,18 @@ export class FakeGitHub {
       }
       if((m = u.match(/\/contents\/(.+?)(\?|$)/))){
         const path = decodeURIComponent(m[1]);
+        /* contents API 的 PUT(/intake 用它寫待認領區)。
+           sha 是樂觀鎖:帶了就必須與現行相符,否則 409 —— 與真實行為一致,
+           少了這一段就測不出 /intake 的併發保護。 */
+        if(method === "PUT"){
+          const b = JSON.parse(init.body);
+          const f = self.files();
+          const cur = f.has(path) ? blobShaOf(f.get(path)) : null;
+          if(cur !== null && b.sha && b.sha !== cur) return J({ message:"conflict" }, 409);
+          const nc = Buffer.from(b.content, "base64").toString("utf8");
+          f.set(path, nc); self.blobs.set(blobShaOf(nc), nc);
+          return J({ content:{ path } });
+        }
         const refM = u.match(/[?&]ref=([^&]+)/);
         const ref = refM ? decodeURIComponent(refM[1]) : "main";
         // ★ ?ref=<commit sha> 讀的是那個 commit 的快照

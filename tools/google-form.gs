@@ -502,7 +502,12 @@ function onNewMemberSubmit(e) {
    ③ 有些檔案 Drive 始終不產縮圖 —— 退回用原檔,小張的照片這樣就夠了。
    全部失敗才回傳空字串(照片沒了,其他資料照樣進待認領區),並在紀錄裡寫清楚卡在哪。 */
 function driveImageDataUrl_(fileId, maxWidth, label) {
-  var widths = [maxWidth, 600, 400];
+  /* ★ 從 900 開始,而不是呼叫端傳進來的 maxWidth。
+     原本階梯是 [maxWidth, 600, 400] 且「取第一個小於上限的」,所以 maxWidth 那一級
+     只要沒超過上限就直接勝出 —— 一張名片因此進來 665KB base64,一筆申請就吃掉整個
+     待認領區預算的一半以上。900px 寬的名片字仍然看得清楚,檔案約 80~150KB。
+     maxWidth 保留在簽章上是為了呼叫端的可讀性,實際不再作為第一級。 */
+  var widths = [Math.min(maxWidth || 900, 900), 700, 500];
   var tag = (label || "照片") + "(" + fileId + ")";
   var state = { code: 0, note: "" };
 
@@ -638,7 +643,11 @@ function blobToDataUrl_(blob, tag) {
     }
   }
   var b64 = Utilities.base64Encode(blob.getBytes());
-  if (b64.length > 650 * 1024) return "";   // Worker 端單張上限約 700KB base64,留一點餘裕
+  /* Worker 端單張上限 220KB base64,這裡留餘裕抓 180KB。
+     這個數字連動著「同時能有幾筆待認領」:單筆申請上限 500KB ÷ 5 張 ≈ 100KB/張,
+     整個待認領區 3MB ÷ 500KB ≈ 6 筆。要放寬請三個地方一起改,否則又會出現
+     「收得進來、送不出去」的區間(見 worker/publish-relay.js 的 MAX_DATA_BYTES)。 */
+  if (b64.length > 180 * 1024) return "";
   return "data:" + type + ";base64," + b64;
 }
 

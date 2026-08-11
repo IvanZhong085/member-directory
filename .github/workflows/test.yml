@@ -35,5 +35,11 @@ jobs:
       - name: 併發回歸測試
         run: node tests/concurrency.test.mjs
 
+      - name: 待認領區容量測試
+        run: node tests/capacity.test.mjs
+
+      - name: 前端純邏輯測試
+        run: node tests/logic.test.mjs
+
       - name: 死程式碼掃描
         run: node tools/check-dead-code.mjs
