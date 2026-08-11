@@ -24,9 +24,19 @@
 (function(){
   "use strict";
 
-  /* 草稿鍵含角色範圍:組長只握有自己那組,不能跟總管理員的整份草稿混用 */
+  /* 草稿鍵含角色範圍:組長只握有自己那組,不能跟總管理員的整份草稿混用。
+     ★ 這個範圍在登入當下就固定下來,不再每次即時計算。
+     原本 draftKey() 讀的是即時的 currentSession() —— session 過期之後 myRole() 會退回
+     預設的 "owner",於是 isLeader() 變成 false,草稿鍵從「組長那一份」悄悄變成「總管理員
+     那一份」。結果是:session 過期後繼續編輯的內容全部寫到別人的鍵上,重新登入時讀回來的
+     是過期前的舊草稿,中間那段編輯**靜默消失**,而橫幅照樣顯示「尚未發布的變更」。
+     共用電腦上還會反過來污染總管理員的草稿。 */
   const DRAFT_PREFIX = "member-directory-draft-v2:";
-  function draftKey(){ return DRAFT_PREFIX + (isLeader() ? myGroupCode().toLowerCase() : "all"); }
+  let draftScope = null;
+  function lockDraftScope(){ draftScope = isLeader() ? myGroupCode().toLowerCase() : "all"; }
+  function draftKey(){
+    return DRAFT_PREFIX + (draftScope != null ? draftScope : (isLeader() ? myGroupCode().toLowerCase() : "all"));
+  }
   const glist = document.getElementById("glist");
   const main = document.getElementById("adm-main");
   const saveState = document.getElementById("save-state");
@@ -61,6 +71,9 @@
      連重新整理都救不回來(草稿會把舊 baseHashes 再蓋回去),只能捨棄草稿、連帶丟掉還沒
      發布的修改。見 reconcileWithLive()。 */
   const sentBody = {};
+  /* 「草稿的來源版本」與「線上現況」對不起來的路徑。這些路徑在使用者明確表態之前
+     不會被送出去 —— 見 tryLoadDraft() 的三方比較與 publish() 的閘門。 */
+  const conflictPaths = new Set();
 
   const dataPathOf = code => "data/" + String(code).trim().toLowerCase() + ".json";
   /* 分組代號只能是英數字:它同時是檔名(data/<代號>.json)與權限的判定依據。
@@ -90,26 +103,72 @@
     const d = await crypto.subtle.digest("SHA-256", bytes);
     return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, "0")).join("");
   }
-  async function fetchData(path){
+  /* 從公開網站(GitHub Pages)讀。這是**最終一致**的來源:任何人發布後要 1~4 分鐘
+     才會重新部署。只在 Worker 太舊、沒有 /read 端點時才走這條。 */
+  async function fetchFromPages(path){
     const res = await fetch(path + "?ts=" + Date.now(), { cache: "no-store" });
+    if(res.status === 404) return null;
     if(!res.ok) throw new Error(path + " HTTP " + res.status);
     const buf = await res.arrayBuffer();
     const text = new TextDecoder().decode(buf);
     return { json: JSON.parse(text), text, hash: await sha256Hex(buf) };
   }
+
+  /* ★ 一次把要的檔案從 Worker 讀回來(權威來源)。
+     為什麼不再直接讀 data/*.json:相對路徑讀到的是 GitHub Pages 上的**已部署**版本,
+     而 Worker 驗證版本時讀的是 GitHub API(repo 的當下狀態)。兩者的一致性時機不同,
+     所以任何人發布後的 1~4 分鐘內,其他人載入編輯頁拿到的是**必定過期**的版本基準:
+     發布一定被判 stale_base,而提示叫他「重新整理取得最新資料」——重新整理拿到的還是
+     同一份舊內容,於是形成迴圈。待認領區更嚴重:它會列出已經被別人認領走的人,
+     按下去就是重複認領。
+     改走 Worker 之後,載入與驗證來自同一個立即一致的來源。 */
+  let pagesFallbackWarned = false;
+  async function fetchMany(paths){
+    const session = loadSession();
+    if(workerCaps.read && session){
+      const res = await workerFetch("/read", { session, paths });
+      if(res && res.ok && res.files){
+        const out = {};
+        for(const p of paths){
+          const f = res.files[p];
+          out[p] = (f && f.exists) ? { json: JSON.parse(f.text), text: f.text, hash: f.hash } : null;
+        }
+        return out;
+      }
+      // 讀不到就不要靜默改用落後的來源當版本基準 —— 那正是死迴圈的來源
+      throw new Error("read_failed:" + ((res && res.error) || "unknown"));
+    }
+    if(!pagesFallbackWarned){
+      pagesFallbackWarned = true;
+      toast("發布服務尚未升級，資料改從公開網站讀取；剛發布過的內容可能還沒同步過來。",
+            { warn:true, duration:8000 });
+    }
+    const out = {};
+    for(const p of paths) out[p] = await fetchFromPages(p);
+    return out;
+  }
   /* 依角色載入:總管理員 13 個檔,組長 2 個(結構 + 自己那組) */
   async function loadData(){
-    const idx = await fetchData("data/_index.json");
-    INDEX = idx.json;
-    baseHashes["data/_index.json"] = idx.hash;
-    loadedBody["data/_index.json"] = idx.text;
+    await (capsReady || refreshCaps());     // 要先知道 Worker 支不支援 /read 才決定從哪讀
+    const IDX = "data/_index.json";
+    const first = await fetchMany([IDX]);
+    if(!first[IDX]) throw new Error("讀不到 " + IDX);
+    INDEX = first[IDX].json;
+    baseHashes[IDX] = first[IDX].hash;
+    loadedBody[IDX] = first[IDX].text;
 
     const code = myGroupCode().trim().toLowerCase();
     const wanted = isLeader() ? INDEX.filter(e => String(e.code).trim().toLowerCase() === code) : INDEX;
+    const paths = wanted.map(e => dataPathOf(e.code));
+    /* 待認領區:新夥伴自填表單送來的申請。所有角色都載入——組長要能認領自己那組的人。
+       檔案可能還不存在(還沒有人申請過),那不是錯誤,當成空清單。 */
+    const got = await fetchMany(paths.concat([PENDING_PATH]));
+
     const next = [];
     for(const e of wanted){
       const path = dataPathOf(e.code);
-      const f = await fetchData(path);
+      const f = got[path];
+      if(!f) throw new Error("讀不到 " + path);
       baseHashes[path] = f.hash;
       loadedBody[path] = serializeBody(groupBody(f.json));
       next.push({ code: e.code, name: e.name, leader: f.json.leader ?? "", room: f.json.room ?? "",
@@ -117,14 +176,12 @@
     }
     DATA = next;
 
-    /* 待認領區:新夥伴自填表單送來的申請。所有角色都載入——組長要能認領自己那組的人。
-       檔案可能還不存在(還沒有人申請過),那不是錯誤,當成空清單。 */
-    try{
-      const p = await fetchData(PENDING_PATH);
+    const p = got[PENDING_PATH];
+    if(p){
       PENDING = Array.isArray(p.json) ? p.json : [];
       baseHashes[PENDING_PATH] = p.hash;
       loadedBody[PENDING_PATH] = p.text;
-    }catch(e){
+    } else {
       PENDING = [];
       delete baseHashes[PENDING_PATH];
       loadedBody[PENDING_PATH] = null;
@@ -185,12 +242,41 @@
   }
 
   /* ---------- draft persistence ---------- */
+  /* ★ 跨分頁協調。原本完全沒有:兩個分頁共用同一個草稿鍵,各自無條件整份覆寫,
+     後存的把先存的整份蓋掉;而其中一個分頁發布成功並清掉草稿之後,另一個分頁下一次
+     按鍵又會把「發布前」的狀態寫回去 —— 於是橫幅顯示「尚未發布的變更」而內容是舊版,
+     接著發布就撞上版本落後。
+     這裡不做複雜的合併:偵測到同一個範圍已經有分頁開著,後開的那個就停止自動存草稿
+     (記憶體裡照樣能編輯、也能發布),並且明白告訴使用者。不寫,就不會蓋掉對方。 */
+  let tabChannel = null, tabIsSecondary = false;
+  const TAB_ID = Math.random().toString(36).slice(2);
+  function startTabGuard(){
+    if(typeof BroadcastChannel === "undefined") return;
+    try{ tabChannel = new BroadcastChannel("member-directory-admin:" + draftKey()); }catch(e){ return; }
+    tabChannel.onmessage = ev => {
+      const d = ev && ev.data || {};
+      if(d.id === TAB_ID) return;
+      if(d.type === "hello"){ try{ tabChannel.postMessage({ type:"here", id:TAB_ID }); }catch(e){} }
+      else if(d.type === "here" && !tabIsSecondary){
+        tabIsSecondary = true;
+        toast("另一個分頁已經開著同一份後台。為避免兩邊的草稿互相覆蓋，這個分頁不會自動存草稿——" +
+              "請關掉其中一個分頁再繼續編輯。", { warn:true, duration:15000 });
+      }
+    };
+    try{ tabChannel.postMessage({ type:"hello", id:TAB_ID }); }catch(e){}
+  }
   function showDraftBanner(on){ draftBanner.classList.toggle("show", !!on); }
   /* 唯讀帳號不留草稿。除了「本來就沒東西可存」之外還有一個實際理由:草稿的鍵對
      非組長一律是 "all",同一台電腦上唯讀帳號與總管理員會共用同一份 —— 唯讀帳號
      會載到別人還沒發布的內容,自己的暫存也會反過來污染對方。 */
   function saveDraft(){
     if(isViewer()) return;
+    /* 同一個範圍已經有別的分頁開著:不寫,就不會蓋掉對方的草稿。
+       記憶體裡的編輯不受影響,也還是可以發布 —— 只是這台裝置上不留自動備份。 */
+    if(tabIsSecondary){
+      saveState.textContent = "⚠ 另一個分頁開著同一份後台，這裡不自動儲存草稿（避免互相覆蓋）";
+      return;
+    }
     try{
       /* 連 baseHashes 與 loadedBody 一起存。只存資料的話,下次開頁面的流程是
          「先載線上最新版(拿到新的雜湊)→ 再用舊草稿蓋掉資料」,發布時送出的就變成
@@ -229,16 +315,29 @@
     DATA = parsed.data;
     // 舊版草稿沒有 pending 欄位,那時就沿用剛從伺服器載到的清單
     if(Array.isArray(parsed.pending)) PENDING = parsed.pending;
-    /* 資料與版本雜湊必須成套還原,不然就是「舊內容配新雜湊」。
-       舊版草稿沒有這兩個欄位:那時維持剛載到的線上版本,行為與過去一致
-       —— 雖然仍有蓋掉別人的風險,但至少不會因為欄位不存在而整個壞掉。 */
-    if(parsed.baseHashes && typeof parsed.baseHashes === "object"){
-      for(const k of Object.keys(baseHashes)) delete baseHashes[k];
-      Object.assign(baseHashes, parsed.baseHashes);
-    }
-    if(parsed.loadedBody && typeof parsed.loadedBody === "object"){
-      for(const k of Object.keys(loadedBody)) delete loadedBody[k];
-      Object.assign(loadedBody, parsed.loadedBody);
+    /* ★ 三方比較:base(草稿當初的來源版本)/ draft(草稿內容)/ live(剛讀到的現況)。
+
+       原本這裡是「把草稿的 baseHashes 整份蓋回去」,那會造成兩種**方向相反**的災難:
+       ・真的有人在這期間發布過 → 基準停在舊值,每次發布都被判 stale_base,而畫面叫人
+         「重新整理再試」—— 重新整理又會把舊基準蓋回來,於是**無限迴圈**,唯一出路是
+         捨棄草稿、連帶丟掉所有未發布的編輯。
+       ・舊格式草稿(沒有 baseHashes 欄位)→ 整段被跳過,變成「舊內容配新雜湊」,
+         版本檢查會**通過**,於是**靜默覆蓋**別人的修改,雙方都不會察覺。
+
+       現在的做法:baseHashes 一律維持剛讀到的線上值(它才是 Worker 會拿來比對的東西),
+       草稿的內容照樣還原給使用者看;只有「草稿的來源版本 ≠ 線上現況」的那幾個路徑被
+       標成衝突並鎖住,發布前一定會問過人。既不會無聲覆蓋,也不會丟掉任何編輯。 */
+    conflictPaths.clear();
+    const draftBase = (parsed.baseHashes && typeof parsed.baseHashes === "object") ? parsed.baseHashes : null;
+    if(draftBase){
+      for(const path of Object.keys(liveHashes)){
+        const b = draftBase[path];
+        if(typeof b === "string" && b && b !== liveHashes[path]) conflictPaths.add(path);
+      }
+    } else {
+      /* 舊格式草稿:沒有版本資訊,無法安全地與線上比對。整份標成衝突 —— 使用者仍看得到
+         自己的內容(可以複製或選擇覆蓋),但不會在不知情的情況下蓋掉別人。 */
+      for(const path of Object.keys(liveHashes)) conflictPaths.add(path);
     }
     if(parsed.sentBody && typeof parsed.sentBody === "object"){
       for(const k of Object.keys(sentBody)) delete sentBody[k];
@@ -263,6 +362,9 @@
       baseHashes[path] = liveHashes[path];
       loadedBody[path] = liveBody[path];
       delete sentBody[path];      // 已經對齊,不必再追蹤
+      /* 線上的內容就是我上次送出去的內容 → 那次其實成功了,這不是別人造成的衝突。
+         把它從衝突清單拿掉,免得叫使用者去確認一件他自己做過的事。 */
+      conflictPaths.delete(path);
       fixed.push(path);
     }
     return fixed;
@@ -1171,9 +1273,22 @@
      m/ 分享預覽頁一律由 GitHub Action 於發布後 1–2 分鐘重建，
      唯一產生器是 tools/build-member-pages.mjs（後台不再重生，避免兩份範本要同步）。 */
   let workerCaps = {};
-  async function refreshCaps(){
-    const res = await workerFetch("/ping");
-    workerCaps = (res && res.ok && res.caps) || {};
+  let capsReady = null;      // promise:一定要 await 過才知道 Worker 支援什麼
+  /* ★ 原本這裡是 fire-and-forget（呼叫端沒有 await）:workerCaps 初值是 {},要等 /ping
+     往返回來才變成真值。使用者在那之前按下發布(Worker 冷啟動可達數秒),或 /ping 失敗
+     (原註解寫「失敗就當不支援,行為同舊版」),整個分頁就會退回「照片內嵌在分組檔裡」
+     的舊路徑 —— 分組檔膨脹數 MB,推送後同步 Action 又會回頭改寫 data/,於是下一次發布
+     被判版本落後,而訊息說「有人在你編輯期間發布過」(其實是自動化流程),連重新整理都
+     解不開。改成 promise:發布前一定會等它,而且失敗時不再靜默降級成舊行為。
+     外層呼叫點不是 async,所以不能只加一個 await —— 要留住 promise 讓發布時去等。 */
+  function refreshCaps(){
+    capsReady = (async () => {
+      const res = await workerFetch("/ping");
+      if(res && res.ok && res.caps){ workerCaps = res.caps; return true; }
+      workerCaps = {};
+      return false;
+    })();
+    return capsReady;
   }
 
   /* 檔名要通得過 Worker 的路徑白名單:開頭必須是英數,其餘只留 [A-Za-z0-9._-]。
@@ -1189,29 +1304,39 @@
      留在分組檔裡，每個訪客載入名錄都要多扛幾百 KB。副檔名跟著實際格式走，
      存成 .jpg 會讓 GitHub Pages 回錯的 content-type。 */
   const DATA_IMG_EXT = { jpeg: "jpg", png: "png", webp: "webp" };
-  function embeddedPhoto(value, base){
+  async function embeddedPhoto(value, base){
     const m = /^data:image\/(jpeg|png|webp);base64,(.+)$/.exec(String(value || ""));
     if(!m) return null;
     const b64 = m[2].trim();
-    return b64 ? { name: base + "." + DATA_IMG_EXT[m[1]], b64 } : null;
+    if(!b64) return null;
+    /* ★ 檔名帶**內容雜湊**。原本檔名只由成員 id 決定(而裁切一律輸出 jpeg,副檔名也固定),
+       所以兩個人同時替同一位成員換照片必然寫到同一個路徑;而 images/ 的寫入沒有版本鎖,
+       後寫的會靜默蓋掉先寫的,雙方都不會收到任何錯誤 —— 前台於是變成「A 的資料配 B 的
+       照片」。加上內容雜湊之後,不同的照片必然是不同的檔,永遠不會互相覆蓋;內容相同則
+       自然指向同一個檔,不會產生重複檔案。 */
+    const h = (await sha256Hex(Uint8Array.from(atob(b64), c => c.charCodeAt(0)))).slice(0, 10);
+    return { name: base + "_" + h + "." + DATA_IMG_EXT[m[1]], b64 };
   }
 
   /* 組出這次發布要寫的檔案:照片附件 + 「內容真的有變」的分組檔。
      沒改到的組完全不送,才不會在別組組長同時編輯時互相踩到。 */
-  function buildPublishPayload(){
+  async function buildPublishPayload(){
     const data = clone(DATA);
     const files = [];
     if(workerCaps.files){
-      data.forEach(g => g.members.forEach(m => {
-        const pic = embeddedPhoto(m.image, fileSafeId(m.id) + "_x");
-        if(pic){ files.push({ path: "images/" + pic.name, contentB64: pic.b64 }); m.image = pic.name; }
-        const card = embeddedPhoto(m.card, fileSafeId(m.id) + "_card");
-        if(card){ files.push({ path: "images/" + card.name, contentB64: card.b64 }); m.card = card.name; }
-        (m.products || []).forEach((p, i) => {
-          const prod = embeddedPhoto(p, fileSafeId(m.id) + "_p" + (i + 1));
-          if(prod){ files.push({ path: "images/" + prod.name, contentB64: prod.b64 }); m.products[i] = prod.name; }
-        });
-      }));
+      for(const g of data){
+        for(const m of g.members){
+          const pic = await embeddedPhoto(m.image, fileSafeId(m.id) + "_x");
+          if(pic){ files.push({ path: "images/" + pic.name, contentB64: pic.b64 }); m.image = pic.name; }
+          const card = await embeddedPhoto(m.card, fileSafeId(m.id) + "_card");
+          if(card){ files.push({ path: "images/" + card.name, contentB64: card.b64 }); m.card = card.name; }
+          const prods = m.products || [];
+          for(let i = 0; i < prods.length; i++){
+            const prod = await embeddedPhoto(prods[i], fileSafeId(m.id) + "_p" + (i + 1));
+            if(prod){ files.push({ path: "images/" + prod.name, contentB64: prod.b64 }); prods[i] = prod.name; }
+          }
+        }
+      }
     }
     // 分組檔:與載入時的內容逐字比對,只送真的有差異的
     data.forEach(g => {
@@ -1261,10 +1386,35 @@
     const orig = btn.innerHTML;
     btn.disabled = true; btn.textContent = "發布中…";
     try{
-      const payload = buildPublishPayload();
+      /* ★ 一定要先確認 Worker 支援什麼才動手組 payload。
+         沒問到就發布的話,照片會以 base64 內嵌進分組檔(見 refreshCaps 的說明),
+         那是一條會把人帶進死迴圈的路 —— 寧可擋下來請他重試。 */
+      const capsOk = await (capsReady || refreshCaps());
+      if(!capsOk || !workerCaps.files){
+        toast("暫時連不到發布服務（或它尚未升級），為避免照片被錯誤地寫進資料檔，這次先不發布。" +
+              "請稍候幾秒再按一次。", { warn:true, duration:8000 });
+        return false;
+      }
+      const payload = await buildPublishPayload();
       if(!payload.files.length){
         toast("沒有偵測到任何變更，不需要發布");
         return false;
+      }
+      /* ★ 衝突閘門:草稿的來源版本與線上現況對不起來的路徑,一定要使用者明確表態。
+         這裡刻意用 confirm 而不是靜默處理 —— 「覆蓋別人剛發布的內容」不該是預設行為,
+         但也不該把人卡在無限迴圈裡(那正是原本的狀況)。 */
+      const hit = payload.files.filter(f => conflictPaths.has(f.path)).map(f => f.path);
+      if(hit.length){
+        const names = hit.map(p => p === "data/_index.json" ? "分會結構"
+                                : p === PENDING_PATH ? "待認領區"
+                                : p.replace(/^data\/|\.json$/g, "").toUpperCase() + " 組");
+        const okOverride = confirm(
+          "以下項目在你離開之後被其他人發布過：\n\n  " + names.join("、") +
+          "\n\n你手上的草稿是根據更早的版本編輯的。要繼續發布嗎？\n" +
+          "（繼續 = 用你的版本覆蓋對方的修改；取消 = 先按「捨棄變更」取得最新資料，" +
+          "或用「下載備份」把你的內容留一份再處理）");
+        if(!okOverride) return false;
+        hit.forEach(p => conflictPaths.delete(p));   // 已經問過了,不再重複打擾
       }
       /* 照片與分組檔一起送:Worker 會先寫照片、再寫分組檔,任一步失敗就整批中止,
          公開網站不會出現「資料檔指向不存在照片」的狀態。單次上限 25 檔,
@@ -1368,10 +1518,31 @@
         toast("伺服器找不到你這一組的設定，這次修改沒有上線。請稍後再試一次，或聯繫總管理員確認分組設定。",
               {warn:true, duration:9000});
       } else if(res.error === "stale_base"){
-        // 別人在你編輯期間發布過:硬送出去會把對方的修改蓋掉,所以擋在這裡
+        /* 別人在你編輯期間發布過:硬送出去會把對方的修改蓋掉,所以擋在這裡。
+           ★ 措辭改過:原本斷言「被其他人發布過」並叫人「重新整理再改一次」。
+             兩句都可能是錯的 —— 發布者自己觸發的同步流程也會改到 data/,而在 Worker
+             支援 /read 之前,重新整理讀到的是延遲 1~4 分鐘的公開網站,重整根本拿不到
+             最新資料(於是形成迴圈)。現在資料改從 Worker 讀,重新整理才真的有用。 */
         toast("「" + String(res.path || "").replace(/^data\/|\.json$/g, "").toUpperCase() +
-              "」在你編輯期間被其他人發布過，這次「沒有」上線。請先「下載備份」保留你的修改，" +
-              "重新整理頁面取得最新資料後再改一次。", {warn:true, duration:12000});
+              "」的線上版本比你手上的新，這次「沒有」上線（一個位元組都沒有寫入）。" +
+              "請先「下載備份」保留你的修改，重新整理頁面取得最新資料後再改一次。",
+              {warn:true, duration:12000});
+      } else if(res.error === "already_exists"){
+        toast("「" + String(res.path || "").replace(/^data\/|\.json$/g, "").toUpperCase() +
+              "」已經被其他人建立了，這次「沒有」上線。請重新整理頁面，改用既有的那一組。",
+              {warn:true, duration:10000});
+      } else if(res.error === "group_renamed"){
+        toast("你這一組的代號已被總管理員改過，這次「沒有」上線。請重新整理頁面後再試一次。",
+              {warn:true, duration:10000});
+      } else if(res.error === "version_check_failed"){
+        toast("暫時讀不到線上版本，為了不覆蓋別人的修改，這次「沒有」上線（草稿都還在）。請稍後再試。",
+              {warn:true, duration:9000});
+      } else if(res.error === "busy_retry_later"){
+        toast("同一時間發布的人有點多，這次「沒有」上線（草稿都還在）。請過幾秒再按一次。",
+              {warn:true, duration:9000});
+      } else if(res.error === "data_file_too_large" || res.error === "pending_too_large"){
+        toast("資料量超過單檔上限，這次「沒有」上線。若待認領區累積太多筆，請先認領或刪除幾筆。",
+              {warn:true, duration:11000});
       } else if(res.error === "conflict"){
         toast("版本衝突，請重新整理頁面後再發布一次", {warn:true, duration:6000});
       } else if(res.error === "no_worker_url"){
@@ -1569,36 +1740,61 @@
     });
   }
 
-  /* 申請 → 成員卡。用 newMember() 當樣板,確保每個欄位都存在、id 由本機產生
-     (表單送來的 pid 只是待認領清單的鍵,不會變成成員 id) */
-  function applicantToMember(a, gid){
-    const m = newMember(gid, a.name || "");
-    m.title = a.title || "";
-    m.company = a.company || "";
-    m.business_items = a.business_items || "";
-    m.website = a.website || "";
-    ["services", "targets", "have", "want", "tagline", "products"].forEach(k => {
-      m[k] = Array.isArray(a[k]) ? a[k].slice() : [];
-    });
-    m.image = a.image || "";
-    m.card = a.card || "";
-    m.dataIssue = true;        // 自填資料請組長過目一次,前台會顯示「資料需確認」
-    touch(m);
-    return m;
-  }
-  function claimPending(pid, gid){
+  /* 申請 → 成員卡的轉換已經移到 Worker（applicantToMember，publish-relay.js）——
+     它必須與「這筆是否仍在待認領區」的檢查在同一個交易裡,前端做不到。 */
+  /* ★ 認領改成伺服器端的交易,不再是本機草稿。
+     為什麼一定要搬到伺服器:認領在語意上是「這位申請人歸這一組」——一個只能發生一次的
+     動作。原本它完全是前端操作(建成員卡 + 從清單移除),真正生效要等發布,而發布是多個
+     獨立寫入。兩位組長同時認領同一人時,兩邊的草稿各自成立、各自通過版本檢查,於是各自
+     寫成功自己那組的成員卡 —— 同一個人變成兩組的成員,而後者收到的訊息還是
+     「這次沒有上線」。兩個瀏覽器看不到彼此,前端無論怎麼防都補不起來。
+     現在由 Worker 在同一個交易裡確認「這筆還在待認領區」並寫入,第二位會拿到明確的
+     already_claimed,而且他那組一個位元組都不會被寫入。 */
+  async function claimPending(pid, gid){
     const i = PENDING.findIndex(x => x.pid === pid);
     const g = DATA.find(x => x.id === gid);
     if(i < 0 || !g) return;
     if(!canEditGroup(g)){ toast("你沒有修改這一組的權限", { warn:true }); return; }
-    pushUndo();
-    const m = applicantToMember(PENDING[i], g.id);
-    g.members.push(m);
-    PENDING.splice(i, 1);
-    selected = g.id;
-    renderAll(); scheduleSaveAndValidate();
-    toast("已認領「" + (m.name || "新夥伴") + "」到「" + (g.code || "?") + "」，" +
-          "請確認資料後按「發布到網站」。已先標記為「資料需確認」。", { duration: 8000 });
+    const session = loadSession();
+    if(!session){ showLock(); toast("請先輸入管理密碼", { warn:true }); return; }
+    if(!workerCaps.claim){
+      toast("發布服務尚未升級，暫時無法認領。請稍候再試，或請總管理員更新 Worker。",
+            { warn:true, duration:8000 });
+      return;
+    }
+    /* 認領會立刻寫進網站,而本機草稿不會跟著送出去。兩者混在一起會讓「發布」的
+       版本基準對不上,所以要求先把手上的修改處理掉 —— 講清楚比事後解釋容易。 */
+    if(dirty){
+      toast("你還有尚未發布的修改。請先按「發布到網站」（或捨棄變更），再進行認領。",
+            { warn:true, duration:9000 });
+      return;
+    }
+    const name = PENDING[i].name || "新夥伴";
+    toast("認領中…");
+    const res = await workerFetch("/claim", { session, pid, group: g.code });
+    if(res.ok){
+      await loadData(); renderAll();
+      selected = gid;
+      toast(`已認領「${name}」到「${g.code}」，並且**已經寫進網站**（不必再按發布）。` +
+            `已標記為「資料需確認」，請確認資料後再發布一次。`, { duration: 9000 });
+      return;
+    }
+    if(res.error === "already_claimed"){
+      await loadData(); renderAll();
+      toast(`「${name}」已經被其他組長認領走了，清單已更新。`, { warn:true, duration: 8000 });
+      return;
+    }
+    if(res.error === "group_renamed"){
+      toast("你這一組的代號已被總管理員改過，請重新整理頁面後再試。", { warn:true, duration: 8000 });
+      return;
+    }
+    if(res.error === "session_expired" || res.httpStatus === 401){
+      clearSession(); showLock();
+      toast("登入逾時，請重新輸入密碼後再認領一次", { warn:true, duration: 6000 });
+      return;
+    }
+    toast("認領沒有成功（" + (res.error || "未知錯誤") + "），資料沒有被改動，請稍後再試。",
+          { warn:true, duration: 8000 });
   }
   function dropPending(pid){
     if(isViewer()) return;   // 刪申請是破壞性的,而且這個函式原本一道角色檢查都沒有
@@ -1620,6 +1816,10 @@
   }catch(e){}
   /* 資料要等登入後才載入(組長只能拿自己那組,載入範圍取決於角色) */
   async function bootData(){
+    /* 草稿範圍在這裡固定下來(登入之後、讀資料之前),之後 session 過期也不會漂移。
+       同一個範圍只讓一個分頁自動存草稿,見 startTabGuard()。 */
+    lockDraftScope();
+    startTabGuard();
     try{
       await loadData();
     }catch(e){

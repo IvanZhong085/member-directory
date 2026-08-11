@@ -52,7 +52,13 @@ const FILE_PATH_RE = /^images\/[A-Za-z0-9][A-Za-z0-9._-]{0,79}\.(jpg|jpeg|png|we
 /* 分組資料檔:data/_index.json(分會結構)與 data/<代號小寫>.json(各組內容)。
    ★ 這條路徑規則就是權限本身:組長只被允許寫自己那一組的檔案,見 canWriteDataFile() ★ */
 const DATA_PATH_RE = /^data\/(_index|_pending|[a-z0-9]{1,8})\.json$/;
-const MAX_DATA_B64_CHARS = 4 * 1024 * 1024;   // 單一分組檔 base64 上限(約 3MB 原始,含內嵌照片綽綽有餘)
+/* ★ 一個 data/ 檔案能有多大,只有這一個數字說了算 ★
+   原本 /publish 的上限是 4MB base64(約 3MB 原始),而 /intake 的上限是 8MB 原始 ——
+   兩邊不一致的後果是待認領區會進入「只進不出」:申請累積到 4~5 筆時 intake 還收得下,
+   但組長認領後要寫回剩下那幾筆就超過 publish 的上限而被拒,於是**沒有任何人能認領或
+   刪除任何一筆**,連自己那組的其他編輯都一起發不出去。兩邊必須是同一個數字。 */
+const MAX_DATA_BYTES = 3 * 1024 * 1024;
+const MAX_DATA_B64_CHARS = Math.ceil(MAX_DATA_BYTES * 4 / 3) + 8;   // base64 的等值上限(先擋掉明顯過大的請求)
 const PENDING_PATH = "data/_pending.json";
 /* 一個檔案最多讀進 Worker 記憶體多少位元組。git blobs API 本身容得下 100MB,但 Worker 只有
    約 128MB,而讀一份 N 位元組的 JSON 峰值大約要 5N(base64 回應 → base64 字串 → 位元組陣列
@@ -379,7 +385,10 @@ async function clearFail(env, ip){
    visitor 來賓報名的 entry 設定已填好 —— visitor.html 靠它決定要顯示內嵌表單,
            還是退回「開新分頁到 Google 表單」的舊按鈕。 */
 async function handlePing(request, env){
-  return json(env, { ok:true, service:"member-directory-relay", caps:{ files:true, visitor: visitorConfigured() } });
+  /* atomic:一次發布寫成單一 commit(全成功或全失敗);read:權威讀取端點;
+     claim:認領是伺服器端交易。編輯頁靠這幾個旗標判斷該走新路徑還是舊路徑。 */
+  return json(env, { ok:true, service:"member-directory-relay",
+    caps:{ files:true, visitor: visitorConfigured(), atomic:true, read:true, claim:true } });
 }
 
 async function handleLogin(request, env){
@@ -499,6 +508,89 @@ async function ghPutFile(env, headers, path, contentB64, message, pinnedSha){
   }catch(e){
     return { ok:false, error: e && e.name === "AbortError" ? "github_timeout" : "github_unreachable" };
   }
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Git Data API:把一次發布寫成「一個 commit」
+
+   為什麼要換掉 contents API 的逐檔 PUT:
+   contents API 一次只能寫一個檔,一次發布 N 個檔就是 N 個 commit、N 次 ref 更新。
+   第 k 個失敗時前 k-1 個**已經上線**,而回應卻對使用者說「這次沒有上線」。
+   認領新夥伴在語意上是一個交易(建成員卡 + 從待認領區移除 + 寫照片),被拆成
+   3~9 個可各自失敗的寫入之後,兩位組長同時認領同一人的結果是:兩人都通過版本檢查
+   (檢查全部跑完才開始寫)、各自寫成功自己那組的成員卡,只有後者的待認領區被 409 擋下
+   —— 於是同一個人變成兩組的成員,而後者收到的訊息是「這次沒有上線」。
+
+   git data API 可以先把所有檔案做成 blob、組成一棵 tree、建一個 commit,最後只更新
+   一次 ref。**全成功或全失敗,沒有中間狀態。**
+
+   併發保護在最後那一步:commit 的 parent 是我們讀到的 head,ref 更新用 force:false
+   (只允許快轉)。別人在這中間推過任何東西,parent 就不再是 ref 的現值,GitHub 會拒絕
+   —— 這是**跨檔**的樂觀鎖,不是逐檔的。被拒時重讀 head、重新比對各檔雜湊、重試。
+
+   ★ 為什麼 parent 用「當下的 head」而不是使用者載入時的 baseCommitSha:
+     同步 Action 每次發布後都會推一個 commit(data.js/m//roster.csv)。若把整個 commit
+     綁在載入時的 head 上,那個自動提交會讓**每一次**發布都變成衝突,即使雙方碰的根本
+     不是同一個檔。所以這裡的做法是:parent 取當下 head(避免無關的推送造成假衝突),
+     真正的衝突偵測留給「逐檔雜湊比對」(只在乎我們要寫的那幾個檔有沒有被動過)
+     加上「ref 的 CAS」(擋住讀到寫之間的競爭)。兩者合起來就不會有失落更新。 */
+function apiUrl(env, suffix){
+  return `https://api.github.com/repos/${encodeURIComponent(env.GH_OWNER)}/${encodeURIComponent(env.GH_REPO)}/` + suffix;
+}
+async function ghJson(env, headers, suffix, init){
+  const r = await fetchWithTimeout(apiUrl(env, suffix), init ? Object.assign({}, init, {
+    headers: Object.assign({}, headers, { "Content-Type":"application/json" }),
+  }) : { headers }, GITHUB_TIMEOUT_MS);
+  if(r.status === 401 || r.status === 403) return { ok:false, error:"token_forbidden", status:r.status };
+  if(!r.ok) return { ok:false, error:"github_write_failed", status:r.status };
+  try{ return { ok:true, data: await r.json() }; }
+  catch(e){ return { ok:false, error:"github_write_failed" }; }
+}
+
+/* 目前分支頂端的 commit sha 與它的 tree sha */
+async function ghHead(env, headers, branch){
+  const ref = await ghJson(env, headers, "git/ref/heads/" + encodeURIComponent(branch));
+  if(!ref.ok) return ref;
+  const commitSha = ref.data && ref.data.object && ref.data.object.sha;
+  if(!commitSha) return { ok:false, error:"github_write_failed" };
+  const commit = await ghJson(env, headers, "git/commits/" + encodeURIComponent(commitSha));
+  if(!commit.ok) return commit;
+  const treeSha = commit.data && commit.data.tree && commit.data.tree.sha;
+  if(!treeSha) return { ok:false, error:"github_write_failed" };
+  return { ok:true, commitSha, treeSha };
+}
+
+/* files:[{ path, contentB64 }] 或 { path, remove:true }(刪檔,改名時要用)
+   回傳 { ok:true, commitSha } / { ok:false, error } */
+async function ghCommitFiles(env, headers, branch, files, message, baseCommitSha, baseTreeSha){
+  const entries = [];
+  for(const f of files){
+    if(f.remove){ entries.push({ path:f.path, mode:"100644", type:"blob", sha:null }); continue; }
+    const blob = await ghJson(env, headers, "git/blobs", {
+      method:"POST", body: JSON.stringify({ content: f.contentB64, encoding:"base64" }),
+    });
+    if(!blob.ok) return blob;
+    entries.push({ path:f.path, mode:"100644", type:"blob", sha: blob.data.sha });
+  }
+  const tree = await ghJson(env, headers, "git/trees", {
+    method:"POST", body: JSON.stringify({ base_tree: baseTreeSha, tree: entries }),
+  });
+  if(!tree.ok) return tree;
+  const commit = await ghJson(env, headers, "git/commits", {
+    method:"POST", body: JSON.stringify({ message, tree: tree.data.sha, parents:[baseCommitSha] }),
+  });
+  if(!commit.ok) return commit;
+  /* force:false —— 只允許快轉。別人在我們讀 head 之後推過東西,這一步就會被拒,
+     整個 commit 原地作廢(沒有任何檔案上線),呼叫端重讀重試。 */
+  const upd = await fetchWithTimeout(apiUrl(env, "git/refs/heads/" + encodeURIComponent(branch)), {
+    method:"PATCH",
+    headers: Object.assign({}, headers, { "Content-Type":"application/json" }),
+    body: JSON.stringify({ sha: commit.data.sha, force:false }),
+  }, GITHUB_TIMEOUT_MS);
+  if(upd.status === 422 || upd.status === 409) return { ok:false, error:"ref_moved" };
+  if(upd.status === 401 || upd.status === 403) return { ok:false, error:"token_forbidden", status:upd.status };
+  if(!upd.ok) return { ok:false, error:"github_write_failed", status:upd.status };
+  return { ok:true, commitSha: commit.data.sha };
 }
 
 /* base64 基本檢查：字元集合法且長度合理（避免把垃圾塞進 GitHub API 才被打回） */
@@ -685,8 +777,8 @@ async function handleIntake(request, env){
        沒有這道閘門的話,單筆上限 3MB × 50 筆理論上能長到 150MB —— 那時連 blobs API
        都救不了,而且故障點會落在「讀」那一側,看起來像 GitHub 壞了,極難查。
        擋在這裡的話,訊息是明確的:待認領區滿了,請組長先認領或清掉幾筆。 */
-    if(bytes.length > MAX_READ_BYTES){
-      return json(env, { ok:false, error:"pending_too_large", size:bytes.length, max:MAX_READ_BYTES }, 409);
+    if(bytes.length > MAX_DATA_BYTES){
+      return json(env, { ok:false, error:"pending_too_large", size:bytes.length, max:MAX_DATA_BYTES }, 409);
     }
     const res = await ghPutFile(env, headers, PENDING_PATH, bytesToB64(bytes),
                                 "新夥伴申請待認領：" + applicant.name, sha);
@@ -696,6 +788,173 @@ async function handleIntake(request, env){
     return json(env, { ok:false, error:res.error, status:res.status }, 502);
   }
   return json(env, { ok:true, pid, pending: pendingCount });
+}
+
+/* ══ 權威讀取 ══════════════════════════════════════════════════════════════
+   編輯頁原本用相對路徑讀 data/*.json —— 那是 GitHub **Pages** 上的已部署版本,而
+   Worker 驗證版本時讀的是 GitHub **API**(repo 的當下狀態)。兩者的一致性時機不同:
+   任何人發布後,Pages 要 1~4 分鐘才重新部署。在那段窗口裡,其他人載入編輯頁拿到的是
+   **必定過期**的版本基準,發布一定被判 stale_base;而畫面提示叫他「重新整理取得最新
+   資料」,重新整理拿到的還是同一份舊內容 —— 於是形成迴圈,而且待認領區裡還會列出
+   已經被別人認領走的人(按下去就是重複認領)。
+   讓編輯頁改從這裡讀,載入與驗證就來自同一個立即一致的來源。
+   內容本身不是機密(公開 repo、公開網站都讀得到),但仍要求登入 —— 沒必要讓未登入者
+   拿它當一支免費的 API。 */
+async function handleRead(request, env){
+  let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
+  const sess = await verifySession(body && body.session, env.SESSION_SECRET);
+  if(!sess) return json(env, { ok:false, error:"session_expired" }, 401);
+
+  const paths = Array.isArray(body && body.paths) ? body.paths.slice(0, 20) : [];
+  if(!paths.length) return json(env, { ok:false, error:"bad_request" }, 400);
+  for(const p of paths){
+    if(typeof p !== "string" || !DATA_PATH_RE.test(p)){
+      return json(env, { ok:false, error:"bad_file_path", path:p }, 400);
+    }
+  }
+  const headers = await ghHeaders(env);
+  const files = {};
+  for(const p of paths){
+    const r = await ghReadFile(env, headers, p);
+    if(!r.ok) return json(env, { ok:false, error:r.error, path:p, status:r.status }, 502);
+    files[p] = r.bytes === null ? { exists:false } : {
+      exists:true,
+      text: new TextDecoder().decode(r.bytes),
+      hash: await sha256Hex(r.bytes),
+    };
+  }
+  return json(env, { ok:true, files });
+}
+
+/* ══ 認領新夥伴(伺服器端交易)══════════════════════════════════════════════
+   為什麼要把認領搬到伺服器:
+   認領在語意上是「這位申請人歸這一組」——一個**只能發生一次**的動作。原本它完全是
+   前端的草稿操作(建成員卡 + 從待認領清單移除),真正生效要等發布。兩位組長同時認領
+   同一人時,兩邊的草稿各自成立、各自通過版本檢查(檢查全部跑完才開始寫),於是各自
+   寫成功自己那組的成員卡 —— 同一個人變成兩組的成員,而後者收到的訊息還是
+   「這次沒有上線」。前端無論怎麼防都補不起來,因為兩個瀏覽器看不到彼此。
+
+   把「這筆是否仍在待認領區」與「寫入」放進同一個伺服器端交易,才是唯一擋得住的位置:
+   第二位組長會拿到明確的 already_claimed,而且他那組**一個位元組都沒有被寫入**。 */
+const CLAIM_IMG_EXT = { jpeg:"jpg", png:"png", webp:"webp" };
+
+/* 申請 → 成員卡。照片從 base64 抽成 images/ 實體檔,檔名帶**內容雜湊**:
+   原本檔名只由成員 id 決定,兩個人同時替同一位換照片就會寫到同一個路徑,而 images/
+   的寫入完全沒有版本鎖 → 後寫的靜默蓋掉先寫的,雙方都不會收到任何錯誤。
+   把內容雜湊放進檔名之後,不同的照片必然是不同的檔,永遠不會互相覆蓋;內容相同則
+   自然指向同一個檔,不會產生重複檔案。 */
+async function applicantToMember(a, memberId, pid, outFiles){
+  const pick = async (value, suffix) => {
+    const raw = String(value == null ? "" : value);
+    const m = /^data:image\/(jpeg|png|webp);base64,(.+)$/.exec(raw);
+    if(!m) return raw && !raw.startsWith("data:") ? str(raw, 200) : "";
+    const b64 = m[2].trim();
+    if(!b64 || !isPlausibleB64(b64, INTAKE_IMG_B64_MAX)) return "";
+    const bytes = b64ToBytes(b64);
+    const name = memberId + "_" + suffix + "_" + (await sha256Hex(bytes)).slice(0, 10) + "." + CLAIM_IMG_EXT[m[1]];
+    outFiles.push({ path: "images/" + name, contentB64: b64 });
+    return name;
+  };
+  const arr = v => (Array.isArray(v) ? v : []).slice(0, INTAKE_LIST_MAX).map(x => str(x)).filter(Boolean);
+  const member = {
+    id: memberId, number:"", name: str(a.name, 80), title: str(a.title),
+    services: arr(a.services), targets: arr(a.targets), have: arr(a.have),
+    want: arr(a.want), tagline: arr(a.tagline),
+    image: await pick(a.image, "x"),
+    card: await pick(a.card, "card"),
+    products: [],
+    company: str(a.company), business_items: str(a.business_items),
+    website: str(a.website),
+    dataIssue: true,              // 自填資料請組長過目一次,前台會顯示「資料需確認」
+    claimedFrom: pid,             // ★ 事後判斷「這張卡是從哪一筆申請來的」的唯一依據
+    updatedAt: new Date().toISOString(),
+  };
+  const prods = Array.isArray(a.products) ? a.products.slice(0, 5) : [];
+  for(let i = 0; i < prods.length; i++){
+    const n = await pick(prods[i], "p" + (i + 1));
+    if(n) member.products.push(n);
+  }
+  return member;
+}
+
+async function handleClaim(request, env){
+  let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
+  const sess = await verifySession(body && body.session, env.SESSION_SECRET);
+  if(!sess) return json(env, { ok:false, error:"session_expired" }, 401);
+  if(isViewerSession(sess)) return json(env, { ok:false, error:"read_only" }, 403);
+
+  const pid = String(body && body.pid == null ? "" : body.pid);
+  if(!MEMBER_ID_RE.test(pid)) return json(env, { ok:false, error:"bad_request" }, 400);
+
+  // 組長只能認領到自己那一組 —— 不看前端送什麼過來
+  const role = sessionRole(sess);
+  const code = role === "leader" ? String(sess.g || "") : String(body && body.group == null ? "" : body.group);
+  if(!/^[A-Za-z0-9]{1,8}$/.test(code)) return json(env, { ok:false, error:"bad_request" }, 400);
+
+  const headers = await ghHeaders(env);
+  const dataPath = "data/" + code.toLowerCase() + ".json";
+  if(!canWriteDataFile(sess, dataPath)) return json(env, { ok:false, error:"forbidden_path", path:dataPath }, 403);
+
+  const MAX_TRIES = 4;
+  for(let attempt = 0; ; attempt++){
+    const gid = await groupInternalId(env, headers, code);
+    if(!gid) return json(env, { ok:false, error:"group_renamed", group:code }, 409);
+
+    const pend = await ghReadFile(env, headers, PENDING_PATH);
+    if(!pend.ok) return json(env, { ok:false, error:pend.error, status:pend.status }, 502);
+    let list = [];
+    if(pend.bytes){
+      try{ list = JSON.parse(new TextDecoder().decode(pend.bytes)); }
+      catch(e){ return json(env, { ok:false, error:"pending_unreadable" }, 502); }
+      if(!Array.isArray(list)) return json(env, { ok:false, error:"pending_unreadable" }, 502);
+    }
+    const idx = list.findIndex(a => a && a.pid === pid);
+    // ★★ 這一行就是重複認領的擋門:別人先認領走了,這裡就找不到了 ★★
+    if(idx < 0) return json(env, { ok:false, error:"already_claimed", pid }, 409);
+
+    const grp = await ghReadFile(env, headers, dataPath);
+    if(!grp.ok) return json(env, { ok:false, error:grp.error, status:grp.status }, 502);
+    if(!grp.bytes) return json(env, { ok:false, error:"group_missing", path:dataPath }, 409);
+    let groupBody;
+    try{ groupBody = JSON.parse(new TextDecoder().decode(grp.bytes)); }
+    catch(e){ return json(env, { ok:false, error:"group_unreadable" }, 502); }
+    if(!groupBody || typeof groupBody !== "object" || !Array.isArray(groupBody.members)){
+      return json(env, { ok:false, error:"group_unreadable" }, 502);
+    }
+    // 保險:同一筆申請已經有卡了就不要再建一張(claimedFrom 讓這件事第一次變得可判斷)
+    if(groupBody.members.some(m => m && m.claimedFrom === pid)){
+      return json(env, { ok:false, error:"already_claimed", pid }, 409);
+    }
+
+    const memberId = gid + "_m_" + Date.now().toString(36) + Math.floor(Math.random()*1e5).toString(36);
+    const files = [];
+    const member = await applicantToMember(list[idx], memberId, pid, files);
+    groupBody.members.push(member);
+    list.splice(idx, 1);
+
+    const enc = new TextEncoder();
+    files.push({ path: dataPath,     contentB64: bytesToB64(enc.encode(JSON.stringify(groupBody, null, 2) + "\n")) });
+    files.push({ path: PENDING_PATH, contentB64: bytesToB64(enc.encode(JSON.stringify(list, null, 2) + "\n")) });
+
+    const baseHashes = {};
+    baseHashes[dataPath] = await sha256Hex(grp.bytes);
+    baseHashes[PENDING_PATH] = pend.bytes ? await sha256Hex(pend.bytes) : "";
+
+    const who = String(sess.u || "").slice(0, 32);
+    const r = await commitWithVersionCheck(env, headers, {
+      files, remove: [], baseHashes, sess,
+      message: "認領新夥伴：" + (member.name || "") + "（" + code.toUpperCase() + "・" + who + "）",
+    });
+    if(r.ok){
+      return json(env, { ok:true, memberId, group:code, pending:list.length, commit:r.commitSha });
+    }
+    /* 別人在我們讀完之後動過待認領區或這一組 → 重讀重試。
+       重讀之後那筆很可能已經不在了,於是回到上面的 already_claimed —— 這正是我們要的
+       結果:訊息明確,而且他那組完全沒有被寫入。 */
+    const e = r.body && r.body.error;
+    if((e === "stale_base" || e === "busy_retry_later") && attempt < MAX_TRIES - 1) continue;
+    return json(env, r.body, r.status);
+  }
 }
 
 async function handlePublish(request, env){
@@ -742,8 +1001,13 @@ async function handlePublish(request, env){
         return json(env, { ok:false, error:"bad_file_content", path: f.path }, 400);
       }
       let text;
-      try{ text = new TextDecoder("utf-8", { fatal:true }).decode(b64ToBytes(f.contentB64)); }
-      catch(e){ return json(env, { ok:false, error:"bad_file_content", path: f.path }, 400); }
+      try{
+        const raw = b64ToBytes(f.contentB64);
+        if(raw.length > MAX_DATA_BYTES){
+          return json(env, { ok:false, error:"data_file_too_large", path:f.path, size:raw.length, max:MAX_DATA_BYTES }, 413);
+        }
+        text = new TextDecoder("utf-8", { fatal:true }).decode(raw);
+      }catch(e){ return json(env, { ok:false, error:"bad_file_content", path: f.path }, 400); }
       const why = checkDataFileBody(f.path, text);
       if(why) return json(env, { ok:false, error:"bad_data_file", path: f.path, reason: why }, 400);
     } else {
@@ -771,51 +1035,106 @@ async function handlePublish(request, env){
     }
   }
 
-  /* 版本落後偵測(逐檔):baseHashes 是 {路徑: 這份草稿的來源版本雜湊}。
-     只要有一個分組檔在編輯期間被別人改過就整批擋下,不做部分寫入——
-     寧可要求重來,也不要留下一半新一半舊的狀態。
-     讀不到現行檔案(網路問題)就跳過該檔的比對,見 currentFileState。
-     檢查與寫入用的是**同一次讀取**的 blob sha(pinned),中間別人寫過就會在 PUT 時被 GitHub 擋下。 */
   const baseHashes = (body && typeof body.baseHashes === "object" && body.baseHashes) || {};
-  const pinned = {};              // 路徑 → 檢查那一刻的 blob sha,等一下原封不動帶去寫
-  for(const f of fileList){
-    if(!f.path.startsWith("data/")) continue;
-    const st = await currentFileState(env, headers, f.path);
-    if(!st) continue;             // 讀不到(網路問題):維持原本的寬鬆,不因一次抖動卡住所有人
-    const want = baseHashes[f.path];
-    if(typeof want === "string" && want && st.hash && st.hash !== want){
-      return json(env, { ok:false, error:"stale_base", path:f.path, currentHash: st.hash }, 409);
+  const removePaths = sanitizeRemovals(body && body.remove, sess);
+  if(removePaths.error) return json(env, { ok:false, error:removePaths.error, path:removePaths.path }, 403);
+
+  const label = describeFiles(fileList);
+  const r = await commitWithVersionCheck(env, headers, {
+    files: fileList, remove: removePaths.list, baseHashes, sess,
+    message: "更新會員名錄・" + label + by,
+  });
+  if(!r.ok) return json(env, r.body, r.status);
+  return json(env, { ok:true, filesWritten: fileList.length, newHashes: r.newHashes, commit: r.commitSha });
+}
+
+/* 這次發布動到什麼,寫進 commit 訊息 */
+function describeFiles(fileList){
+  const names = fileList.filter(f => f.path.startsWith("data/")).map(f =>
+    f.path === "data/_index.json" ? "分會結構"
+    : f.path === PENDING_PATH ? "待認領區"
+    : f.path.replace(/^data\/|\.json$/g, "").toUpperCase() + " 組");
+  if(!names.length) return "照片";
+  return names.slice(0, 3).join("、") + (names.length > 3 ? ` 等 ${names.length} 項` : "");
+}
+
+/* 改名分組時要刪掉舊檔。刪除與新增必須在同一個 commit 裡,否則中間狀態會讓
+   build-data.mjs 找不到 _index 列出的檔而整條產線失敗。 */
+function sanitizeRemovals(raw, sess){
+  const list = [];
+  if(!Array.isArray(raw)) return { list };
+  for(const p of raw){
+    if(typeof p !== "string" || !DATA_PATH_RE.test(p)) return { error:"bad_file_path", path:p };
+    if(!canWriteDataFile(sess, p)) return { error:"forbidden_path", path:p };
+    if(p === "data/_index.json" || p === PENDING_PATH) return { error:"forbidden_path", path:p };
+    list.push(p);
+  }
+  return { list };
+}
+
+/* 逐檔版本比對 + 單一 commit 寫入,ref 被搶就重讀重試。
+   回傳 { ok:true, newHashes, commitSha } 或 { ok:false, body, status }。 */
+async function commitWithVersionCheck(env, headers, opts){
+  const { files, remove, baseHashes, sess, message } = opts;
+  const branch = env.GH_BRANCH || "main";
+  const MAX_TRIES = 4;
+
+  for(let attempt = 0; ; attempt++){
+    /* ★ 組長的分組代號是否仍在 _index 裡。
+       總管理員把 A1 改名成 B1 之後,舊的 data/a1.json 不會被刪除,而組長的 session 仍帶
+       著 A1 —— canWriteDataFile 比對的是 session 與路徑(兩者都還是 a1),它根本不讀
+       _index,所以會放行。結果是組長的修改寫進一個沒有人會讀的孤兒檔,而**雙方都看到
+       「已發布!」**。這裡補上唯一擋得住的檢查:代號查不到就拒絕。 */
+    if(sessionRole(sess) === "leader" && files.some(f => f.path.startsWith("data/"))){
+      const gid = await groupInternalId(env, headers, sess.g);
+      if(!gid) return { ok:false, status:409, body:{ ok:false, error:"group_renamed", group: sess.g || "" } };
     }
-    pinned[f.path] = st.sha;      // null = 這個檔還不存在,寫入時不帶 sha
-  }
 
-  /* 先寫照片等附件、最後寫分組資料檔:任何一步失敗就中止,
-     公開網站不會出現「資料檔指向不存在照片」的狀態。 */
-  const dataFiles = fileList.filter(f => f.path.startsWith("data/"));
-  const assetFiles = fileList.filter(f => !f.path.startsWith("data/"));
-  let written = 0;
-  const newHashes = {};
+    const head = await ghHead(env, headers, branch);
+    if(!head.ok) return { ok:false, status:502, body:{ ok:false, error:head.error, status:head.status } };
 
-  for(const f of assetFiles){
-    const r = await ghPutFile(env, headers, f.path, f.contentB64, "更新會員名錄（附件）" + by);
-    if(!r.ok) return json(env, { ok:false, error:r.error, path:f.path, filesWritten:written, status:r.status }, 502);
-    written++;
+    for(const f of files){
+      if(!f.path.startsWith("data/")) continue;
+      const st = await currentFileState(env, headers, f.path);
+      /* ★ 讀不到就 fail-closed。原本這裡是 continue(跳過比對),但那同時也讓這個檔
+         失去樂觀鎖(路徑不會進 pinned,寫入時就變成「重讀最新 sha 再蓋」)——
+         一次讀取抖動等於兩道鎖同時消失,舊草稿可以無聲蓋掉別人剛寫的內容。
+         寧可回一個明確的暫時性錯誤請人重試,也不要靜默覆蓋。 */
+      if(!st) return { ok:false, status:503, body:{ ok:false, error:"version_check_failed", path:f.path } };
+      const want = baseHashes[f.path];
+      if(typeof want === "string" && want){
+        if(st.hash && st.hash !== want){
+          return { ok:false, status:409, body:{ ok:false, error:"stale_base", path:f.path, currentHash: st.hash } };
+        }
+      } else if(st.hash){
+        /* 沒有 baseHash = 使用者以為這是新建的檔(新增分組),但它已經存在。
+           ★ 原本這種情況會**跳過檢查**直接覆蓋:兩個人各自新增同一個代號時,後寫的
+             會靜默蓋掉先寫的,而雙方都看到「已發布!」。改成 create-only。
+             注意不能改用前端的 loadedBody != null 來擋 —— 那會讓新增分組的檔案
+             永遠送不出去。界線必須畫在伺服器這一側。 */
+        return { ok:false, status:409, body:{ ok:false, error:"already_exists", path:f.path } };
+      }
+    }
+
+    const payload = files.map(f => ({ path:f.path, contentB64:f.contentB64 }))
+                         .concat((remove || []).map(p => ({ path:p, remove:true })));
+    const res = await ghCommitFiles(env, headers, branch, payload, message, head.commitSha, head.treeSha);
+    if(res.ok){
+      const newHashes = {};
+      for(const f of files){
+        if(f.path.startsWith("data/")) newHashes[f.path] = await sha256Hex(b64ToBytes(f.contentB64));
+      }
+      return { ok:true, newHashes, commitSha: res.commitSha };
+    }
+    /* ref 在我們讀 head 之後被別人推進了。這一次的 commit 完全沒有生效(ref 沒動),
+       所以重讀重試是安全的 —— 重試時會重新比對各檔雜湊,真的有人改到同一個檔就會
+       在上面被判 stale_base。 */
+    if(res.error === "ref_moved" && attempt < MAX_TRIES - 1) continue;
+    if(res.error === "ref_moved"){
+      return { ok:false, status:409, body:{ ok:false, error:"busy_retry_later" } };
+    }
+    return { ok:false, status:502, body:{ ok:false, error:res.error, status:res.status } };
   }
-  for(const f of dataFiles){
-    const label = f.path === "data/_index.json" ? "分會結構"
-                : f.path === PENDING_PATH ? "待認領區"
-                : f.path.replace(/^data\/|\.json$/g, "").toUpperCase() + " 組";
-    /* 帶上檢查那一刻的 sha。別人在這中間寫過的話,GitHub 會回 409 → stale_base,
-       使用者看到的是「有人在你編輯期間發布過」,而不是一句假的「已發布!」。
-       這個檔沒被檢查過(pinned 裡沒有)就傳 undefined,沿用舊行為。 */
-    const r = await ghPutFile(env, headers, f.path, f.contentB64, "更新會員名錄・" + label + by,
-                              Object.prototype.hasOwnProperty.call(pinned, f.path) ? pinned[f.path] : undefined);
-    if(!r.ok) return json(env, { ok:false, error:r.error, path:f.path, filesWritten:written, status:r.status }, 502);
-    // 回傳新版本雜湊,編輯頁接著用它當新的 baseHash,不必重新整理就能再次發布
-    newHashes[f.path] = await sha256Hex(b64ToBytes(f.contentB64));
-    written++;
-  }
-  return json(env, { ok:true, filesWritten:written, newHashes });
 }
 
 /* ══ 來賓報名(公開、免密碼)══════════════════════════════════════════════
@@ -1016,6 +1335,8 @@ export default {
       if(pathname === "/ping") return await handlePing(request, env);
       if(pathname === "/login") return await handleLogin(request, env);
       if(pathname === "/publish") return await handlePublish(request, env);
+      if(pathname === "/read") return await handleRead(request, env);
+      if(pathname === "/claim") return await handleClaim(request, env);
       if(pathname === "/intake") return await handleIntake(request, env);
       if(pathname === "/health") return await handleHealth(request, env);
       if(pathname === "/views") return await handleViews(request, env);

@@ -17,7 +17,15 @@ permissions:
   contents: write
 
 concurrency:
-  # 同一時間只跑一個,後來的排隊等前一個做完(不取消:每次發布的結果都要被算進去)
+  # 同一時間只跑一個。cancel-in-progress: false 保證「正在跑的那個不會被砍掉」。
+  #
+  # ⚠ 但它**不是**「每個 run 都會輪到」:GitHub 對同一個 group 只保留**一個** pending,
+  #   新的排進來會取消前一個 pending。12 位組長連續發布時,實際跑起來的通常只有兩個
+  #   (第一個 + 最後一個),中間的都會顯示 Cancelled —— 那是正常的,不是故障。
+  #
+  # 收斂性靠的是**下面的重試迴圈**,不是這段設定:main 是線性歷史,存活下來那個 run 的
+  # checkout sha 必然包含所有更早的 data/ 變更;推送被拒時再 reset 到當下的 main 重算。
+  # ★ 所以請不要因為「反正 concurrency 會排隊」而拿掉重試迴圈 —— 拿掉的當下收斂性就沒了。
   group: sync-site-data
   cancel-in-progress: false
 
