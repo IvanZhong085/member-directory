@@ -589,10 +589,14 @@ async function ghTreeMap(env, headers, treeSha){
      這對子請求預算是決定性的:Cloudflare Workers 免費方案單次呼叫只有 50 個子請求,
      若每次重試都重建全部 blob,14 個檔案重試兩次就會越界,而越界的表現是整個發布失敗、
      訊息卻是「連不到 GitHub」。分開之後,每次重試只花 6 個子請求。 */
-async function ghCreateBlobs(env, headers, files){
-  const blobShas = {};
+async function ghCreateBlobs(env, headers, files, known){
+  const blobShas = Object.assign({}, known || {});
   for(const f of files){
     if(f.remove) continue;
+    /* 已經建過的就不要再建一次。blob 是內容定址的,重建會拿到同一個 sha,
+       但**仍然要花一個子請求** —— 而子請求預算是這裡最稀缺的資源。
+       /claim 帶 7 張照片時,少了這個快取,外層每重試一次就多燒 9 個子請求。 */
+    if(blobShas[f.path]) continue;
     const blob = await ghJson(env, headers, "git/blobs", {
       method:"POST", body: JSON.stringify({ content: f.contentB64, encoding:"base64" }),
     });
@@ -1273,6 +1277,12 @@ async function handleClaim(request, env){
   if(!canWriteDataFile(sess, dataPath)) return json(env, { ok:false, error:"forbidden_path", path:dataPath }, 403);
 
   const MAX_TRIES = 3;   // 同上:/claim 每輪還要多讀 _index/pending/分組檔
+  /* 跨重試共用的快取。照片的內容在重試之間不會變(pid 相同 → photoRefs 相同),
+     所以它們的 blob 只需要建一次。少了這個,7 張照片的申請在兩次 ref 競爭之後
+     會用掉 58 個 GitHub 子請求,超過 Cloudflare 免費方案單次呼叫 50 個的上限,
+     而越界的表現是整個認領失敗、訊息卻是「連不到 GitHub」。 */
+  const blobCache = {};
+  let memberId = null, photo = null;
   for(let attempt = 0; ; attempt++){
     /* ★ 先取 head,之後所有讀取都釘在這個快照。代號解析、待認領區、分組檔必須來自
        **同一個 commit** —— 否則會出現「代號檢查在改名前通過、寫入落在改名後」的交錯:
@@ -1313,15 +1323,19 @@ async function handleClaim(request, env){
       return json(env, { ok:false, error:"already_claimed", pid }, 409);
     }
 
-    const memberId = gid + "_m_" + Date.now().toString(36) + Math.floor(Math.random()*1e5).toString(36);
-
     /* ★ 照片全部取回並驗證完,才動 Git。失敗的話 pending 記錄與 R2 物件都原封不動,
-       可以安全重試 —— 這正是「不得出現 pending 已刪除但成員/圖片沒寫入」的保證來源。 */
-    const allowMissing = (body && body.allowMissingImages) === true;
-    const ph = await resolvePendingPhotos(env, list[idx], memberId, allowMissing);
-    if(!ph.ok){
-      return json(env, { ok:false, error:ph.error, field:ph.field, fields:ph.fields, reason:ph.reason }, 409);
+       可以安全重試 —— 這正是「不得出現 pending 已刪除但成員/圖片沒寫入」的保證來源。
+       只做一次:重試時 pid 相同,photoRefs 也相同,再讀一遍 R2 沒有意義。 */
+    if(!memberId){
+      memberId = gid + "_m_" + Date.now().toString(36) + Math.floor(Math.random()*1e5).toString(36);
+      const allowMissing = (body && body.allowMissingImages) === true;
+      const ph = await resolvePendingPhotos(env, list[idx], memberId, allowMissing);
+      if(!ph.ok){
+        return json(env, { ok:false, error:ph.error, field:ph.field, fields:ph.fields, reason:ph.reason }, 409);
+      }
+      photo = ph;
     }
+    const ph = photo;
     const warnings = (ph.missing || []).map(f => ({ field:f, reason:"missing_at_claim" }))
       .concat(Array.isArray(list[idx].photoWarnings) ? list[idx].photoWarnings : []);
     /* 這一筆申請在 R2 佔用的 key。只有 Git ref 更新成功之後才拿它去刪。 */
@@ -1350,7 +1364,8 @@ async function handleClaim(request, env){
 
     const who = String(sess.u || "").slice(0, 32);
     const r = await commitWithVersionCheck(env, headers, {
-      files, remove: [], baseHashes:{}, baseBlobShas, assetPaths: files.filter(f => !f.path.startsWith("data/")).map(f => f.path), sess,
+      files, remove: [], baseHashes:{}, baseBlobShas, blobCache,
+      assetPaths: files.filter(f => !f.path.startsWith("data/")).map(f => f.path), sess,
       message: "認領新夥伴：" + (member.name || "") + "（" + code.toUpperCase() + "・" + who + "）",
     });
     if(r.ok){
@@ -1579,9 +1594,12 @@ async function commitWithVersionCheck(env, headers, opts){
   const MAX_TRIES = 3;   // 子請求預算:N 個 blob(一次)+ 每次重試 6 個,見 MAX_FILES_PER_REQUEST
 
   const { baseBlobShas, assetPaths } = opts;
-  /* 先把所有 blob 建好(一次就好,重試不必重來,見 ghCreateBlobs) */
-  const made = await ghCreateBlobs(env, headers, files);
+  /* 先把所有 blob 建好(一次就好,重試不必重來,見 ghCreateBlobs)。
+     opts.blobCache 讓呼叫端把已建好的 blob 帶進來 —— /claim 的外層重試會重複呼叫
+     這支函式,照片的 blob 內容不會變,不該每次重建。 */
+  const made = await ghCreateBlobs(env, headers, files, opts.blobCache);
   if(!made.ok) return { ok:false, status:502, body:{ ok:false, error:made.error, status:made.status } };
+  if(opts.blobCache) Object.assign(opts.blobCache, made.blobShas);
 
   for(let attempt = 0; ; attempt++){
     /* ★★ 順序很重要:先取 head,之後**所有**讀取都釘在 head.commitSha 這個快照上 ★★

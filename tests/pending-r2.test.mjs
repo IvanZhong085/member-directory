@@ -306,5 +306,37 @@ hr("⑫ 被動過手腳的 photoRefs");
   chk("★ bytes 對不上 → pending_image_corrupt", r.error === "pending_image_corrupt", r.error);
 }
 
+/* ══ 13 ══ ★ 子請求預算。Cloudflare Workers 免費方案:單次呼叫最多 50 個外部子請求。
+   R2 是 binding、不計入,計入的是打 GitHub 的那些。7 張照片的認領一旦遇到 ref 競爭,
+   外層會重試 —— 若每次重試都把 9 個 blob 重建一遍,兩次競爭就會越界(實測 58),
+   而越界的表現是整個認領失敗、訊息卻是「連不到 GitHub」,極難查。
+   這條測試把 blob 快取的效果釘住,不讓它日後被重構掉。 */
+hr("⑬ ★ 子請求預算(7 張照片 + ref 競爭)");
+{
+  const grpOf = (l, m=[]) => JSON.stringify({ leader:l, room:"", members:m, recruiting:[] }, null, 2) + "\n";
+  for(const races of [0, 1, 2]){
+    const gh = new FakeGitHub(baseFiles()); gh.install();
+    const r2 = new FakeR2(); const env = makeEnv(r2);
+    await post(env, "/intake", { secret:"s3cret",
+      applicant: Object.assign({ name:"預算測試", title:"t" }, sevenPhotos("q" + races)) });
+    const pid = pendOf(gh)[0].pid;
+    let n = 0;
+    gh.install({ before: async (u, m) => {
+      if(u.includes("/git/refs/") && m === "PATCH" && n < races){
+        n++;
+        const cur = gh.files(); const next = new Map(cur);
+        next.set("data/a1.json", grpOf("別人改的", []));
+        const t = gh.treeShaFor(next); gh.trees.set(t, next);
+        gh.commits.set("cR" + races + n, { tree:t, parent:gh.head, message:"別人" });
+        gh.head = "cR" + races + n;
+      }
+    }});
+    gh.subrequests = 0;
+    const r = await (await post(env, "/claim", { session:sLeader, pid })).json();
+    chk(`★ ${races} 次 ref 競爭 → 子請求 ≤ 50`, gh.subrequests <= 50 && r.ok === true,
+        `用了 ${gh.subrequests} 個(R2 呼叫 ${r2.calls.length} 次,不計入)`);
+  }
+}
+
 console.log(`\n${fail===0 ? "✅ 全數通過" : "❌ 有失敗"}:${pass} 通過 / ${fail} 失敗\n`);
 process.exit(fail === 0 ? 0 : 1);
