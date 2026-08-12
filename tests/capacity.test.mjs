@@ -13,6 +13,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import crypto from "node:crypto";
 import { FakeGitHub, FakeR2, loadWorker } from "./github-model.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -144,20 +145,61 @@ hr("④ ★ 滿載狀態下的認領(只進不出死鎖的反面驗證)");
   chk("★ 認領空出名額後,新申請又收得進來", again.ok === true, JSON.stringify(again).slice(0, 50));
 }
 
-/* ══ 5 ══ 單筆 metadata 超過上限 → 明確錯誤,既有資料不受損。 */
-hr("⑤ 單筆 metadata 超過上限");
+/* ══ 5 ══ ★ 單筆 metadata 超過上限 → 明確拒絕,既有資料逐 byte 不變。
+   /intake 那條路做不出超大的 entry(str() 會截斷每個欄位),但「發布」是另一條入口 ——
+   組長刪申請時會整份重寫 _pending.json。所以這道閘門必須真的透過 publish 端點驗一次,
+   而不是只在測試裡自己算一個數字。 */
+hr("⑤ ★ 從 /publish 送入超過單筆上限的 entry");
 {
   const gh = new FakeGitHub(baseFiles()); gh.install();
   const r2 = new FakeR2(); const env = makeEnv(r2);
   await post(env, "/intake", { secret:"s3cret", applicant: worstCaseApplicant("keep") });
   const before = gh.files().get("data/_pending.json");
+  const beforeHash = crypto.createHash("sha256").update(before).digest("hex");
 
-  /* str() 會把每個欄位截到上限,所以正常路徑做不出超大的 metadata。
-     直接呼叫驗證函式來確認那道閘門本身是有效的(它同時守著 /publish 那條入口)。 */
-  const huge = { pid:"p_huge", name:"x", services: Array.from({length:12}, () => "壹".repeat(400)) };
-  const size = Buffer.byteLength(JSON.stringify(huge, null, 2), "utf8");
-  chk("前置:這筆的大小可計算", size > 0, `${size.toLocaleString()} bytes`);
-  chk("★ 現有資料沒有因為這次嘗試而改變", gh.files().get("data/_pending.json") === before);
+  // 超過 MAX_PENDING_ENTRY_BYTES 但整檔仍遠低於 MAX_DATA_BYTES
+  const filler = "壹".repeat(Math.ceil(MAX_PENDING_ENTRY_BYTES / 3) + 2000);
+  const oversized = [{ pid:"p_oversize", at:"2026-01-01T00:00:00.000Z", name:"超大",
+    title:"", company:"", services:[filler], targets:[], have:[], want:[], tagline:[],
+    business_items:"", website:"", image:"", card:"", products:[] }];
+  const text = JSON.stringify(oversized, null, 2) + "\n";
+  const entryBytes = Buffer.byteLength(JSON.stringify(oversized[0], null, 2), "utf8");
+  chk("前置:這一筆確實超過單筆上限、但整檔沒超過",
+      entryBytes > MAX_PENDING_ENTRY_BYTES && Buffer.byteLength(text) < MAX_DATA_BYTES,
+      `單筆 ${entryBytes.toLocaleString()} > ${MAX_PENDING_ENTRY_BYTES.toLocaleString()}`);
+
+  const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
+  const r = await (await post(env, "/publish", { session:sOwner,
+    files:[{ path:"data/_pending.json", contentB64: Buffer.from(text).toString("base64") }],
+    baseHashes:{ "data/_pending.json": beforeHash } })).json();
+
+  chk("★ 被 pending_entry_too_large 擋下",
+      r.error === "bad_data_file" && r.reason === "pending_entry_too_large",
+      `${r.error} / ${r.reason}`);
+  chk("★ 原有資料逐 byte 不變", gh.files().get("data/_pending.json") === before);
+}
+
+/* ══ 6 ══ photoWarnings 不可以無限成長(否則單筆上限守不住整檔上限)。 */
+hr("⑥ photoWarnings 的數量與形狀");
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const env = makeEnv(new FakeR2());
+  const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
+  const before = gh.files().get("data/_pending.json");
+  const mk = warnings => JSON.stringify([{ pid:"p_w", at:"2026-01-01T00:00:00.000Z", name:"warn",
+    title:"", company:"", services:[], targets:[], have:[], want:[], tagline:[],
+    business_items:"", website:"", image:"", card:"", products:[],
+    photoRefs:{ image:null, card:null, products:[] }, photoWarnings: warnings }], null, 2) + "\n";
+  const send = w => post(env, "/publish", { session:sOwner,
+    files:[{ path:"data/_pending.json", contentB64: Buffer.from(mk(w)).toString("base64") }],
+    baseHashes:{ "data/_pending.json": crypto.createHash("sha256").update(before).digest("hex") } })
+    .then(x => x.json());
+
+  const tooMany = await send(Array.from({length:20}, () => ({ field:"image", reason:"x" })));
+  chk("★ 超過 7 筆 warning 被擋下", tooMany.reason === "too_many_photo_warnings", tooMany.reason);
+  const tooLong = await send([{ field:"x".repeat(100), reason:"y" }]);
+  chk("★ field 過長被擋下", tooLong.reason === "bad_photo_warning_field", tooLong.reason);
+  chk("原有資料不變", gh.files().get("data/_pending.json") === before);
 }
 
 console.log(`\n${fail===0 ? "✅ 全數通過" : "❌ 有失敗"}:${pass} 通過 / ${fail} 失敗\n`);

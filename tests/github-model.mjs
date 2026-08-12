@@ -68,8 +68,15 @@ export class FakeGitHub {
         const b = JSON.parse(init.body);
         const next = new Map(self.trees.get(b.base_tree));
         for(const e of b.tree){
-          if(e.sha === null) next.delete(e.path);
-          else next.set(e.path, self.blobs.get(e.sha));   // POST 建立時已記進 blobs
+          if(e.sha === null){ next.delete(e.path); continue; }
+          /* tree entry 可以直接帶 content(GitHub 會在同一個請求裡建好 blob)。
+             小型 JSON 走這條:省一個子請求,而且不可能發生「內容變了卻沿用舊 blob」。 */
+          if(typeof e.content === "string"){
+            next.set(e.path, e.content);
+            self.blobs.set(blobShaOf(e.content), e.content);
+            continue;
+          }
+          next.set(e.path, self.blobs.get(e.sha));   // POST 建立時已記進 blobs
         }
         const sha = self.treeShaFor(next);
         self.trees.set(sha, next);
@@ -95,11 +102,23 @@ export class FakeGitHub {
            少了這一段就測不出 /intake 的併發保護。 */
         if(method === "PUT"){
           const b = JSON.parse(init.body);
-          const f = self.files();
-          const cur = f.has(path) ? blobShaOf(f.get(path)) : null;
+          const cur0 = self.files();
+          const cur = cur0.has(path) ? blobShaOf(cur0.get(path)) : null;
           if(cur !== null && b.sha && b.sha !== cur) return J({ message:"conflict" }, 409);
           const nc = Buffer.from(b.content, "base64").toString("utf8");
-          f.set(path, nc); self.blobs.set(blobShaOf(nc), nc);
+          /* ★ 建一個**新的** tree 與 commit,而不是就地改動現有的 tree。
+             真實的 contents PUT 就是一次 commit;而且 tree 是不可變的 ——
+             先前就地改動會讓「內容定址的 tree sha」與實際內容脫節,兩棵內容相同的
+             tree 還會互相覆蓋(head 指向的那一棵因此被別人的計算結果換掉)。
+             那是測試模型的缺陷,會讓真正的錯誤被蓋過去。 */
+          const next = new Map(cur0);
+          next.set(path, nc);
+          self.blobs.set(blobShaOf(nc), nc);
+          const tsha = self.treeShaFor(next);
+          self.trees.set(tsha, next);
+          const csha = "c" + sha256(tsha + self.head + "put" + self.commits.size).slice(0, 20);
+          self.commits.set(csha, { tree:tsha, parent:self.head, message:"contents PUT " + path });
+          self.head = csha;
           return J({ content:{ path } });
         }
         const refM = u.match(/[?&]ref=([^&]+)/);

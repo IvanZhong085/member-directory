@@ -11,6 +11,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import crypto2 from "node:crypto";
 import { FakeGitHub, FakeR2, loadWorker } from "./github-model.mjs";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -336,6 +337,212 @@ hr("⑬ ★ 子請求預算(7 張照片 + ref 競爭)");
     chk(`★ ${races} 次 ref 競爭 → 子請求 ≤ 50`, gh.subrequests <= 50 && r.ok === true,
         `用了 ${gh.subrequests} 個(R2 呼叫 ${r2.calls.length} 次,不計入)`);
   }
+}
+
+/* ══ 14 ══ ★ claim 外層重試期間,別人改了同一個分組檔。
+   先前的 bug:blob 快取以「路徑」判斷命中,重試時雖然重新讀了最新的分組檔、也重新組了
+   files,ghCreateBlobs 卻因為路徑相同而跳過 —— 新內容配上舊 blob sha,於是 API 回報
+   成功、寫進去的卻是舊資料,把競爭者剛完成的修改整個蓋掉。 */
+hr("⑭ ★ 重試期間分組檔被別人改過(不得覆蓋競爭者)");
+{
+  const grpOf = (l, m=[]) => JSON.stringify({ leader:l, room:"", members:m, recruiting:[] }, null, 2) + "\n";
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  await post(env, "/intake", { secret:"s3cret",
+    applicant: Object.assign({ name:"認領對象", title:"t" }, sevenPhotos("r")) });
+  const pid = pendOf(gh)[0].pid;
+
+  let raced = false;
+  gh.install({ before: async (u, m) => {
+    if(u.includes("/git/refs/") && m === "PATCH" && !raced){
+      raced = true;
+      const cur = gh.files(); const next = new Map(cur);
+      next.set("data/a1.json", grpOf("組長甲", [{ id:"g1_m_other", name:"競爭者剛加的人" }]));
+      const t = gh.treeShaFor(next); gh.trees.set(t, next);
+      gh.commits.set("cRace", { tree:t, parent:gh.head, message:"競爭者" }); gh.head = "cRace";
+    }
+  }});
+  const r = await (await post(env, "/claim", { session:sLeader, pid })).json();
+  const a1 = JSON.parse(gh.files().get("data/a1.json"));
+  const names = a1.members.map(m => m.name);
+  chk("認領成功", r.ok === true, JSON.stringify(r).slice(0, 60));
+  chk("★ 競爭者剛加的人沒有被蓋掉", names.indexOf("競爭者剛加的人") >= 0, names.join("、"));
+  chk("★ 被認領的人也在", names.indexOf("認領對象") >= 0, names.join("、"));
+}
+
+/* ══ 15 ══ ★ 重試期間同一個 pid 的內容被改過 → 不可以混用快照。 */
+hr("⑮ ★ 重試期間同一筆申請被改過(不得混用快照)");
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  await post(env, "/intake", { secret:"s3cret",
+    applicant: Object.assign({ name:"舊姓名", title:"t" }, sevenPhotos("s")) });
+  const pid = pendOf(gh)[0].pid;
+  const oldKeys = r2.keys().slice();
+
+  let raced = false;
+  gh.install({ before: async (u, m) => {
+    if(u.includes("/git/refs/") && m === "PATCH" && !raced){
+      raced = true;
+      const list = JSON.parse(gh.files().get("data/_pending.json"));
+      list[0].name = "新姓名";                       // 同一個 pid 的內容被改過
+      const cur = gh.files(); const next = new Map(cur);
+      next.set("data/_pending.json", JSON.stringify(list, null, 2) + "\n");
+      const t = gh.treeShaFor(next); gh.trees.set(t, next);
+      gh.commits.set("cEdit", { tree:t, parent:gh.head, message:"改申請" }); gh.head = "cEdit";
+    }
+  }});
+  const r = await (await post(env, "/claim", { session:sLeader, pid })).json();
+  const a1 = JSON.parse(gh.files().get("data/a1.json"));
+  const mixed = a1.members.length > 0 && a1.members[0].name === "舊姓名";
+  chk("★ 不得用舊快照建卡", !mixed, mixed ? "用了舊姓名建卡" : "沒有混用");
+  chk("★ 明確回 pending_changed 或整批中止", r.ok !== true, r.error);
+  chk("★ R2 照片沒有被刪掉(申請還在)", r2.keys().length === oldKeys.length,
+      `${r2.keys().length}/${oldKeys.length}`);
+  chk("待認領區保留該筆", pendOf(gh).some(a => a.pid === pid));
+}
+
+/* ══ 16 ══ 同一路徑但不同內容 → blob 快取必須 miss。 */
+hr("⑯ blob 快取以內容而非路徑為 key");
+{
+  const grpOf = (l, m=[]) => JSON.stringify({ leader:l, room:"", members:m, recruiting:[] }, null, 2) + "\n";
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const enc = s => Buffer.from(s).toString("base64");
+  const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
+  const h = c => crypto2.createHash("sha256").update(c).digest("hex");
+  const first = gh.files().get("data/a1.json");
+  await post(makeEnv(new FakeR2()), "/publish", { session:sOwner,
+    files:[{ path:"data/a1.json", contentB64: enc(grpOf("第一版", [])) }],
+    baseHashes:{ "data/a1.json": h(first) } });
+  chk("第一次寫入生效", JSON.parse(gh.files().get("data/a1.json")).leader === "第一版");
+  const second = gh.files().get("data/a1.json");
+  await post(makeEnv(new FakeR2()), "/publish", { session:sOwner,
+    files:[{ path:"data/a1.json", contentB64: enc(grpOf("第二版", [])) }],
+    baseHashes:{ "data/a1.json": h(second) } });
+  chk("★ 同一路徑的第二次寫入拿到新內容(沒有沿用舊 blob)",
+      JSON.parse(gh.files().get("data/a1.json")).leader === "第二版",
+      JSON.parse(gh.files().get("data/a1.json")).leader);
+}
+
+/* ══ 17 ══ ★ 兩個遷移同時執行:失敗方不得刪掉成功方引用的物件。
+   先前 key 完全由 pid + 內容雜湊決定,兩個遷移算出**同一組 key**;先完成的 commit 成功、
+   後者 stale_base 失敗並回滾,而它刪的正是那組共用 key —— 成功的 commit 指向一個已經
+   不存在的物件。 */
+hr("⑰ ★ 兩個 /migrate-pending 同時執行");
+{
+  const legacy = [{ pid:"p_mig1", at:"2026-01-01T00:00:00.000Z", name:"舊格式",
+    title:"t", company:"c", services:[], targets:[], have:[], want:[], tagline:[],
+    business_items:"", website:"", image: photoBytes(4000, "mig"), card:"", products:[] }];
+  const files = baseFiles(); files["data/_pending.json"] = JSON.stringify(legacy, null, 2) + "\n";
+  const gh = new FakeGitHub(files); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
+
+  const [r1, r2res] = await Promise.all([
+    post(env, "/migrate-pending", { session:sOwner }).then(x => x.json()),
+    post(env, "/migrate-pending", { session:sOwner }).then(x => x.json()),
+  ]);
+  const list = pendOf(gh);
+  const refs = list[0] && list[0].photoRefs;
+  const key = refs && refs.image && refs.image.key;
+
+  chk("恰好一方成功", (r1.ok?1:0) + (r2res.ok?1:0) >= 1, `${r1.ok} / ${r2res.ok}`);
+  chk("★ 待認領區已是新格式", !!key && !/data:image\//.test(gh.files().get("data/_pending.json")));
+  chk("★ 成功 commit 引用的物件仍然存在於 R2", r2.objects.has(key),
+      `key=${String(key).slice(0, 50)} 存在=${r2.objects.has(key)}`);
+}
+
+/* ══ 18 ══ ★ R2 讀取故障 ≠ 缺圖,而且不可被 allowMissingImages 覆寫。 */
+hr("⑱ ★ R2 讀取故障(不是缺圖)");
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  await post(env, "/intake", { secret:"s3cret",
+    applicant:{ name:"讀取會失敗", title:"t", image: photoBytes(5000, "err") } });
+  const pid = pendOf(gh)[0].pid;
+  r2.fail = { op:"get" };                        // 持續丟錯(服務故障,不是物件不存在)
+
+  const first = await (await post(env, "/claim", { session:sLeader, pid })).json();
+  chk("★ 回 pending_image_store_failed 而不是 missing",
+      first.error === "pending_image_store_failed", first.error);
+  const forced = await (await post(env, "/claim", { session:sLeader, pid, allowMissingImages:true })).json();
+  chk("★ allowMissingImages 也不能覆寫服務故障",
+      forced.error === "pending_image_store_failed", forced.error);
+  chk("★ R2 物件沒有被刪掉", r2.objects.size === 1, r2.objects.size + " 個");
+  chk("待認領區保留該筆", pendOf(gh).length === 1);
+}
+
+/* ══ 19 ══ ★ 舊格式的大圖(歷史上合法)必須能遷移、能認領,不可靜默變空。 */
+hr("⑲ ★ 舊格式大圖的相容");
+{
+  const big = photoBytes(300 * 1024, "old-big");     // 300 KiB:舊規則合法、超過新的 200 KiB
+  const legacy = [{ pid:"p_big1", at:"2026-01-01T00:00:00.000Z", name:"舊格式大圖",
+    title:"t", company:"c", services:[], targets:[], have:[], want:[], tagline:[],
+    business_items:"", website:"", image: big, card:"", products:[] }];
+  {
+    const files = baseFiles(); files["data/_pending.json"] = JSON.stringify(legacy, null, 2) + "\n";
+    const gh = new FakeGitHub(files); gh.install();
+    const r2 = new FakeR2(); const env = makeEnv(r2);
+    const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
+    const r = await (await post(env, "/migrate-pending", { session:sOwner })).json();
+    chk("★ 舊格式大圖可以遷移", r.ok === true && r.migrated === 1, JSON.stringify(r).slice(0, 60));
+  }
+  {
+    const files = baseFiles(); files["data/_pending.json"] = JSON.stringify(legacy, null, 2) + "\n";
+    const gh = new FakeGitHub(files); gh.install();
+    const r2 = new FakeR2(); const env = makeEnv(r2);
+    const r = await (await post(env, "/claim", { session:sLeader, pid:"p_big1" })).json();
+    const m = JSON.parse(gh.files().get("data/a1.json")).members[0];
+    chk("★ 舊格式大圖可以直接認領", r.ok === true, JSON.stringify(r).slice(0, 60));
+    chk("★ 照片沒有靜默變成空的", !!(m && m.image) && gh.files().has("images/" + m.image),
+        m ? m.image : "(沒有成員)");
+  }
+}
+
+/* ══ 20 ══ ★ /publish 不能把 base64 連同 photoRefs 一起寫回公開 repo。 */
+hr("⑳ ★ 從 publish 端點塞回 data URL");
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const env = makeEnv(new FakeR2());
+  const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
+  const before = gh.files().get("data/_pending.json");
+  const evil = [{ pid:"p_evil", at:"2026-01-01T00:00:00.000Z", name:"塞回去",
+    title:"", company:"", services:[], targets:[], have:[], want:[], tagline:[],
+    business_items:"", website:"",
+    image: photoBytes(3000, "back"), card:"", products:[],
+    photoRefs:{ image:null, card:null, products:[] } }];
+  const r = await (await post(env, "/publish", { session:sOwner,
+    files:[{ path:"data/_pending.json", contentB64: Buffer.from(JSON.stringify(evil, null, 2) + "\n").toString("base64") }],
+    baseHashes:{ "data/_pending.json": crypto.createHash("sha256").update(before).digest("hex") } })).json();
+  chk("★ 被 photo_ref_with_inline_image 擋下",
+      r.error === "bad_data_file" && r.reason === "photo_ref_with_inline_image", `${r.error}/${r.reason}`);
+  chk("★ 公開檔案裡沒有出現 base64", !/data:image\//.test(gh.files().get("data/_pending.json")));
+}
+
+/* ══ 21 ══ 刪除申請要一併清掉 R2,而且是在 commit 成功之後。 */
+hr("㉑ /drop-pending 的清理");
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  await post(env, "/intake", { secret:"s3cret",
+    applicant: Object.assign({ name:"要被刪掉的", title:"t" }, sevenPhotos("d2")) });
+  const pid = pendOf(gh)[0].pid;
+  chk("前置:R2 有 7 個物件", r2.keys().length === 7);
+  const r = await (await post(env, "/drop-pending", { session:sLeader, pid })).json();
+  chk("刪除成功", r.ok === true, JSON.stringify(r).slice(0, 60));
+  chk("★ 待認領區已移除", pendOf(gh).length === 0);
+  chk("★ R2 物件一併清掉(不再是孤兒)", r2.keys().length === 0, r2.keys().length + " 個殘留");
+
+  // Git 失敗時不可以先刪 R2
+  await post(env, "/intake", { secret:"s3cret",
+    applicant: Object.assign({ name:"刪除會失敗", title:"t" }, sevenPhotos("d3")) });
+  const pid2 = pendOf(gh)[0].pid;
+  gh.install({ before: async (u, m) => {
+    if(u.includes("/git/refs/") && m === "PATCH") throw new Error("ref 失敗");
+  }});
+  const bad = await (await post(env, "/drop-pending", { session:sLeader, pid:pid2 })).json();
+  chk("★ Git 失敗時申請與照片都保留", bad.ok !== true && pendOf(gh).length === 1 && r2.keys().length === 7,
+      `pending=${pendOf(gh).length} r2=${r2.keys().length}`);
 }
 
 console.log(`\n${fail===0 ? "✅ 全數通過" : "❌ 有失敗"}:${pass} 通過 / ${fail} 失敗\n`);

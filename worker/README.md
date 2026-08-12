@@ -186,12 +186,20 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 5. **Variable name** 填 `PENDING_IMAGES`，bucket 選剛才建立的那個
 6. **Save and deploy**
 
-#### 設一條 lifecycle rule（強烈建議）
+#### 設一條 lifecycle rule（建議，但請先讀完這一段）
 
 7. 回到該 bucket → **Settings** → **Object lifecycle rules** → **Add rule**
-8. Prefix 填 `pending/`，設定「**30 天後刪除**」
+8. Prefix 填 `pending/`，設定「**90 天後刪除**」
 
-這條規則是最後一道保險。正常流程下，照片會在認領成功後立刻被刪掉；但如果 Worker 剛好在「Git commit 已成功、R2 還沒刪」之間中斷，就會留下沒有任何申請指向的孤兒物件。lifecycle rule 會把它們清掉，不需要人工介入。
+> ⚠ **這條規則不只會清掉孤兒。** R2 的 lifecycle 只看 prefix 與物件年齡，**不知道**某個物件是不是還被 `data/_pending.json` 引用著。所以它實際上等於一條業務政策：
+>
+> **「申請超過 90 天還沒被任何組長認領，照片就會被自動清掉。」**
+>
+> 之後認領那一筆會得到 `pending_image_missing`，組長必須明確確認才能在缺圖的情況下認領。文字資料不受影響。
+>
+> 天數請依分會的實際節奏決定。設太短會刪到還在等待處理的有效申請；設太長則孤兒會留久一點 —— 但孤兒現在**很少**：認領成功會刪、`/drop-pending` 刪申請也會刪，只有「Git commit 已成功、R2 還沒刪就中斷」這個很窄的窗口才會留下。
+>
+> 若不希望有任何自動刪除，可以不設這條規則，改為定期人工檢查；代價是那個窄窗口留下的孤兒會一直佔空間。
 
 > **沒綁 `PENDING_IMAGES` 會怎樣**：`/intake` 一律回 `pending_image_store_unavailable`（HTTP 503），表單那頭會收到明確的失敗訊息，資料仍完整留在 Google 表單的回應試算表裡，可以補送。
 >

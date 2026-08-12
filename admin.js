@@ -1912,15 +1912,42 @@
     toast("認領沒有成功（" + (res.error || "未知錯誤") + "），資料沒有被改動，請稍後再試。",
           { warn:true, duration: 8000 });
   }
-  function dropPending(pid){
+  /* ★ 刪申請改成伺服器端交易,與認領一致。
+     原本走「改草稿 → 發布」:那只把記錄從 _pending.json 移除,**照片不會被刪** ——
+     申請人的名片會留在暫存空間直到 lifecycle 過期。而且刪除與寫入不在同一個交易裡,
+     語意也與認領(立即生效)不一致。 */
+  async function dropPending(pid){
     if(isViewer()) return;   // 刪申請是破壞性的,而且這個函式原本一道角色檢查都沒有
     const a = PENDING.find(x => x.pid === pid);
     if(!a) return;
-    if(!confirm("刪除「" + (a.name || "這筆申請") + "」的申請？\n\n這筆資料會從待認領區移除，發布後就找不回來了。")) return;
-    pushUndo();
-    PENDING = PENDING.filter(x => x.pid !== pid);
-    renderPending(); scheduleSaveAndValidate();
-    toast("已刪除該筆申請，按「發布到網站」後生效");
+    const session = loadSession();
+    if(!session){ showLock(); toast("請先輸入管理密碼", { warn:true }); return; }
+    if(!workerCaps.drop){
+      toast("發布服務尚未升級，暫時無法刪除申請。請稍候再試，或請總管理員更新 Worker。",
+            { warn:true, duration:8000 });
+      return;
+    }
+    if(hasUnpublishedChanges()){
+      toast("你還有尚未發布的修改。請先按「發布到網站」（或捨棄變更），再刪除申請。",
+            { warn:true, duration:9000 });
+      return;
+    }
+    if(!confirm("刪除「" + (a.name || "這筆申請") + "」的申請？\n\n" +
+                "會立刻從待認領區移除，連同暫存的照片一起刪掉，之後找不回來。")) return;
+    toast("刪除中…");
+    const res = await workerFetch("/drop-pending", { session, pid });
+    if(res.ok){
+      await loadData(); renderAll();
+      toast("已刪除「" + (a.name || "這筆申請") + "」，照片也一併清掉了。", { duration:7000 });
+      return;
+    }
+    if(res.error === "already_claimed"){
+      await loadData(); renderAll();
+      toast("這筆申請已經被別人處理掉了，清單已更新。", { warn:true, duration:7000 });
+      return;
+    }
+    toast("刪除沒有成功（" + (res.error || "未知錯誤") + "），資料沒有被改動，請稍後再試。",
+          { warn:true, duration:8000 });
   }
 
   /* ---------- boot ---------- */

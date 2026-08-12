@@ -388,7 +388,7 @@ async function handlePing(request, env){
   /* atomic:一次發布寫成單一 commit(全成功或全失敗);read:權威讀取端點;
      claim:認領是伺服器端交易。編輯頁靠這幾個旗標判斷該走新路徑還是舊路徑。 */
   return json(env, { ok:true, service:"member-directory-relay",
-    caps:{ files:true, visitor: visitorConfigured(), atomic:true, read:true, claim:true,
+    caps:{ files:true, visitor: visitorConfigured(), atomic:true, read:true, claim:true, drop:true,
            /* 待認領照片存放方式。"r2-v1" = 私有 R2 bucket(照片不進公開 repo)。
               沒有這個欄位或值不同,代表 Worker 還沒更新到支援 R2 的版本 —— 部署時
               一定要先確認這一項,否則 Apps Script 送來的申請會被 503 擋下。 */
@@ -467,6 +467,16 @@ async function handleHealth(request, env){
 function contentsUrlFor(env, path){
   return `https://api.github.com/repos/${encodeURIComponent(env.GH_OWNER)}/${encodeURIComponent(env.GH_REPO)}/contents/` +
     String(path).replace(/^\/+/, "").split("/").map(encodeURIComponent).join("/");
+}
+/* git 的 blob sha 是可以自己算的:SHA-1("blob <位元組數>\0" + 內容)。
+   data/*.json 改成用 tree 的 content 欄位內聯之後,GitHub 不會回傳它們的 blob sha,
+   而前端下一次發布要拿它當版本基準 —— 自己算就不必為此多花一個子請求。 */
+async function gitBlobSha(bytes){
+  const header = new TextEncoder().encode("blob " + bytes.length + "\0");
+  const buf = new Uint8Array(header.length + bytes.length);
+  buf.set(header, 0); buf.set(bytes, header.length);
+  const d = await crypto.subtle.digest("SHA-1", buf);
+  return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, "0")).join("");
 }
 function blobUrlFor(env, sha){
   return `https://api.github.com/repos/${encodeURIComponent(env.GH_OWNER)}/${encodeURIComponent(env.GH_REPO)}/git/blobs/` +
@@ -589,21 +599,30 @@ async function ghTreeMap(env, headers, treeSha){
      這對子請求預算是決定性的:Cloudflare Workers 免費方案單次呼叫只有 50 個子請求,
      若每次重試都重建全部 blob,14 個檔案重試兩次就會越界,而越界的表現是整個發布失敗、
      訊息卻是「連不到 GitHub」。分開之後,每次重試只花 6 個子請求。 */
-async function ghCreateBlobs(env, headers, files, known){
-  const blobShas = Object.assign({}, known || {});
+/* 只為**二進位附件**(images/)建 blob。data/*.json 走 tree 的 content 欄位內聯,
+   不需要各自一個 blob 請求 —— 少兩個子請求,而且從結構上就不可能發生
+   「JSON 內容變了卻沿用舊 blob」。
+
+   ★ 快取的 key 是**內容雜湊**,不是路徑。
+     先前這裡以路徑判斷命中,結果是:/claim 的外層重試重新讀了最新的分組檔與待認領區、
+     也重新組了 files,但 ghCreateBlobs 看到同一路徑已有 sha 就跳過 —— 新的 JSON 內容
+     對應到舊的 blob sha,於是 API 回報成功,寫進去的卻是舊資料,還會覆蓋掉競爭者剛完成
+     的修改。那是我為了省子請求引進的 bug,比原本的預算問題嚴重得多。
+     現在 JSON 根本不進這裡,而圖片以內容雜湊當 key —— 內容不同必然是不同的 key。 */
+async function ghCreateBlobs(env, headers, files, cache){
+  const byPath = {};
   for(const f of files){
-    if(f.remove) continue;
-    /* 已經建過的就不要再建一次。blob 是內容定址的,重建會拿到同一個 sha,
-       但**仍然要花一個子請求** —— 而子請求預算是這裡最稀缺的資源。
-       /claim 帶 7 張照片時,少了這個快取,外層每重試一次就多燒 9 個子請求。 */
-    if(blobShas[f.path]) continue;
+    if(f.remove || f.path.startsWith("data/")) continue;
+    const digest = await sha256Hex(b64ToBytes(f.contentB64));
+    if(cache && cache[digest]){ byPath[f.path] = cache[digest]; continue; }
     const blob = await ghJson(env, headers, "git/blobs", {
       method:"POST", body: JSON.stringify({ content: f.contentB64, encoding:"base64" }),
     });
     if(!blob.ok) return blob;
-    blobShas[f.path] = blob.data.sha;
+    byPath[f.path] = blob.data.sha;
+    if(cache) cache[digest] = blob.data.sha;
   }
-  return { ok:true, blobShas };
+  return { ok:true, blobShas: byPath };
 }
 
 /* 第二階段:把已經建好的 blob 掛上 tree、建 commit、更新一次 ref。
@@ -612,6 +631,13 @@ async function ghCommitFiles(env, headers, branch, files, message, baseCommitSha
   const entries = [];
   for(const f of files){
     if(f.remove){ entries.push({ path:f.path, mode:"100644", type:"blob", sha:null }); continue; }
+    /* data/*.json 直接把內容放進 tree entry:GitHub 會在建 tree 的同一個請求裡建好 blob。
+       省一個子請求,而且**每次重試都必然帶到當下的內容** —— 不存在沿用舊 blob 的可能。 */
+    if(f.path.startsWith("data/")){
+      entries.push({ path:f.path, mode:"100644", type:"blob",
+                     content: new TextDecoder().decode(b64ToBytes(f.contentB64)) });
+      continue;
+    }
     entries.push({ path:f.path, mode:"100644", type:"blob", sha: blobShas[f.path] });
   }
   const tree = await ghJson(env, headers, "git/trees", {
@@ -717,6 +743,11 @@ function checkPhotoRefs(a){
   if(!("photoRefs" in a) || a.photoRefs == null) return null;     // 舊格式:沒有這個欄位
   const pr = a.photoRefs;
   if(typeof pr !== "object" || Array.isArray(pr)) return "bad_photo_refs";
+  /* ★ 新格式就不准再有 data URL。少了這一條,只要同時附上一個形狀合法的空 photoRefs,
+     /publish 仍然可以把 base64 寫回公開 repo —— 「_pending.json 不含圖片」這個不變式
+     等於只靠 /intake 自律,而 /publish 是另一條入口。 */
+  if(a.image !== "" || a.card !== "") return "photo_ref_with_inline_image";
+  if(!Array.isArray(a.products) || a.products.length) return "photo_ref_with_inline_image";
   if(!Array.isArray(pr.products)) return "bad_photo_refs:products";
   if(pr.products.length > 5) return "bad_photo_refs:too_many_products";
   const one = (ref, label) => {
@@ -738,8 +769,16 @@ function checkPhotoRefs(a){
   }
   const total = [pr.image, pr.card].concat(pr.products).filter(Boolean).length;
   if(total > PENDING_IMG_COUNT_MAX) return "bad_photo_refs:too_many";
-  if("photoWarnings" in a && a.photoWarnings != null && !Array.isArray(a.photoWarnings)){
-    return "bad_photo_warnings";
+  /* photoWarnings 的數量與形狀都要限制:它是唯一可以無限成長的欄位,
+     不擋的話「30 筆各自低於單筆上限、加起來卻超過整檔上限」就構造得出來。 */
+  if("photoWarnings" in a && a.photoWarnings != null){
+    if(!Array.isArray(a.photoWarnings)) return "bad_photo_warnings";
+    if(a.photoWarnings.length > PENDING_IMG_COUNT_MAX) return "too_many_photo_warnings";
+    for(const w of a.photoWarnings){
+      if(!w || typeof w !== "object" || Array.isArray(w)) return "bad_photo_warning";
+      if(typeof w.field !== "string" || w.field.length > 24) return "bad_photo_warning_field";
+      if(typeof w.reason !== "string" || w.reason.length > 40) return "bad_photo_warning_reason";
+    }
   }
   return null;
 }
@@ -772,6 +811,11 @@ const PENDING_IMG_COUNT_MAX = 7;               // 形象照 1 + 名片 1 + 商�
    它的用途是防止 intake secret 外流後被拿來灌爆 R2,不是拿來截斷合法申請。 */
 const PENDING_IMG_TOTAL_BYTES_MAX = PENDING_IMG_COUNT_MAX * PENDING_IMG_BYTES_MAX;
 const PENDING_IMG_MIME = { "image/jpeg":"jpg", "image/png":"png", "image/webp":"webp" };
+/* 舊格式(照片還以 data URL 存在 _pending.json 裡)的相容上限。
+   ★ 歷史上 Apps Script 曾允許約 650KB base64 一張(解碼後約 487KB),明顯大於現在的
+     200KB。若拿新上限去驗舊資料,那些申請會遷移失敗、直接認領則靜默變成空照片。
+     所以舊路徑用這個較寬的數字 —— 它只用於「已經存在的資料」,新收件仍走 200KB。 */
+const LEGACY_PENDING_IMG_BYTES_MAX = 512 * 1024;
 
 /* 單筆申請的 metadata(已清理、已含 photoRefs)序列化後的位元組上限。
    推導:目前欄位的最大合法長度是 name 80 + title 80 + company 120 + business_items 400
@@ -821,7 +865,7 @@ function sanitizeApplicantText(raw, pid){
    回傳 { ok:true, bytes, mime, sha256 } 或 { ok:false, error }。
    ★ 長度限制一律以**解碼後的位元組**為準。base64 字串長度只是它的 4/3 倍再加 padding,
      拿字串長度當上限會讓不同 padding 的同尺寸圖片有不同待遇。 */
-async function parseOnePhoto(value){
+async function parseOnePhoto(value, maxBytes){
   const s = String(value == null ? "" : value);
   if(!s) return { ok:false, error:"empty" };
   const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(s);
@@ -832,15 +876,16 @@ async function parseOnePhoto(value){
   try{ bytes = b64ToBytes(m[2]); }
   catch(e){ return { ok:false, error:"bad_base64" }; }
   if(!bytes.length) return { ok:false, error:"empty" };
-  if(bytes.length > PENDING_IMG_BYTES_MAX){
-    return { ok:false, error:"too_large", bytes: bytes.length, max: PENDING_IMG_BYTES_MAX };
+  const cap = maxBytes || PENDING_IMG_BYTES_MAX;
+  if(bytes.length > cap){
+    return { ok:false, error:"too_large", bytes: bytes.length, max: cap };
   }
   return { ok:true, bytes, mime, sha256: await sha256Hex(bytes) };
 }
 
 /* 把一份申請裡的所有照片解析出來(還沒寫進 R2)。
    欄位是固定的:image、card、products[0..4] —— 呼叫端送什麼欄位名都不會影響 key。 */
-async function parsePendingPhotos(raw){
+async function parsePendingPhotos(raw, maxBytes){
   const slots = [];
   slots.push({ field:"image", index:-1, value: raw && raw.image });
   slots.push({ field:"card",  index:-1, value: raw && raw.card });
@@ -851,7 +896,7 @@ async function parsePendingPhotos(raw){
   let total = 0;
   for(const s of slots){
     if(s.value == null || s.value === "") continue;      // 沒提供這一張,不是錯誤
-    const r = await parseOnePhoto(s.value);
+    const r = await parseOnePhoto(s.value, maxBytes);
     if(!r.ok){
       return { ok:false, error: r.error === "too_large" ? "pending_image_too_large" : "invalid_pending_image",
                field: s.field + (s.index >= 0 ? "[" + s.index + "]" : ""),
@@ -861,9 +906,9 @@ async function parsePendingPhotos(raw){
     if(out.length >= PENDING_IMG_COUNT_MAX){
       return { ok:false, error:"invalid_pending_image", field:"products", reason:"too_many", max: PENDING_IMG_COUNT_MAX };
     }
-    if(total > PENDING_IMG_TOTAL_BYTES_MAX){
+    if(total > PENDING_IMG_COUNT_MAX * (maxBytes || PENDING_IMG_BYTES_MAX)){
       return { ok:false, error:"pending_image_too_large", field:"(total)", reason:"total_too_large",
-               bytes: total, max: PENDING_IMG_TOTAL_BYTES_MAX };
+               bytes: total, max: PENDING_IMG_COUNT_MAX * (maxBytes || PENDING_IMG_BYTES_MAX) };
     }
     out.push(Object.assign({}, s, r));
   }
@@ -872,9 +917,16 @@ async function parsePendingPhotos(raw){
 
 /* R2 的 key 完全由伺服器決定:pid(伺服器產生)+ 固定欄位名 + 索引 + 內容雜湊。
    呼叫端送來的檔名一個字都不會進到這裡 —— 路徑穿越與跨申請讀取在這一層就不可能。 */
-function pendingKeyFor(pid, field, index, sha256, mime){
+/* owner 是「這次呼叫」的識別碼,只有遷移會用到。
+   ★ 為什麼遷移需要它:key 原本完全由 pid + 欄位 + 內容雜湊決定,兩個同時執行的遷移
+     會算出**完全相同的 key**。先完成的那個 commit 成功、後者因 stale_base 失敗並回滾,
+     而它回滾時刪掉的正是那組共用的 key —— 成功的 commit 於是指向一個已經不存在的物件。
+     加上每次呼叫獨有的 owner 之後,失敗方只會刪到自己建立的那一份。
+   /intake 不需要:pid 是伺服器為每一次送件新產生的,不同送件不可能撞 key。 */
+function pendingKeyFor(pid, field, index, sha256, mime, owner){
   const base = field + (index >= 0 ? "-" + index : "");
-  return PENDING_IMAGE_PREFIX + pid + "/" + base + "-" + sha256.slice(0, 16) + "." + PENDING_IMG_MIME[mime];
+  return PENDING_IMAGE_PREFIX + pid + "/" + base + "-" + sha256.slice(0, 16) +
+         (owner ? "-" + owner : "") + "." + PENDING_IMG_MIME[mime];
 }
 /* 這個 key 是不是屬於這一筆申請。認領時每一個 photoRef 都要過這一關。 */
 function keyBelongsToPid(key, pid){
@@ -1071,6 +1123,66 @@ async function handleRead(request, env){
   return json(env, { ok:true, files });
 }
 
+/* ══ 刪除待認領申請(伺服器端交易)══════════════════════════════════════════
+   原本刪申請走的是「改草稿 → 發布」:它只把記錄從 _pending.json 移除,**不會刪 R2**,
+   照片因此變成孤兒,只能等 30 天的 lifecycle 清掉。而且刪除與寫入不在同一個交易裡,
+   語意也與 /claim(立即生效)不一致,使用者會困惑。
+   改成伺服器端交易之後:先原子移除記錄,ref 更新成功才刪照片 —— 順序與 /claim 相同。 */
+async function handleDropPending(request, env){
+  let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
+  const sess = await verifySession(body && body.session, env.SESSION_SECRET);
+  if(!sess) return json(env, { ok:false, error:"session_expired" }, 401);
+  if(isViewerSession(sess)) return json(env, { ok:false, error:"read_only" }, 403);
+  const pid = String(body && body.pid == null ? "" : body.pid);
+  if(!MEMBER_ID_RE.test(pid)) return json(env, { ok:false, error:"bad_request" }, 400);
+
+  const headers = await ghHeaders(env);
+  const MAX_TRIES = 3;
+  for(let attempt = 0; ; attempt++){
+    const head = await ghHead(env, headers, env.GH_BRANCH || "main");
+    if(!head.ok) return json(env, { ok:false, error:head.error, status:head.status }, 502);
+    const tm = await ghTreeMap(env, headers, head.treeSha);
+    if(!tm.ok) return json(env, { ok:false, error:tm.error }, 502);
+
+    const pend = await ghReadFile(env, headers, PENDING_PATH, head.commitSha);
+    if(!pend.ok) return json(env, { ok:false, error:pend.error, status:pend.status }, 502);
+    if(!pend.bytes) return json(env, { ok:false, error:"already_claimed", pid }, 409);
+    let list;
+    try{ list = JSON.parse(new TextDecoder().decode(pend.bytes)); }
+    catch(e){ return json(env, { ok:false, error:"pending_unreadable" }, 502); }
+    if(!Array.isArray(list)) return json(env, { ok:false, error:"pending_unreadable" }, 502);
+    const idx = list.findIndex(a => a && a.pid === pid);
+    if(idx < 0) return json(env, { ok:false, error:"already_claimed", pid }, 409);
+
+    // 這一筆在 R2 佔用的 key。只有 ref 更新成功之後才拿它去刪。
+    const usedKeys = [];
+    const pr = list[idx].photoRefs;
+    if(pr && typeof pr === "object"){
+      for(const r of [pr.image, pr.card].concat(Array.isArray(pr.products) ? pr.products : [])){
+        if(r && typeof r.key === "string" && keyBelongsToPid(r.key, pid)) usedKeys.push(r.key);
+      }
+    }
+    const name = str(list[idx].name, 80);
+    list.splice(idx, 1);
+
+    const baseBlobShas = {};
+    if(tm.map.has(PENDING_PATH)) baseBlobShas[PENDING_PATH] = tm.map.get(PENDING_PATH);
+    const enc = new TextEncoder();
+    const r = await commitWithVersionCheck(env, headers, {
+      files: [{ path: PENDING_PATH, contentB64: bytesToB64(enc.encode(JSON.stringify(list, null, 2) + "\n")) }],
+      remove: [], baseHashes:{}, baseBlobShas, assetPaths: [], sess,
+      message: "刪除待認領申請：" + name + "（" + String(sess.u || "").slice(0, 32) + "）",
+    });
+    if(r.ok){
+      const left = env.PENDING_IMAGES ? await deletePendingImages(env, usedKeys) : usedKeys;
+      return json(env, { ok:true, pending:list.length, commit:r.commitSha, orphanKeys: left.length || undefined });
+    }
+    const e = r.body && r.body.error;
+    if((e === "stale_base" || e === "busy_retry_later") && attempt < MAX_TRIES - 1) continue;
+    return json(env, r.body, r.status);
+  }
+}
+
 /* ══ 一次性遷移:把舊格式的 data URL 照片搬進 R2 ═════════════════════════════
    部署 R2 版本之前收到的申請,照片還以 data URL 存在 data/_pending.json 裡(而那個檔
    在公開 repo)。這支端點把它們搬到私有 R2、換成 photoRefs,然後用**一個**受版本檢查
@@ -1103,17 +1215,20 @@ async function handleMigratePending(request, env){
 
   let migrated = 0, skipped = 0;
   const uploaded = [];
+  /* 這次呼叫獨有的識別碼,放進 key 裡 —— 見 pendingKeyFor 的說明。
+     兩個同時跑的遷移因此不會共用物件,失敗方回滾時也就不會刪到成功方引用的東西。 */
+  const owner = "m" + Date.now().toString(36) + Math.floor(Math.random()*1e8).toString(36);
   for(const a of list){
     if(!a || typeof a !== "object") continue;
     if(a.photoRefs){ skipped++; continue; }                 // 已經是新格式
-    const parsed = await parsePendingPhotos(a);
+    const parsed = await parsePendingPhotos(a, LEGACY_PENDING_IMG_BYTES_MAX);
     if(!parsed.ok){
       await deletePendingImages(env, uploaded);
       return json(env, { ok:false, error:parsed.error, pid:a.pid, field:parsed.field, reason:parsed.reason }, 400);
     }
     const refs = { image:null, card:null, products:[] };
     for(const p of parsed.photos){
-      const key = pendingKeyFor(a.pid, p.field, p.index, p.sha256, p.mime);
+      const key = pendingKeyFor(a.pid, p.field, p.index, p.sha256, p.mime, owner);
       try{ await env.PENDING_IMAGES.put(key, p.bytes, { httpMetadata:{ contentType:p.mime } }); }
       catch(e){
         await deletePendingImages(env, uploaded);
@@ -1198,8 +1313,15 @@ async function resolvePendingPhotos(env, a, memberId, allowMissing){
       if(!keyBelongsToPid(s.ref && s.ref.key, a.pid)){
         return { ok:false, error:"pending_image_forbidden", field:label };
       }
-      let obj = null;
-      try{ obj = await env.PENDING_IMAGES.get(s.ref.key); }catch(e){ obj = null; }
+      /* ★ 「讀不到」與「不存在」是兩件事。
+         R2 暫時故障時 get() 會拋錯,先前把它一併當成 null(= 缺圖),於是操作者在
+         UI 上確認「明知缺圖仍認領」之後,第二次仍然讀不到,程式照樣建了一張空照片的
+         成員卡,接著把**實際存在**的 R2 物件刪掉 —— 照片就永久沒了。
+         服務故障必須是明確的暫時性錯誤,而且不可以被 allowMissingImages 覆寫。 */
+      let obj = null, getFailed = false;
+      try{ obj = await env.PENDING_IMAGES.get(s.ref.key); }
+      catch(e){ getFailed = true; }
+      if(getFailed) return { ok:false, error:"pending_image_store_failed", field:label };
       if(!obj){ missing.push(label); continue; }
       const bytes = new Uint8Array(await obj.arrayBuffer());
       if(bytes.length !== s.ref.bytes){
@@ -1222,20 +1344,42 @@ async function resolvePendingPhotos(env, a, memberId, allowMissing){
   /* ── 舊格式:照片以 data URL 存在申請裡 ──
      部署 R2 之前收到的申請仍然要能認領,不能因為升級 Worker 就把它們卡死。 */
   const pick = async (value, field, index) => {
+    const label = field + (index >= 0 ? "[" + index + "]" : "");
     const raw = String(value == null ? "" : value);
+    if(!raw) return null;                                   // 這一張本來就沒有,不是錯誤
     const m = /^data:image\/(jpeg|png|webp);base64,(.+)$/.exec(raw);
-    if(!m) return raw && !raw.startsWith("data:") ? str(raw, 200) : "";
+    if(!m){
+      // 已經是檔名(先前就處理過)的情況:原樣沿用
+      if(!raw.startsWith("data:")){
+        const n = str(raw, 200);
+        if(field === "image") names.image = n; else if(field === "card") names.card = n; else names.products.push(n);
+        return null;
+      }
+      return { ok:false, error:"pending_image_corrupt", field:label, reason:"bad_format" };
+    }
     const b64 = m[2].trim();
-    if(!b64 || !isPlausibleB64(b64, Math.ceil(PENDING_IMG_BYTES_MAX * 4 / 3) + 8)) return "";
+    /* ★ 舊資料用**舊的**尺寸上限驗。拿新的 200KB 去驗歷史資料的話,那些照片會靜默
+       變成空字串 —— 使用者看到的是認領成功、照片卻不見了,而且原圖已經隨著申請一起
+       被移出待認領區,再也找不回來。 */
+    if(!b64 || !isPlausibleB64(b64, Math.ceil(LEGACY_PENDING_IMG_BYTES_MAX * 4 / 3) + 8)){
+      missing.push(label);
+      return null;
+    }
     const bytes = b64ToBytes(b64);
     const sha = await sha256Hex(bytes);
     record(field, index, bytes, "image/" + m[1], sha);
-    return names[field === "product" ? "products" : field];
+    return null;
   };
-  await pick(a.image, "image", -1);
-  await pick(a.card, "card", -1);
-  const prods = Array.isArray(a.products) ? a.products.slice(0, 5) : [];
-  for(let i = 0; i < prods.length; i++) await pick(prods[i], "product", i);
+  const slots2 = [{ v:a.image, f:"image", i:-1 }, { v:a.card, f:"card", i:-1 }];
+  (Array.isArray(a.products) ? a.products.slice(0, 5) : []).forEach((v, i) => slots2.push({ v, f:"product", i }));
+  for(const s of slots2){
+    const bad = await pick(s.v, s.f, s.i);
+    if(bad) return bad;
+  }
+  if(missing.length && !allowMissing){
+    /* 舊格式也一樣:處理不了的照片必須明確擋下,不可以回成功而照片是空的。 */
+    return { ok:false, error:"pending_image_missing", fields: missing };
+  }
   return { ok:true, files, names, missing };
 }
 
@@ -1282,7 +1426,7 @@ async function handleClaim(request, env){
      會用掉 58 個 GitHub 子請求,超過 Cloudflare 免費方案單次呼叫 50 個的上限,
      而越界的表現是整個認領失敗、訊息卻是「連不到 GitHub」。 */
   const blobCache = {};
-  let memberId = null, photo = null;
+  let memberId = null, photo = null, fingerprint = null;
   for(let attempt = 0; ; attempt++){
     /* ★ 先取 head,之後所有讀取都釘在這個快照。代號解析、待認領區、分組檔必須來自
        **同一個 commit** —— 否則會出現「代號檢查在改名前通過、寫入落在改名後」的交錯:
@@ -1326,7 +1470,15 @@ async function handleClaim(request, env){
     /* ★ 照片全部取回並驗證完,才動 Git。失敗的話 pending 記錄與 R2 物件都原封不動,
        可以安全重試 —— 這正是「不得出現 pending 已刪除但成員/圖片沒寫入」的保證來源。
        只做一次:重試時 pid 相同,photoRefs 也相同,再讀一遍 R2 沒有意義。 */
+    /* ★ 這一筆申請在**這次嘗試**看到的樣子。外層重試會重新讀 _pending.json,
+       如果同一個 pid 的內容(姓名、photoRefs…)在兩次嘗試之間被改過,沿用第一次的解析
+       結果就會出現「用舊照片建卡、卻去刪新照片」這種混合快照。fail-closed 擋掉。 */
+    const fp = await sha256Hex(new TextEncoder().encode(JSON.stringify(list[idx])));
+    if(fingerprint && fingerprint !== fp){
+      return json(env, { ok:false, error:"pending_changed", pid }, 409);
+    }
     if(!memberId){
+      fingerprint = fp;
       memberId = gid + "_m_" + Date.now().toString(36) + Math.floor(Math.random()*1e5).toString(36);
       const allowMissing = (body && body.allowMissingImages) === true;
       const ph = await resolvePendingPhotos(env, list[idx], memberId, allowMissing);
@@ -1594,12 +1746,10 @@ async function commitWithVersionCheck(env, headers, opts){
   const MAX_TRIES = 3;   // 子請求預算:N 個 blob(一次)+ 每次重試 6 個,見 MAX_FILES_PER_REQUEST
 
   const { baseBlobShas, assetPaths } = opts;
-  /* 先把所有 blob 建好(一次就好,重試不必重來,見 ghCreateBlobs)。
-     opts.blobCache 讓呼叫端把已建好的 blob 帶進來 —— /claim 的外層重試會重複呼叫
-     這支函式,照片的 blob 內容不會變,不該每次重建。 */
+  /* 先把圖片的 blob 建好(以內容雜湊快取,重試不必重建)。
+     data/*.json 不在這裡 —— 它們每次都用當下的內容內聯進 tree。 */
   const made = await ghCreateBlobs(env, headers, files, opts.blobCache);
   if(!made.ok) return { ok:false, status:502, body:{ ok:false, error:made.error, status:made.status } };
-  if(opts.blobCache) Object.assign(opts.blobCache, made.blobShas);
 
   for(let attempt = 0; ; attempt++){
     /* ★★ 順序很重要:先取 head,之後**所有**讀取都釘在 head.commitSha 這個快照上 ★★
@@ -1648,8 +1798,13 @@ async function commitWithVersionCheck(env, headers, opts){
       }
       /* 一併回傳新的 blob sha:下一次發布的版本基準要用它。
          少了這個,前端的 baseBlobShas 會停在發布前的值,而 repo 已經是新的 —— 下一次
-         發布會被自己剛寫進去的內容判成版本落後(而且訊息還說是別人改的)。 */
-      return { ok:true, newHashes, newBlobShas: made.blobShas, commitSha: res.commitSha };
+         發布會被自己剛寫進去的內容判成版本落後(而且訊息還說是別人改的)。
+         data/*.json 是內聯進 tree 的,GitHub 不會回它們的 sha,所以自己算。 */
+      const newBlobShas = Object.assign({}, made.blobShas);
+      for(const f of files){
+        if(f.path.startsWith("data/")) newBlobShas[f.path] = await gitBlobSha(b64ToBytes(f.contentB64));
+      }
+      return { ok:true, newHashes, newBlobShas, commitSha: res.commitSha };
     }
     /* ref 在我們讀 head 之後被別人推進了。這一次的 commit 完全沒有生效(ref 沒動),
        所以重讀重試是安全的 —— 重試時會重新比對各檔雜湊,真的有人改到同一個檔就會
@@ -1862,6 +2017,7 @@ export default {
       if(pathname === "/publish") return await handlePublish(request, env);
       if(pathname === "/read") return await handleRead(request, env);
       if(pathname === "/claim") return await handleClaim(request, env);
+      if(pathname === "/drop-pending") return await handleDropPending(request, env);
       if(pathname === "/migrate-pending") return await handleMigratePending(request, env);
       if(pathname === "/intake") return await handleIntake(request, env);
       if(pathname === "/health") return await handleHealth(request, env);

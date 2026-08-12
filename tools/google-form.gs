@@ -186,7 +186,9 @@ function objKeys_(o) { var a = []; for (var k in o) if (Object.prototype.hasOwnP
      「沒有上傳任何檔案」→ 表單那次就沒選圖,重填一次即可,程式沒問題。
      「Drive 讀不到」    → 腳本沒有 Drive 權限。這個函式本身會跳授權,允許後就好了。
                           (加了新權限之後觸發器會暫停,手動執行一次授權完就恢復。)
-     「縮圖拿不到」      → 不必處理,會自動改用原檔;只有原檔也超過 650KB 才會略過。
+     「縮圖拿不到」      → 會自動改用原檔;原檔也超過 190KB 時這一張會失敗,
+                           而失敗會讓**整筆申請不送出**(見 onNewMemberSubmit),
+                           資料仍完整留在表單回應與 Drive,修好後可補送。
      「不是名錄收得下的圖片格式」→ 那個檔不是圖片(例如把 PDF 傳到照片題)。
 
    ⚠ 這份表單有「上傳照片」題,Google 會要求填答者**登入 Google 帳號**才能送出。
@@ -450,14 +452,42 @@ function onNewMemberSubmit(e) {
     tagline:        text("tagline"),
     business_items: text("business_items"),
     website:        text("website"),
-    image:          photos.length ? driveImageDataUrl_(photos[0], 900, "形象照") : "",
-    card:           cards.length ? driveImageDataUrl_(cards[0], 900, "名片照片") : "",
-    products:       products.slice(0, 5).map(function (id, n) { return driveImageDataUrl_(id, 900, "商品照片 " + (n + 1)); })
-                      .filter(function (s) { return !!s; }),
+    image:          "",
+    card:           "",
+    products:       [],
   };
-  Logger.log("照片處理結果:形象照 " + (applicant.image ? "✓" : "✗") +
-             "、名片 " + (applicant.card ? "✓" : "✗") +
-             "、商品 " + applicant.products.length + "/" + Math.min(products.length, 5) + " 張");
+
+  /* ★ 轉圖失敗不可以變成空字串送出去。
+     先前的做法是「拿不到就回 ""」,而 Worker 看到空值只會當成「使用者沒有上傳這一張」——
+     於是 /intake 回報成功、photoWarnings 是空的、後台也只覺得照片比較少,
+     沒有任何人知道其實有一張照片處理失敗了。表單那頭更是完全無感。
+     現在:表單上傳了幾張,就必須成功轉出幾張;任何一張失敗就**整筆不送**,
+     資料與原檔都還在 Form/Drive,修好之後可以補送。
+     ★ 商品照也不再先 .filter() —— 那會讓索引與原始欄位對不起來,查問題時找錯張。 */
+  var photoFails = [];
+  var conv = function (id, label, field) {
+    var url = driveImageDataUrl_(id, 900, label);
+    if (!url) photoFails.push(field);
+    return url;
+  };
+  if (photos.length) applicant.image = conv(photos[0], "形象照", "image");
+  if (cards.length)  applicant.card  = conv(cards[0], "名片照片", "card");
+  var prodIds = products.slice(0, 5);
+  for (var pi = 0; pi < prodIds.length; pi++) {
+    applicant.products.push(conv(prodIds[pi], "商品照片 " + (pi + 1), "product[" + pi + "]"));
+  }
+
+  Logger.log("照片處理結果:形象照 " + (photos.length ? (applicant.image ? "✓" : "✗") : "—") +
+             "、名片 " + (cards.length ? (applicant.card ? "✓" : "✗") : "—") +
+             "、商品 " + applicant.products.filter(String).length + "/" + prodIds.length + " 張");
+
+  if (photoFails.length) {
+    Logger.log("✗ 這一筆【沒有】送出:" + applicant.name +
+               " —— 有上傳照片但轉檔失敗(" + photoFails.join("、") + ")。" +
+               "\n   常見原因:Drive 還沒產出縮圖(稍後重試即可)、原檔超過上限、或不是圖片格式。" +
+               "\n   表單回應與原始檔都完整保留,修正後可請網管補送 —— 不會遺失。");
+    return;
+  }
 
   var res;
   try {
@@ -552,7 +582,7 @@ function driveImageDataUrl_(fileId, maxWidth, label) {
   try {   // ③ 縮圖始終拿不到,改用原檔
     var out2 = blobToDataUrl_(DriveApp.getFileById(fileId).getBlob(), tag);
     if (out2) { Logger.log("· " + tag + ":改用原檔(拿不到縮圖)"); return out2; }
-    Logger.log("⚠ " + tag + ":原檔超過 650KB 又沒有縮圖,這張略過");
+    Logger.log("⚠ " + tag + ":原檔超過上限(190KB)又沒有縮圖 —— 這一筆申請不會送出,請改用較小的圖重新上傳");
   } catch (err2) {
     Logger.log("⚠ " + tag + ":讀不到檔案(縮圖最後回 HTTP " + state.code + ")" + err2 +
                (state.note ? "\n   " + state.note : "") +
