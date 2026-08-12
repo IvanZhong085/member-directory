@@ -419,11 +419,93 @@ function checkNewMemberForm() {
 
 /* 表單送出時自動觸發:把這份回應整理好,送到 Worker 的 /intake。
    任何一步失敗都寫進執行紀錄,回應本身仍留在試算表裡,不會遺失。 */
+/* ══ 通知 ═════════════════════════════════════════════════════════════════
+   為什麼需要這一段:先前申請沒送成功時,只寫進 Logger.log 就 return。
+   Apps Script 只有在函式**拋例外**時才會寄失敗信給擁有者,而這裡是正常 return ——
+   一封信都不會發。而執行紀錄沒有人會主動去看。
+
+   結果就是:填表的新夥伴看到「已送出」,名錄這邊零感知,申請一筆一筆掉,
+   要等到有人剛好想起來去翻執行紀錄才會發現。R2 還沒綁的那段時間正是這樣過去的。
+
+   兩個獨立的收件人,都是「專案設定 → 指令碼屬性」裡的一筆:
+     ALERT_EMAIL  失敗通知。這封是「東西壞了要修」,一定要寄;沒設就退回腳本擁有者。
+     NOTIFY_EMAIL 新申請進待認領區的通知。這封是「有人在等你認領」,
+                  沒設就不寄 —— 不是每個分會都想要每一筆都收信。
+
+   ★ 信裡只放姓名、錯誤碼與處理建議。不放照片、不放 secret、不放完整申請內容 ——
+     信會被轉寄、會留在收件匣,那不是放未認領者資料的地方。 */
+function alertEmail_() {
+  var v = String(PropertiesService.getScriptProperties().getProperty("ALERT_EMAIL") || "").trim();
+  if (v) return v;
+  // 沒設就寄給腳本擁有者。取不到(權限或帳號類型)就回空字串,由呼叫端記錄「沒寄出」。
+  try { return String(Session.getEffectiveUser().getEmail() || "").trim(); }
+  catch (err) { return ""; }
+}
+
+/* 寄信本身失敗絕不能影響上面的結論。配額用完、收件人打錯都只記一行紀錄。 */
+function sendMail_(to, subject, body) {
+  if (!to) return false;
+  try { MailApp.sendEmail(to, subject, body); return true; }
+  catch (err) { Logger.log("⚠ 通知信寄不出去(不影響上面的結果):" + err); return false; }
+}
+
+var MAIL_FOOTER_ = "\n\n———\n這封信由會員名錄的 Apps Script 自動寄出，內容不含照片與密碼。";
+
+function notifyIntakeFailure_(name, why, hint) {
+  var who = name || "(未填姓名)";
+  var to = alertEmail_();
+  var sent = sendMail_(to, "【會員名錄】新夥伴申請沒有進待認領區：" + who,
+    "有一筆新夥伴自填表單的申請沒有進到待認領區。\n\n" +
+    "姓名：" + who + "\n" +
+    "原因：" + why + "\n\n" +
+    hint + "\n\n" +
+    "表單回應與上傳的原始檔都完整保留在 Google 表單的回應試算表裡，修正後可以補送，不會遺失。" +
+    MAIL_FOOTER_);
+  Logger.log(sent ? "   ✉ 已通知 " + to
+                  : "   ✉ 沒有寄出通知(沒設 ALERT_EMAIL,也取不到腳本擁有者信箱)");
+}
+
+function notifyIntakeSuccess_(name, pending) {
+  var to = String(PropertiesService.getScriptProperties().getProperty("NOTIFY_EMAIL") || "").trim();
+  if (!to) return;                       // 選用功能,沒設就安靜略過
+  var who = name || "(未填姓名)";
+  sendMail_(to, "【會員名錄】有新夥伴等待認領：" + who,
+    "「" + who + "」的自填資料已經進到待認領區。\n" +
+    "目前共 " + pending + " 筆等待認領。\n\n" +
+    "請組長到編輯頁的「新夥伴待認領」區認領：\n" +
+    SITE_BASE_URL + "admin.html" +
+    MAIL_FOOTER_);
+}
+
+/* 不改任何東西,只把通知設定印出來、並實際寄一封測試信。
+   「以為有設好」與「真的收得到」是兩件事,而這條路只有在出事時才會被用到 ——
+   那時候才發現寄不出去就太晚了。 */
+function checkNotifySetup() {
+  var props = PropertiesService.getScriptProperties();
+  var alertTo = String(props.getProperty("ALERT_EMAIL") || "").trim();
+  var notifyTo = String(props.getProperty("NOTIFY_EMAIL") || "").trim();
+  var effective = alertEmail_();
+  Logger.log("ALERT_EMAIL   :" + (alertTo || "(沒設 → 用腳本擁有者)"));
+  Logger.log("實際收件人    :" + (effective || "✗ 取不到 —— 失敗通知會寄不出去,請設 ALERT_EMAIL"));
+  Logger.log("NOTIFY_EMAIL  :" + (notifyTo || "(沒設 → 不寄「有新申請」的通知)"));
+  try { Logger.log("今日可寄額度  :" + MailApp.getRemainingDailyQuota() + " 封"); } catch (err) {}
+  if (!effective) return;
+  var ok = sendMail_(effective, "【會員名錄】通知設定測試",
+    "看到這封信代表失敗通知寄得出去。\n" +
+    "真正的通知只會在新夥伴的申請沒有進到待認領區時寄出。" + MAIL_FOOTER_);
+  Logger.log(ok ? "測試信        :✅ 已寄到 " + effective : "測試信        :✗ 寄不出去(見上方錯誤)");
+}
+
 function onNewMemberSubmit(e) {
   var props = PropertiesService.getScriptProperties();
   var relay = String(props.getProperty("RELAY_URL") || "").replace(/\/+$/, "");
   var secret = props.getProperty("INTAKE_SECRET");
-  if (!relay || !secret) { Logger.log("✗ 沒設 RELAY_URL / INTAKE_SECRET,這筆沒有送出"); return; }
+  if (!relay || !secret) {
+    Logger.log("✗ 沒設 RELAY_URL / INTAKE_SECRET,這筆沒有送出");
+    notifyIntakeFailure_("(設定未完成)", "Apps Script 少了 RELAY_URL 或 INTAKE_SECRET",
+      "請到「專案設定 → 指令碼屬性」補上這兩筆,再跑一次 checkNewMemberSetup 確認。");
+    return;
+  }
 
   var byTitle = {};
   var items = e.response.getItemResponses();
@@ -486,6 +568,8 @@ function onNewMemberSubmit(e) {
                " —— 有上傳照片但轉檔失敗(" + photoFails.join("、") + ")。" +
                "\n   常見原因:Drive 還沒產出縮圖(稍後重試即可)、原檔超過上限、或不是圖片格式。" +
                "\n   表單回應與原始檔都完整保留,修正後可請網管補送 —— 不會遺失。");
+    notifyIntakeFailure_(applicant.name, "照片轉檔失敗(" + photoFails.join("、") + ")",
+      "常見原因:Drive 還沒產出縮圖(稍後重跑一次通常就好)、原檔太大、或上傳的不是圖片格式。");
     return;
   }
 
@@ -499,6 +583,8 @@ function onNewMemberSubmit(e) {
     });
   } catch (err) {
     Logger.log("✗ 連不到發布服務:" + err + "(回應仍在試算表裡,可請網管手動處理)");
+    notifyIntakeFailure_(applicant.name, "連不到發布服務(Cloudflare Worker)",
+      "請確認 Worker 還在線上、RELAY_URL 沒有打錯。網路只是暫時抖動的話,補送一次即可。");
     return;
   }
   /* ★ 真的把回應解析出來,不要只用字串比對。
@@ -518,6 +604,7 @@ function onNewMemberSubmit(e) {
         Logger.log("   ⚠ " + out.pid + " 欄位 " + out.warnings[wi].field + ":" + out.warnings[wi].reason);
       }
     }
+    notifyIntakeSuccess_(applicant.name, out.pending);
   } else {
     var why = out && out.error ? out.error : ("HTTP " + code);
     var where = out && out.field ? "(欄位 " + out.field + ")" : "";
@@ -531,6 +618,7 @@ function onNewMemberSubmit(e) {
     Logger.log("✗ 這一筆【沒有】進待認領區:" + applicant.name + " —— " + why + where +
                "\n   " + hint +
                "\n   回應仍完整留在試算表裡,修正後可請網管手動補送(不會遺失)。");
+    notifyIntakeFailure_(applicant.name, why + where, hint);
   }
 
   /* 照片歸檔(選用,見 setPhotoArchiveFolder)。
@@ -754,6 +842,11 @@ function checkNewMemberSetup() {
   var cn = 0;
   for (var k = 0; k < all.length; k++) if (all[k].getHandlerFunction() === CLEANUP_TRIGGER) cn++;
   Logger.log("每月清理照片  :" + (cn ? "✅ 已排定(每月 1 號)" : "未啟用(要開就跑 setupPhotoCleanupTrigger)"));
+
+  /* 申請沒送成功時唯一會主動通知人的路徑。沒設定的話,失敗就只留在執行紀錄裡 ——
+     而那正是「表單看起來正常、申請卻一直沒進來」最常見的原因。 */
+  Logger.log("失敗通知      :" + (alertEmail_() ? "✅ 寄給 " + alertEmail_() + "(細節與測試信跑 checkNotifySetup)"
+                                                : "✗ 沒有收件人 —— 申請送失敗時不會有人知道,請設 ALERT_EMAIL"));
 
   if (!relay || !secret) return;
   // 故意送一份不完整的申請:secret 對的話會回 bad_applicant,代表這條路是通的

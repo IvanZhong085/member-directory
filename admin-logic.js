@@ -53,6 +53,36 @@ var AdminLogic = (function(){
     return true;
   }
 
-  return { computeConflicts, computeRenameRemovals, isPrimaryTab };
+  /* 待認領區要不要提醒、提醒什麼。回傳 { level, text } 或 null(不提醒)。
+
+     為什麼需要:申請進了待認領區之後不會有任何人被通知,就這樣躺著等某位組長剛好
+     打開後台。新夥伴那頭只會覺得「送出之後就沒下文」。在人一定會看到的位置(待認領
+     區本身)放一則會隨筆數升級的提醒,是不動用信件也做得到的最低限度。
+
+     三個級距不是隨手挑的:
+       ≥2   有人在等 —— 一筆時清單本身就看得見,兩筆開始才需要催。
+       ≥80% 快滿了 —— 滿了之後 /intake 會回 pending_full,新夥伴的申請**會被退回**,
+            所以要在還來得及的時候講。
+       =max 已經滿了 —— 這時候申請已經在掉了,措辭必須是「現在就處理」。
+     max 由呼叫端傳入(對齊 Worker 的 MAX_PENDING),不在這裡寫死第二份。 */
+  function pendingNotice(count, max){
+    const n = Number(count) || 0;
+    const cap = Number(max) > 0 ? Number(max) : 30;
+    if(n >= cap){
+      return { level:"danger",
+               text:"待認領區已滿（" + n + "/" + cap + "）：新夥伴現在送出的申請會被退回，請立即認領或刪除幾筆。" };
+    }
+    if(n >= Math.ceil(cap * 0.8)){
+      return { level:"warn",
+               text:"待認領區快滿了（" + n + "/" + cap + "）：滿了之後新夥伴的申請會被退回，請組長盡速認領。" };
+    }
+    if(n >= 2){
+      return { level:"info",
+               text:"目前有 " + n + " 位新夥伴等待認領，請組長盡速認領組員。" };
+    }
+    return null;
+  }
+
+  return { computeConflicts, computeRenameRemovals, isPrimaryTab, pendingNotice };
 })();
 if(typeof module !== "undefined" && module.exports) module.exports = AdminLogic;

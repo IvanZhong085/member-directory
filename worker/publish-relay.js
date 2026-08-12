@@ -389,6 +389,9 @@ async function handlePing(request, env){
      claim:認領是伺服器端交易。編輯頁靠這幾個旗標判斷該走新路徑還是舊路徑。 */
   return json(env, { ok:true, service:"member-directory-relay",
     caps:{ files:true, visitor: visitorConfigured(), atomic:true, read:true, claim:true, drop:true,
+           /* 待認領照片的授權預覽。舊版 Worker 沒有這個旗標,編輯頁就繼續顯示佔位圖
+              而不是把每一張都試著抓一次然後全部 404。 */
+           pendingPhoto:true, audit:true,
            /* 待認領照片存放方式。"r2-v1" = 私有 R2 bucket(照片不進公開 repo)。
               沒有這個欄位或值不同,代表 Worker 還沒更新到支援 R2 的版本 —— 部署時
               一定要先確認這一項,否則 Apps Script 送來的申請會被 503 擋下。 */
@@ -453,14 +456,22 @@ async function handleHealth(request, env){
   const sess = await verifySession(body && body.session, env.SESSION_SECRET);
   if(!sess) return json(env, { ok:false, error:"session_expired" }, 401);
   if(isViewerSession(sess)) return json(env, { ok:false, error:"read_only" }, 403);
+  /* ★ 待認領照片的儲存空間也要一起回報。
+     沒綁 R2 時 /intake 一律回 503,新夥伴表單等於停止收件 —— 而那件事在後台**完全
+     看不出來**:待認領區是空的,看起來就只是「最近沒人申請」。先前只有在有人按下
+     認領時才會發現,可是申請根本沒進來,所以連那個提示都不會觸發。
+     登入時就把它講出來,是唯一能讓人在申請開始掉之前知道的位置。
+     ★ 值用字串旗標(不是 boolean):舊版 Worker 沒有這個欄位,編輯頁才分得出
+       「新版但沒綁」與「Worker 還沒更新」—— 後者不該顯示這則橫幅。 */
+  const pendingImages = env.PENDING_IMAGES ? PENDING_IMAGE_CAPABILITY : "unbound";
   try{
     const r = await fetchWithTimeout(`https://api.github.com/repos/${encodeURIComponent(env.GH_OWNER)}/${encodeURIComponent(env.GH_REPO)}`, { headers: await ghHeaders(env) }, GITHUB_TIMEOUT_MS);
-    if(r.status === 401 || r.status === 403) return json(env, { ok:true, github:"invalid_token" });
-    if(!r.ok) return json(env, { ok:true, github:"repo_not_found", status:r.status });
+    if(r.status === 401 || r.status === 403) return json(env, { ok:true, pendingImages, github:"invalid_token" });
+    if(!r.ok) return json(env, { ok:true, pendingImages, github:"repo_not_found", status:r.status });
     const d = await r.json();
-    return json(env, { ok:true, github: (d.permissions && d.permissions.push) ? "writable" : "read_only" });
+    return json(env, { ok:true, pendingImages, github: (d.permissions && d.permissions.push) ? "writable" : "read_only" });
   }catch(e){
-    return json(env, { ok:true, github:"network_error" });
+    return json(env, { ok:true, pendingImages, github:"network_error" });
   }
 }
 
@@ -917,16 +928,15 @@ async function parsePendingPhotos(raw, maxBytes){
 
 /* R2 的 key 完全由伺服器決定:pid(伺服器產生)+ 固定欄位名 + 索引 + 內容雜湊。
    呼叫端送來的檔名一個字都不會進到這裡 —— 路徑穿越與跨申請讀取在這一層就不可能。 */
-/* owner 是「這次呼叫」的識別碼,只有遷移會用到。
-   ★ 為什麼遷移需要它:key 原本完全由 pid + 欄位 + 內容雜湊決定,兩個同時執行的遷移
-     會算出**完全相同的 key**。先完成的那個 commit 成功、後者因 stale_base 失敗並回滾,
-     而它回滾時刪掉的正是那組共用的 key —— 成功的 commit 於是指向一個已經不存在的物件。
-     加上每次呼叫獨有的 owner 之後,失敗方只會刪到自己建立的那一份。
-   /intake 不需要:pid 是伺服器為每一次送件新產生的,不同送件不可能撞 key。 */
-function pendingKeyFor(pid, field, index, sha256, mime, owner){
+/* ⚠ 之後如果再加「會寫進 R2」的路徑,先想清楚 key 會不會與別人相同:
+   key 由 pid + 欄位 + 內容雜湊決定,兩個同時執行、處理同一筆申請的流程會算出**完全
+   相同的 key**,失敗方回滾時刪掉的就是成功方正在引用的物件。當時的 /migrate-pending
+   為此在 key 裡加了一段「這次呼叫」的識別碼。/intake 沒有這個問題 —— pid 是伺服器
+   為每一次送件新產生的,不同送件不可能撞 key。 */
+function pendingKeyFor(pid, field, index, sha256, mime){
   const base = field + (index >= 0 ? "-" + index : "");
   return PENDING_IMAGE_PREFIX + pid + "/" + base + "-" + sha256.slice(0, 16) +
-         (owner ? "-" + owner : "") + "." + PENDING_IMG_MIME[mime];
+         "." + PENDING_IMG_MIME[mime];
 }
 /* 這個 key 是不是屬於這一筆申請。認領時每一個 photoRef 都要過這一關。 */
 function keyBelongsToPid(key, pid){
@@ -1183,16 +1193,98 @@ async function handleDropPending(request, env){
   }
 }
 
-/* ══ 一次性遷移:把舊格式的 data URL 照片搬進 R2 ═════════════════════════════
-   部署 R2 版本之前收到的申請,照片還以 data URL 存在 data/_pending.json 裡(而那個檔
-   在公開 repo)。這支端點把它們搬到私有 R2、換成 photoRefs,然後用**一個**受版本檢查
-   的 commit 改寫 _pending.json。
+/* ══ 待認領照片的授權預覽 ═════════════════════════════════════════════════
+   照片存在**私有** bucket,沒有公開網址 —— 那是刻意的。代價是組長在認領前看不到人:
+   只能憑姓名與行業判斷「這是不是我認識的那一位」,認錯了要再改一次資料。
 
-   ・可重跑(idempotent):已經有 photoRefs 的項目直接跳過,不會重複上傳或重複計數。
-   ・只動「目前的」_pending.json,**不改寫 git 歷史** —— 歷史裡的舊照片要不要清除
-     是另一個決定(git filter-repo),不在這支端點的範圍。
-   ・只有總管理員能執行。 */
-async function handleMigratePending(request, env){
+   這裡刻意**不簽任何網址**。簽出去的 URL 就是一條公開連結(只是難猜),一旦被複製、
+   被貼進聊天室、被記進瀏覽器歷史就收不回來,而且有效期內誰拿到都能看。
+   改成每一次預覽都當場驗 session、當場授權、當場把位元組串回去。
+
+   ★ key 一定要從 data/_pending.json 查出來,不可以由呼叫端指定。
+     少了這一條,任何一個登入者都能拿猜的 key 把整個 bucket 讀一遍 —— 而 bucket 裡
+     放的正是還沒被認領的人的名片。呼叫端只送 pid + 欄位 + 索引。 */
+async function handlePendingPhoto(request, env){
+  let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
+  const sess = await verifySession(body && body.session, env.SESSION_SECRET);
+  if(!sess) return json(env, { ok:false, error:"session_expired" }, 401);
+  /* 唯讀帳號在後台看不到待認領區(renderPending 整塊不渲染)。這裡再擋一次 ——
+     授權判斷只寫在前端等於沒寫。 */
+  if(isViewerSession(sess)) return json(env, { ok:false, error:"read_only" }, 403);
+  if(!env.PENDING_IMAGES) return json(env, { ok:false, error:"pending_image_store_unavailable" }, 503);
+
+  const pid = String(body && body.pid == null ? "" : body.pid);
+  if(!MEMBER_ID_RE.test(pid)) return json(env, { ok:false, error:"bad_request" }, 400);
+  const field = String(body && body.field == null ? "" : body.field);
+  if(field !== "image" && field !== "card" && field !== "product"){
+    return json(env, { ok:false, error:"bad_request" }, 400);
+  }
+  const rawIndex = body && body.index;
+  const index = typeof rawIndex === "number" && Number.isInteger(rawIndex) ? rawIndex : -1;
+  if(field === "product" && (index < 0 || index >= PENDING_IMG_COUNT_MAX)){
+    return json(env, { ok:false, error:"bad_request" }, 400);
+  }
+
+  const headers = await ghHeaders(env);
+  const read = await ghReadFile(env, headers, PENDING_PATH);
+  if(!read.ok) return json(env, { ok:false, error:read.error, status:read.status }, 502);
+  if(read.bytes === null) return json(env, { ok:false, error:"already_claimed", pid }, 409);
+  let list;
+  try{ list = JSON.parse(new TextDecoder().decode(read.bytes)); }
+  catch(e){ return json(env, { ok:false, error:"pending_unreadable" }, 502); }
+  if(!Array.isArray(list)) return json(env, { ok:false, error:"pending_unreadable" }, 502);
+  const a = list.find(x => x && x.pid === pid);
+  /* 找不到 = 已經被別人認領或刪掉了。回 409(與 /claim、/drop-pending 同一個碼),
+     前端就知道該重新整理待認領區,而不是以為照片壞了。 */
+  if(!a) return json(env, { ok:false, error:"already_claimed", pid }, 409);
+
+  const pr = a.photoRefs;
+  const ref = !pr || typeof pr !== "object" ? null
+    : field === "image" ? pr.image
+    : field === "card"  ? pr.card
+    : (Array.isArray(pr.products) ? pr.products[index] : null);
+  if(!ref || typeof ref !== "object") return json(env, { ok:false, error:"pending_image_missing" }, 404);
+  // 與認領走同一道關卡:key 必須落在這一筆申請自己的前綴底下
+  if(!keyBelongsToPid(ref.key, pid)) return json(env, { ok:false, error:"pending_image_forbidden" }, 403);
+
+  let obj;
+  try{ obj = await env.PENDING_IMAGES.get(ref.key); }
+  catch(e){ return json(env, { ok:false, error:"pending_image_store_failed" }, 502); }
+  /* 「讀不到」與「不存在」分開回報,理由與認領那邊相同:前者是暫時性故障(值得重試),
+     後者是照片真的沒了(lifecycle 清掉了),兩者要給操作者不同的訊息。 */
+  if(!obj) return json(env, { ok:false, error:"pending_image_missing" }, 404);
+
+  const buf = await obj.arrayBuffer();
+  /* 回的是圖片位元組,不是 JSON。
+     ・Content-Type 取自申請記錄裡的 mime,而且只認白名單內的三種 —— 不採用物件上
+       任何可能被寫壞的值,也就不會回出一個 text/html 讓瀏覽器當網頁執行。
+     ・no-store:未認領者的照片不該留在瀏覽器快取或任何中間層。
+     ・nosniff + attachment 以外的 inline 是刻意的:要能直接顯示在 <img> 裡。 */
+  const mime = PENDING_IMG_MIME[ref.mime] ? ref.mime : "application/octet-stream";
+  return new Response(buf, {
+    status: 200,
+    headers: Object.assign({
+      "Content-Type": mime,
+      "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+      "Content-Disposition": "inline",
+    }, corsHeaders(env)),
+  });
+}
+
+/* ══ 待認領照片盤點(唯讀)══════════════════════════════════════════════════
+   正常路徑都會把 R2 物件一起收掉:認領成功會刪、/drop-pending 刪申請也會刪、
+   /intake 中途失敗會回滾。只有「commit 已經成功、刪除還沒跑完就中斷」這個很窄的
+   窗口會留下沒有人引用的孤兒,bucket 上的 lifecycle 規則會在 N 天後清掉它們。
+
+   問題是在那之前**沒有任何方法看得出來現在有幾個**,也就沒辦法判斷 lifecycle 的
+   天數設得對不對。這支端點把兩邊對起來回報數量。
+
+   ★ 它不刪任何東西。盤點與刪除做在同一支工具裡,最後總會有人在不確定的情況下按下去。
+   ★ 只回數量與 pid,不回完整 key、不回申請內容。 */
+const AUDIT_MAX_PAGES = 20;          // 20 × 1000 = 20000 個物件,遠超過任何合理狀態
+
+async function handlePendingAudit(request, env){
   let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
   const sess = await verifySession(body && body.session, env.SESSION_SECRET);
   if(!sess) return json(env, { ok:false, error:"session_expired" }, 401);
@@ -1200,68 +1292,68 @@ async function handleMigratePending(request, env){
   if(!env.PENDING_IMAGES) return json(env, { ok:false, error:"pending_image_store_unavailable" }, 503);
 
   const headers = await ghHeaders(env);
-  const head = await ghHead(env, headers, env.GH_BRANCH || "main");
-  if(!head.ok) return json(env, { ok:false, error:head.error, status:head.status }, 502);
-  const tm = await ghTreeMap(env, headers, head.treeSha);
-  if(!tm.ok) return json(env, { ok:false, error:tm.error }, 502);
-
-  const read = await ghReadFile(env, headers, PENDING_PATH, head.commitSha);
+  const read = await ghReadFile(env, headers, PENDING_PATH);
   if(!read.ok) return json(env, { ok:false, error:read.error, status:read.status }, 502);
-  if(read.bytes === null) return json(env, { ok:true, migrated:0, skipped:0, note:"沒有待認領區檔案" });
-  let list;
-  try{ list = JSON.parse(new TextDecoder().decode(read.bytes)); }
-  catch(e){ return json(env, { ok:false, error:"pending_unreadable" }, 502); }
-  if(!Array.isArray(list)) return json(env, { ok:false, error:"pending_unreadable" }, 502);
+  let list = [];
+  if(read.bytes !== null){
+    try{ list = JSON.parse(new TextDecoder().decode(read.bytes)); }
+    catch(e){ return json(env, { ok:false, error:"pending_unreadable" }, 502); }
+    if(!Array.isArray(list)) return json(env, { ok:false, error:"pending_unreadable" }, 502);
+  }
 
-  let migrated = 0, skipped = 0;
-  const uploaded = [];
-  /* 這次呼叫獨有的識別碼,放進 key 裡 —— 見 pendingKeyFor 的說明。
-     兩個同時跑的遷移因此不會共用物件,失敗方回滾時也就不會刪到成功方引用的東西。 */
-  const owner = "m" + Date.now().toString(36) + Math.floor(Math.random()*1e8).toString(36);
+  // _pending.json 目前引用到的每一個 key
+  const referenced = new Map();        // key → pid
   for(const a of list){
-    if(!a || typeof a !== "object") continue;
-    if(a.photoRefs){ skipped++; continue; }                 // 已經是新格式
-    const parsed = await parsePendingPhotos(a, LEGACY_PENDING_IMG_BYTES_MAX);
-    if(!parsed.ok){
-      await deletePendingImages(env, uploaded);
-      return json(env, { ok:false, error:parsed.error, pid:a.pid, field:parsed.field, reason:parsed.reason }, 400);
+    const pr = a && a.photoRefs;
+    if(!pr || typeof pr !== "object") continue;
+    for(const r of [pr.image, pr.card].concat(Array.isArray(pr.products) ? pr.products : [])){
+      if(r && typeof r.key === "string") referenced.set(r.key, a.pid);
     }
-    const refs = { image:null, card:null, products:[] };
-    for(const p of parsed.photos){
-      const key = pendingKeyFor(a.pid, p.field, p.index, p.sha256, p.mime, owner);
-      try{ await env.PENDING_IMAGES.put(key, p.bytes, { httpMetadata:{ contentType:p.mime } }); }
-      catch(e){
-        await deletePendingImages(env, uploaded);
-        return json(env, { ok:false, error:"pending_image_store_failed", pid:a.pid, field:p.field }, 502);
-      }
-      uploaded.push(key);
-      const ref = { key, mime:p.mime, bytes:p.bytes.length, sha256:p.sha256 };
-      if(p.field === "image") refs.image = ref;
-      else if(p.field === "card") refs.card = ref;
-      else refs.products.push(ref);
-    }
-    a.photoRefs = refs;
-    a.image = ""; a.card = ""; a.products = [];             // 公開 repo 裡不再留 base64
-    if(!a.photoWarnings) a.photoWarnings = [];
-    migrated++;
   }
-  if(!migrated) return json(env, { ok:true, migrated:0, skipped });
 
-  const bytes = new TextEncoder().encode(JSON.stringify(list, null, 2) + "\n");
-  const baseBlobShas = {};
-  if(tm.map.has(PENDING_PATH)) baseBlobShas[PENDING_PATH] = tm.map.get(PENDING_PATH);
-  const r = await commitWithVersionCheck(env, headers, {
-    files: [{ path: PENDING_PATH, contentB64: bytesToB64(bytes) }],
-    remove: [], baseHashes:{}, baseBlobShas, assetPaths: [], sess,
-    message: "待認領照片搬到私有儲存（" + migrated + " 筆）",
-  });
-  if(!r.ok){
-    /* commit 失敗:剛上傳的 R2 物件沒有任何 pending 記錄指向它們,清掉。
-       這也是可重跑的原因 —— 重跑一次會從頭再來,不會留下半套。 */
-    await deletePendingImages(env, uploaded);
-    return json(env, r.body, r.status);
+  const seen = new Set();
+  let objects = 0, bytes = 0, orphans = 0, orphanBytes = 0, truncated = false;
+  let oldestOrphanMs = null;
+  const orphanPids = new Set();
+  let cursor;
+  for(let page = 0; ; page++){
+    let res;
+    try{ res = await env.PENDING_IMAGES.list({ prefix: PENDING_IMAGE_PREFIX, cursor }); }
+    catch(e){ return json(env, { ok:false, error:"pending_image_store_failed" }, 502); }
+    for(const o of (res && res.objects) || []){
+      objects++; bytes += o.size || 0;
+      seen.add(o.key);
+      if(referenced.has(o.key)) continue;
+      orphans++; orphanBytes += o.size || 0;
+      if(orphanPids.size < 10){
+        const m = /^pending\/([^/]+)\//.exec(o.key);
+        if(m) orphanPids.add(m[1]);
+      }
+      const t = o.uploaded ? new Date(o.uploaded).getTime() : NaN;
+      if(!isNaN(t) && (oldestOrphanMs === null || t < oldestOrphanMs)) oldestOrphanMs = t;
+    }
+    if(!res || !res.truncated) break;
+    if(page + 1 >= AUDIT_MAX_PAGES){ truncated = true; break; }
+    cursor = res.cursor;
   }
-  return json(env, { ok:true, migrated, skipped, commit:r.commitSha });
+
+  /* 反過來的那一半:_pending.json 引用了,但 bucket 裡沒有 —— 認領那一筆時會拿到
+     pending_image_missing。這個結論只在**看完整個清單**時才成立,列舉被截斷時
+     沒看到不等於不存在,所以回 null 而不是一個會誤導人的 0。 */
+  let missingRefs = null;
+  if(!truncated){
+    missingRefs = 0;
+    for(const k of referenced.keys()) if(!seen.has(k)) missingRefs++;
+  }
+
+  return json(env, { ok:true,
+    pending: list.length,
+    referenced: referenced.size,
+    objects, bytes, orphans, orphanBytes,
+    orphanPids: [...orphanPids],
+    oldestOrphanDays: oldestOrphanMs === null ? null
+      : Math.floor((Date.now() - oldestOrphanMs) / 86400000),
+    missingRefs, truncated });
 }
 
 /* ══ 認領新夥伴(伺服器端交易)══════════════════════════════════════════════
@@ -2018,7 +2110,8 @@ export default {
       if(pathname === "/read") return await handleRead(request, env);
       if(pathname === "/claim") return await handleClaim(request, env);
       if(pathname === "/drop-pending") return await handleDropPending(request, env);
-      if(pathname === "/migrate-pending") return await handleMigratePending(request, env);
+      if(pathname === "/pending-photo") return await handlePendingPhoto(request, env);
+      if(pathname === "/pending-audit") return await handlePendingAudit(request, env);
       if(pathname === "/intake") return await handleIntake(request, env);
       if(pathname === "/health") return await handleHealth(request, env);
       if(pathname === "/views") return await handleViews(request, env);

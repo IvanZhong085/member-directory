@@ -148,6 +148,9 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 |---|---|
 | `/read` | 編輯頁的**權威讀取**。回傳內容與雜湊，來源是 GitHub API（立即一致）。編輯頁不再直接讀 GitHub Pages —— Pages 是最終一致的，發布後 1~4 分鐘內讀到的是舊版，會讓其他人的發布一直被判 `stale_base`，而且待認領區會列出已經被別人認領走的人。 |
 | `/claim` | **認領新夥伴的伺服器端交易**。輸入 `pid` 與目標分組，Worker 在同一個交易裡確認「這筆還在待認領區」、建立成員卡（帶 `claimedFrom`）、抽出照片、把三者寫進同一個 commit。兩位組長同時認領同一人時，第二位會收到 `already_claimed`，而且他那組**一個位元組都不會被寫入**。這件事只有伺服器做得到：兩個瀏覽器看不到彼此。 |
+| `/drop-pending` | 刪掉一筆待認領申請。先原子移除記錄，ref 更新成功之後才刪 R2 物件 —— 順序與 `/claim` 相同，所以不會留下孤兒。 |
+| `/pending-photo` | **待認領照片的授權預覽**。輸入 `pid` + 欄位（`image`／`card`／`product` + `index`），回傳圖片位元組本身（不是 JSON），標頭帶 `Cache-Control: private, no-store`。<br>刻意**不簽任何網址**：簽出去的 URL 就是一條公開連結，只是難猜而已，一旦被複製、被貼進聊天室就收不回來。改成每次預覽都當場驗 session。<br>R2 的 key 一律從 `data/_pending.json` 查出來，呼叫端指定的 key 完全無效 —— 否則任何登入者都能拿猜的 key 把整個 bucket 讀一遍，而 bucket 裡放的正是還沒被認領的人的名片。唯讀帳號一律 403。 |
+| `/pending-audit` | **孤兒物件的唯讀盤點**（僅總管理員）。把 bucket 裡 `pending/` 的物件與 `_pending.json` 引用的 key 對起來，回報物件數、孤兒數與佔用空間、最舊的孤兒放了幾天，以及反向的 `missingRefs`（被引用但物件已不存在 —— 那是「認領會失敗」的預告）。<br>**它不刪任何東西。** 盤點與刪除混在同一支工具裡，最後總會有人在不確定的情況下按下去。<br>列舉超過頁數上限時回 `truncated: true` 且 `missingRefs: null` —— 沒看完整份清單就不下那個結論。 |
 
 ### 4. 綁定「錯誤次數限制」用的儲存空間（KV）
 
@@ -199,6 +202,8 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 >
 > 天數請依分會的實際節奏決定。設太短會刪到還在等待處理的有效申請；設太長則孤兒會留久一點 —— 但孤兒現在**很少**：認領成功會刪、`/drop-pending` 刪申請也會刪，只有「Git commit 已成功、R2 還沒刪就中斷」這個很窄的窗口才會留下。
 >
+> **天數不必用猜的**：用總管理員身分打一次 `/pending-audit`，它會回報現在有幾個孤兒、佔多少空間、最舊的那個放了幾天。那是唯一能看見這件事的地方 —— lifecycle 規則本身不會告訴你它清掉了什麼。
+>
 > 若不希望有任何自動刪除，可以不設這條規則，改為定期人工檢查；代價是那個窄窗口留下的孤兒會一直佔空間。
 
 > **沒綁 `PENDING_IMAGES` 會怎樣**：`/intake` 一律回 `pending_image_store_unavailable`（HTTP 503），表單那頭會收到明確的失敗訊息，資料仍完整留在 Google 表單的回應試算表裡，可以補送。
@@ -238,12 +243,17 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 | 1 | 建立 private R2 bucket（見 4-2） | bucket 存在、**沒有** Public Access |
 | 2 | 綁 `PENDING_IMAGES`、設 `pending/` 的 30 天 lifecycle rule | Bindings 清單裡看得到 |
 | 3 | **先**部署新版 Worker | 打 `/ping`，`caps.pendingImages === "r2-v1"` |
-| 4 | 若目前 `data/_pending.json` 還有舊格式（含 `data:image/`）的申請，用總管理員身分呼叫一次 `/migrate-pending` | 回應的 `migrated` 數字符合預期；`_pending.json` 不再含 `data:image/` |
-| 5 | 更新 Apps Script（`tools/google-form.gs`）與前端 | — |
-| 6 | 送一份**含 7 張照片**的測試申請 | R2 裡有 7 個物件、`_pending.json` 只有幾 KB、認領後 `images/` 有 7 張且 R2 被清空 |
-| 7 | 確認無誤後才處理／清掉舊的待認領資料 | — |
+| 4 | 更新 Apps Script（`tools/google-form.gs`）與前端 | 跑 `checkNewMemberSetup`，「失敗通知」那一行是 ✅ |
+| 5 | 送一份**含 7 張照片**的測試申請 | R2 裡有 7 個物件、`_pending.json` 只有幾 KB、認領後 `images/` 有 7 張且 R2 被清空 |
+| 6 | 確認無誤後才處理／清掉舊的待認領資料 | — |
 
-`/migrate-pending` 是**可重跑**的：已經是新格式的項目會被跳過，不會重複上傳。它只改寫「目前的」`_pending.json`，**不會改寫 git 歷史**。
+> **第 3 步沒過就不要往下走。** `caps.pendingImages` 回 `false` 代表 binding 沒生效，這時 `/intake` 會把**每一筆**新夥伴申請都退回（503）。
+>
+> 這件事在後台原本完全看不出來：待認領區是空的，看起來就只是「最近沒人申請」。所以現在 `/health` 也會回報 `pendingImages`，總管理員一登入就會看到橫幅；而 Apps Script 那頭會把每一筆失敗寄信給 `ALERT_EMAIL`。兩道提示都設好，才不會再有一次「表單看起來正常、申請卻一直沒進來」。
+
+> 早期版本有一支一次性的 `/migrate-pending`，用來把部署 R2 之前收到的、照片還內嵌在 `data/_pending.json` 裡的申請搬進 R2。待認領區已經沒有那種資料，端點也已經移除（現在會回 404）——留著等於多一支沒人維護、卻能寫入 `_pending.json` 的端點。
+>
+> **認領**這條路的舊格式相容仍然保留：舊格式的照片以 data URL 內嵌、尺寸上限是當年的 512 KiB，`/claim` 依舊認得（有回歸測試守住）。
 
 ### 回滾
 

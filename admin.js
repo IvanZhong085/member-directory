@@ -418,6 +418,7 @@
 
   /* ---------- toast (optional action button, e.g. undo) ---------- */
   let toastTimer = null;
+  let toastUntil = 0;      // 目前這則 toast 顯示到什麼時候(給「排在後面」的呼叫端用)
   function hideToast(){ toastEl.classList.remove("show"); }
   function toast(msg, opts){
     opts = opts || {};
@@ -436,7 +437,11 @@
     toastEl.classList.toggle("warn", !!opts.warn);
     toastEl.classList.add("show");
     clearTimeout(toastTimer);
-    toastTimer = setTimeout(hideToast, opts.duration || 2600);
+    const dur = opts.duration || 2600;
+    /* 目前這則會顯示到什麼時候。toast 只有一個元素,後來的會直接蓋掉前面那則 ——
+       想「排在現在這則後面」的呼叫端(待認領提醒)得知道要等多久。 */
+    toastUntil = Date.now() + dur;
+    toastTimer = setTimeout(hideToast, dur);
   }
 
   /* ---------- helpers ---------- */
@@ -1177,8 +1182,12 @@
     }
   }
 
-  function showPermBanner(msgHtmlSafe){
-    byId("perm-banner-text").textContent = msgHtmlSafe;
+  /* 可以帶一則或多則。多則時全部列出來 —— 設定沒完成的地方常常不只一個,
+     只講第一件會讓人修好之後以為結束了,下一次才發現還有下一件。 */
+  function showPermBanner(msg){
+    const msgs = (Array.isArray(msg) ? msg : [msg]).filter(Boolean);
+    if(!msgs.length) return;
+    byId("perm-banner-text").textContent = msgs.join("\n\n");
     byId("perm-banner").hidden = false;
   }
   function hidePermBanner(){ byId("perm-banner").hidden = true; }
@@ -1249,6 +1258,10 @@
 
   function logout(){
     clearSession();
+    /* 待認領照片的 blob URL 撤掉再走。那是還沒被認領的人的名片,登出之後這個分頁
+       不該還握著看得見的內容 —— 而 blob URL 只要沒 revoke 就一直能開。 */
+    revokePendPhotos(null);
+    closePendingPhotos();
     showLock();
     toast("已登出");
   }
@@ -1256,14 +1269,28 @@
   async function checkHealth(session){
     const res = await workerFetch("/health", { session });
     if(!res.ok) return;   // 網路問題等，不打擾，發布時自然會再報
+    const msgs = [];
     if(res.github === "read_only"){
-      showPermBanner("Worker 上設定的 GitHub 權杖「只能讀、不能寫」，按發布會失敗。請管理員到 Cloudflare 該 Worker 的 GH_TOKEN 設定檢查（GitHub 那支權杖的 Contents 需為 Read and write）。");
+      msgs.push("Worker 上設定的 GitHub 權杖「只能讀、不能寫」，按發布會失敗。請管理員到 Cloudflare 該 Worker 的 GH_TOKEN 設定檢查（GitHub 那支權杖的 Contents 需為 Read and write）。");
     } else if(res.github === "invalid_token"){
-      showPermBanner("Worker 上設定的 GitHub 權杖無效或已過期／被撤銷。請管理員重新建立權杖並更新 Worker 的 GH_TOKEN 設定。");
+      msgs.push("Worker 上設定的 GitHub 權杖無效或已過期／被撤銷。請管理員重新建立權杖並更新 Worker 的 GH_TOKEN 設定。");
     } else if(res.github === "repo_not_found"){
-      showPermBanner("Worker 找不到設定的 GitHub repo，請管理員檢查 Worker 的 GH_OWNER / GH_REPO 設定。");
+      msgs.push("Worker 找不到設定的 GitHub repo，請管理員檢查 Worker 的 GH_OWNER / GH_REPO 設定。");
     }
     /* "writable" 或 "network_error" → 不顯示提醒 */
+
+    /* ★ 沒綁待認領照片的儲存空間 = 新夥伴表單正在退件，而且後台完全看不出來:
+       待認領區是空的，看起來就只是「最近沒人申請」。先前只有在有人按認領時才會
+       發現，可是申請根本沒進來，所以連那個提示都不會觸發 —— 登入時講，是唯一能在
+       申請開始掉之前知道的位置。
+       ★ 只在伺服器**明確回報**未綁定時才講。舊版 Worker 沒有這個欄位（undefined），
+         那是「Worker 該更新了」，不是「R2 沒綁」，兩件事的處理方式不同。 */
+    if(res.pendingImages === "unbound"){
+      msgs.push("發布服務還沒接上「待認領照片」的儲存空間（Cloudflare R2）。" +
+                "在完成設定之前，新夥伴自填表單送出的申請會全部被退回、不會進待認領區。" +
+                "請總管理員建立 private R2 bucket 並綁定為 PENDING_IMAGES，再重新 Deploy Worker（見 worker/README.md）。");
+    }
+    showPermBanner(msgs);
   }
 
   /* ---------- settings（只有 Worker 網址，不是機密） ---------- */
@@ -1740,29 +1767,174 @@
 
   /* ---------- 待認領區 ----------
      新夥伴自填表單送來的申請放在 data/_pending.json,所有組長都看得到。
-     按「認領」= 在自己那一組建一張成員卡 + 把該筆從待認領清單移除,兩件事都只是
-     本機草稿,要按「發布到網站」才真正生效(發布時會同時送出分組檔與待認領檔)。 */
-  /* 待認領區的縮圖。
-     ★ 新格式的照片存在**私有** R2,沒有公開網址,所以這裡拿不到預覽 —— 那是刻意的:
-       未認領者的名片不該有任何公開可讀的連結。要在後台預覽的話,需要另外做一支
-       「驗 session + 驗這一組有權看這個 pid」的 Worker 端點,而不是簽一個長效網址。
-       在那之前顯示佔位圖:認領本身完全不受影響。 */
-  function pendingPhoto(a){
-    return /^data:image\//.test(a.image || "") ? a.image : "";
+     按「認領」是伺服器端交易(見 claimPending),立刻生效,不必再按發布。 */
+
+  /* 待認領區的上限。與 Worker 的 MAX_PENDING 是同一個數字 —— 這裡只用來算「還剩幾筆」
+     的提醒級距,真正擋下的永遠是伺服器。兩邊不一致的話,最壞情況是提醒早一點或晚一點
+     出現,不會讓資料出錯。 */
+  const PENDING_MAX = 30;
+
+  /* 待認領照片的預覽。
+     照片存在**私有** R2,沒有公開網址(刻意的:未認領者的名片不該有任何公開連結)。
+     這裡不簽網址,而是每一張都經過 /pending-photo 當場驗 session 取回位元組,
+     再包成 blob URL 給 <img> 用。
+
+     ★ 為什麼要快取:renderAll() 會因為各種原因反覆呼叫 renderPending(),沒有快取
+       就等於每次重繪都把所有照片重抓一輪。
+     ★ 為什麼要撤銷:blob URL 不 revoke 會一直佔著記憶體;而且那是還沒被認領的人的
+       照片,不該在分頁裡留得比需要更久。申請一從清單消失就撤掉。 */
+  const pendPhotoUrls = new Map();     // "pid|field|index" → blob URL
+  const pendPhotoBusy = new Map();     // 同一張同時被要兩次時共用同一個請求
+  function pendPhotoKey(pid, field, index){ return pid + "|" + field + "|" + (index == null ? -1 : index); }
+  function revokePendPhotos(keepPids){
+    for(const [k, url] of [...pendPhotoUrls]){
+      if(keepPids && keepPids.has(k.slice(0, k.indexOf("|")))) continue;
+      try{ URL.revokeObjectURL(url); }catch(e){}
+      pendPhotoUrls.delete(k);
+    }
+  }
+  /* 回傳 blob URL,或 null(沒權限、照片不在了、Worker 太舊、網路不通)。
+     一律不丟例外 —— 預覽只是輔助,它失敗絕不能讓待認領區畫不出來。 */
+  async function fetchPendPhoto(pid, field, index){
+    const key = pendPhotoKey(pid, field, index);
+    if(pendPhotoUrls.has(key)) return pendPhotoUrls.get(key);
+    if(pendPhotoBusy.has(key)) return pendPhotoBusy.get(key);
+    const job = (async () => {
+      const session = loadSession();
+      if(!session || isViewer() || !workerCaps.pendingPhoto) return null;
+      const url = loadWorkerUrl();
+      if(!url) return null;
+      try{
+        const r = await fetch(url + "/pending-photo", {
+          method:"POST",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify({ session, pid, field, index: index == null ? -1 : index }),
+        });
+        /* 成功時回的是圖片位元組,不是 JSON。非 2xx 一律當成「這張看不到」——
+           錯誤細節對操作者沒有用,他能做的只有「照樣認領」或「找總管理員」。 */
+        if(!r.ok) return null;
+        const type = String(r.headers.get("Content-Type") || "");
+        if(!/^image\/(jpeg|png|webp)$/.test(type)) return null;
+        const blob = await r.blob();
+        const obj = URL.createObjectURL(blob);
+        pendPhotoUrls.set(key, obj);
+        return obj;
+      }catch(e){ return null; }
+      finally{ pendPhotoBusy.delete(key); }
+    })();
+    pendPhotoBusy.set(key, job);
+    return job;
+  }
+
+  /* 這一筆申請有哪幾張照片。回傳 [{ field, index, label }]。
+     舊格式(部署 R2 之前收到的申請)照片仍以 data URL 內嵌,那一種直接就地顯示。 */
+  function pendingPhotoSlots(a){
+    const pr = a && a.photoRefs;
+    if(!pr || typeof pr !== "object") return [];
+    const out = [];
+    if(pr.image) out.push({ field:"image", index:-1, label:"形象照" });
+    if(pr.card)  out.push({ field:"card",  index:-1, label:"名片" });
+    (Array.isArray(pr.products) ? pr.products : []).forEach((r, i) => {
+      if(r) out.push({ field:"product", index:i, label:"商品照 " + (i + 1) });
+    });
+    return out;
+  }
+  function pendingInlinePhoto(a){
+    return /^data:image\//.test((a && a.image) || "") ? a.image : "";
   }
   function pendingPhotoCount(a){
-    const pr = a && a.photoRefs;
-    if(!pr) return /^data:image\//.test(a.image || "") ? 1 : 0;
-    return [pr.image, pr.card].concat(Array.isArray(pr.products) ? pr.products : []).filter(Boolean).length;
+    const slots = pendingPhotoSlots(a);
+    if(slots.length) return slots.length;
+    return pendingInlinePhoto(a) ? 1 : 0;
   }
+
+  /* 認領前把照片放大看清楚(名片上的字在 64px 縮圖裡讀不出來)。
+     每次開啟才抓,關閉時不撤 URL —— 撤了的話同一張再開一次又要重抓;
+     真正的撤銷交給 revokePendPhotos(),時機是「這筆申請已經不在清單裡」。 */
+  async function openPendingPhotos(pid){
+    const a = PENDING.find(x => x && x.pid === pid);
+    if(!a) return;
+    const overlay = byId("pv-overlay"), body = byId("pv-body"), title = byId("pv-title");
+    if(!overlay || !body) return;
+    title.textContent = (a.name || "(未填姓名)") + "　的申請照片";
+    body.innerHTML = '<div class="pv-empty">載入中…</div>';
+    overlay.hidden = false;
+
+    const inline = pendingInlinePhoto(a);
+    const slots = pendingPhotoSlots(a);
+    const items = [];
+    if(inline) items.push({ label:"形象照", url:inline });
+    for(const s of slots){
+      const url = await fetchPendPhoto(pid, s.field, s.index);
+      if(url) items.push({ label:s.label, url });
+    }
+    /* 開燈箱的過程中這筆被別人認領走、或使用者自己關掉了:別把畫面蓋回去 */
+    if(overlay.hidden) return;
+    body.innerHTML = items.length
+      ? items.map(it =>
+          '<figure class="pv-item"><img src="' + esc(it.url) + '" alt="' + esc(it.label) + '">' +
+          '<figcaption>' + esc(it.label) + '</figcaption></figure>').join("")
+      : '<div class="pv-empty">這筆申請目前沒有可顯示的照片' +
+        '（可能已超過保存期限被清除，或發布服務尚未接上照片儲存空間）。</div>';
+  }
+  function closePendingPhotos(){
+    const overlay = byId("pv-overlay"), body = byId("pv-body");
+    if(!overlay) return;
+    overlay.hidden = true;
+    if(body) body.innerHTML = "";
+  }
+
+  /* 已經催過的那一批 pid。同一批申請只在畫面上跳一次 toast ——
+     renderAll() 每次都跳的話,那則提醒很快就會變成被無視的雜訊。 */
+  let pendingNudged = "";
+  let pendingNudgeTimer = null;
+
   function renderPending(){
     const wrap = byId("pending-wrap"), list = byId("pending-list"), sub = byId("pending-sub");
+    const notice = byId("pending-notice");
     if(!wrap || !list) return;
     // 認領＝在某一組建一張成員卡,是編輯行為。唯讀帳號整塊不顯示。
-    if(isViewer()){ wrap.hidden = true; list.innerHTML = ""; return; }
-    if(!PENDING.length){ wrap.hidden = true; list.innerHTML = ""; return; }
+    if(isViewer()){ wrap.hidden = true; list.innerHTML = ""; revokePendPhotos(null); return; }
+    if(!PENDING.length){
+      wrap.hidden = true; list.innerHTML = "";
+      if(notice) notice.hidden = true;
+      revokePendPhotos(null);
+      pendingNudged = "";
+      return;
+    }
     wrap.hidden = false;
     if(sub) sub.textContent = PENDING.length + " 位等待認領";
+
+    // 已經不在清單裡的申請,把它的預覽 URL 撤掉
+    revokePendPhotos(new Set(PENDING.map(a => a && a.pid)));
+
+    /* 「請盡速認領」的提醒。文案與級距由 AdminLogic.pendingNotice 決定(有測試)，
+       這裡只負責畫出來。 */
+    const note = (typeof AdminLogic !== "undefined" && AdminLogic.pendingNotice)
+      ? AdminLogic.pendingNotice(PENDING.length, PENDING_MAX) : null;
+    if(notice){
+      if(note){
+        notice.className = "pend-notice " + note.level;
+        notice.textContent = (note.level === "info" ? "🙋 " : "⚠ ") + note.text;
+        notice.hidden = false;
+      } else {
+        notice.hidden = true;
+      }
+    }
+    /* 提醒之外再跳一次 toast:待認領區在頁面下方,只放一列橫幅的話,
+       進來就直接編輯自己那組的人可能整場都不會捲到這裡。
+
+       ★ 要排在「目前這則 toast」之後才送出。toast 只有一個元素,後來的會蓋掉前面的 ——
+         直接跳的話,登入流程接著送出的「已進入編輯模式」會把這則提醒洗掉,
+         而登入的那一刻正是最需要看到它的時候。認領成功後的長訊息同理。 */
+    const stamp = PENDING.map(a => a && a.pid).join(",");
+    if(note && stamp !== pendingNudged){
+      pendingNudged = stamp;
+      clearTimeout(pendingNudgeTimer);
+      pendingNudgeTimer = setTimeout(() => toast(note.text, {
+        warn: note.level !== "info", duration: 9000,
+      }), Math.max(400, toastUntil - Date.now() + 200));
+    }
 
     const groups = visibleGroups();
     list.innerHTML = PENDING.map(a => {
@@ -1774,21 +1946,26 @@
         (a.have || []).length && "我有：" + a.have.join("、"),
         (a.want || []).length && "我要：" + a.want.join("、"),
       ].filter(Boolean).map(esc).join("<br>");
-      const photo = pendingPhoto(a);
+      const inline = pendingInlinePhoto(a);
+      const count = pendingPhotoCount(a);
       const pickGroup = isLeader()
         ? ""
         : '<select class="input-sm" data-pick="' + esc(a.pid) + '">' +
           groups.map(g => '<option value="' + esc(g.id) + '">' + esc((g.code || "?") + " " + (g.name || "")) + '</option>').join("") +
           '</select>';
-      return '<div class="pend-card" data-pid="' + esc(a.pid) + '">' +
-        (photo
-          ? '<img class="pend-photo" src="' + esc(photo) + '" alt="' + esc(a.name) + ' 的照片">'
-          : '<div class="pend-photo" title="照片存在私有空間，認領後才會進網站">' +
-            (pendingPhotoCount(a) ? '📷 ' + pendingPhotoCount(a) : '') + '</div>') +
+      /* 縮圖先畫成佔位,內容由 hydratePendingPhotos() 補上 —— 待認領區不能等網路。 */
+      const thumb = inline
+        ? '<div class="pend-photo has-img" data-zoom="' + esc(a.pid) + '">' +
+          '<img src="' + esc(inline) + '" alt="' + esc(a.name || "") + ' 的照片"></div>'
+        : '<div class="pend-photo" data-thumb="' + esc(a.pid) + '"' +
+          ' title="照片存在私有空間，登入後才看得到">' + (count ? "📷 " + count : "") + '</div>';
+      return '<div class="pend-card" data-pid="' + esc(a.pid) + '">' + thumb +
         '<div class="pend-body">' +
           '<div class="pend-name">' + esc(a.name || "(未填姓名)") + '</div>' +
           (meta ? '<div class="pend-meta">' + meta + '</div>' : "") +
           '<div class="pend-at">申請時間：' + esc(fmtStamp(a.at, true) || "—") + '</div>' +
+          (count ? '<button class="pend-more" type="button" data-zoom="' + esc(a.pid) + '">' +
+                   '🔍 查看照片（' + count + '）</button>' : "") +
           /* 收件時就有問題的照片(例如 Drive 拿不到縮圖)。醒目但不擋住其他操作 ——
              組長仍然可以照常認領,只是會知道這一筆少了什麼、之後要手動補。 */
           (Array.isArray(a.photoWarnings) && a.photoWarnings.length
@@ -1821,6 +1998,39 @@
     });
     list.querySelectorAll("[data-drop]").forEach(btn => {
       btn.onclick = () => dropPending(btn.dataset.drop);
+    });
+    list.querySelectorAll("[data-zoom]").forEach(el => {
+      el.onclick = () => openPendingPhotos(el.dataset.zoom);
+    });
+    hydratePendingPhotos();
+  }
+
+  /* 把縮圖補上去。刻意與 renderPending() 分開而且不 await:
+     待認領區必須先畫出來,照片再慢慢進來 —— 反過來的話網路一慢,整塊就是空白。 */
+  function hydratePendingPhotos(){
+    const list = byId("pending-list");
+    if(!list) return;
+    list.querySelectorAll("[data-thumb]").forEach(box => {
+      const pid = box.dataset.thumb;
+      const a = PENDING.find(x => x && x.pid === pid);
+      const slots = pendingPhotoSlots(a);
+      // 縮圖只用形象照;沒有形象照就退而用第一張(有畫面總比一個灰方塊好)
+      const s = slots.find(x => x.field === "image") || slots[0];
+      if(!s) return;
+      fetchPendPhoto(pid, s.field, s.index).then(url => {
+        if(!url) return;
+        // 這段時間裡可能已經重繪過:找當下畫面上的那一格,而不是抓著舊的 DOM
+        const cur = document.querySelector('.pend-photo[data-thumb="' + cssq(pid) + '"]');
+        if(!cur) return;
+        cur.textContent = "";
+        cur.classList.add("has-img");
+        cur.dataset.zoom = pid;
+        cur.onclick = () => openPendingPhotos(pid);
+        const img = document.createElement("img");
+        img.src = url;
+        img.alt = (a && a.name ? a.name : "") + " 的照片";
+        cur.appendChild(img);
+      });
     });
   }
 
@@ -2049,8 +2259,15 @@
   };
   byId("leave-modal").addEventListener("click", e => { if(e.target.id === "leave-modal") closeLeaveModal(); });
 
+  byId("pv-close").onclick = closePendingPhotos;
+  // 點背景關閉：燈箱只是看照片，關掉的門檻要低
+  byId("pv-overlay").addEventListener("click", e => {
+    if(e.target.id === "pv-overlay" || e.target.id === "pv-body") closePendingPhotos();
+  });
+
   document.addEventListener("keydown", e => {
     if(e.key === "Escape"){
+      if(!byId("pv-overlay").hidden){ closePendingPhotos(); return; }
       if(!byId("crop-modal").hidden){ byId("crop-cancel").click(); return; }
       if(!byId("batch-modal").hidden){ closeBatchModal(); return; }
       if(!byId("leave-modal").hidden){ closeLeaveModal(); return; }
@@ -2058,7 +2275,8 @@
       if(document.body.classList.contains("drawer-open")){ closeDrawerIfMobile(); return; }
     }
     // 只有在編輯中（非鎖定、非彈窗）才吃 Ctrl+Z / Ctrl+Y
-    const editing = byId("lock-overlay").hidden && byId("settings-modal").hidden && byId("crop-modal").hidden && byId("leave-modal").hidden && byId("batch-modal").hidden;
+    const editing = byId("lock-overlay").hidden && byId("settings-modal").hidden && byId("crop-modal").hidden
+                    && byId("leave-modal").hidden && byId("batch-modal").hidden && byId("pv-overlay").hidden;
     if(editing && (e.ctrlKey || e.metaKey)){
       if(e.key === "z" && !e.shiftKey){ e.preventDefault(); undo(); }
       else if((e.key === "z" && e.shiftKey) || e.key === "y"){ e.preventDefault(); redo(); }

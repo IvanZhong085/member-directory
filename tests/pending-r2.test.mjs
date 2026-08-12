@@ -424,34 +424,6 @@ hr("⑯ blob 快取以內容而非路徑為 key");
       JSON.parse(gh.files().get("data/a1.json")).leader);
 }
 
-/* ══ 17 ══ ★ 兩個遷移同時執行:失敗方不得刪掉成功方引用的物件。
-   先前 key 完全由 pid + 內容雜湊決定,兩個遷移算出**同一組 key**;先完成的 commit 成功、
-   後者 stale_base 失敗並回滾,而它刪的正是那組共用 key —— 成功的 commit 指向一個已經
-   不存在的物件。 */
-hr("⑰ ★ 兩個 /migrate-pending 同時執行");
-{
-  const legacy = [{ pid:"p_mig1", at:"2026-01-01T00:00:00.000Z", name:"舊格式",
-    title:"t", company:"c", services:[], targets:[], have:[], want:[], tagline:[],
-    business_items:"", website:"", image: photoBytes(4000, "mig"), card:"", products:[] }];
-  const files = baseFiles(); files["data/_pending.json"] = JSON.stringify(legacy, null, 2) + "\n";
-  const gh = new FakeGitHub(files); gh.install();
-  const r2 = new FakeR2(); const env = makeEnv(r2);
-  const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
-
-  const [r1, r2res] = await Promise.all([
-    post(env, "/migrate-pending", { session:sOwner }).then(x => x.json()),
-    post(env, "/migrate-pending", { session:sOwner }).then(x => x.json()),
-  ]);
-  const list = pendOf(gh);
-  const refs = list[0] && list[0].photoRefs;
-  const key = refs && refs.image && refs.image.key;
-
-  chk("恰好一方成功", (r1.ok?1:0) + (r2res.ok?1:0) >= 1, `${r1.ok} / ${r2res.ok}`);
-  chk("★ 待認領區已是新格式", !!key && !/data:image\//.test(gh.files().get("data/_pending.json")));
-  chk("★ 成功 commit 引用的物件仍然存在於 R2", r2.objects.has(key),
-      `key=${String(key).slice(0, 50)} 存在=${r2.objects.has(key)}`);
-}
-
 /* ══ 18 ══ ★ R2 讀取故障 ≠ 缺圖,而且不可被 allowMissingImages 覆寫。 */
 hr("⑱ ★ R2 讀取故障(不是缺圖)");
 {
@@ -472,35 +444,224 @@ hr("⑱ ★ R2 讀取故障(不是缺圖)");
   chk("待認領區保留該筆", pendOf(gh).length === 1);
 }
 
-/* ══ 19 ══ ★ 舊格式的大圖(歷史上合法)必須能遷移、能認領,不可靜默變空。 */
-hr("⑲ ★ 舊格式大圖的相容");
+/* ══ 19 ══ ★ 舊格式的大圖(歷史上合法)必須還能認領,不可靜默變空。
+   /migrate-pending 已經移除(待認領區早就沒有舊格式資料了),但**認領**這條路的
+   相容不能跟著拿掉 —— 舊格式的照片以 data URL 內嵌,尺寸上限是當年的 512 KiB,
+   用新的 200 KiB 去卡它會讓那筆申請的照片直接消失。 */
+hr("⑲ ★ 舊格式大圖仍然認領得出來");
 {
   const big = photoBytes(300 * 1024, "old-big");     // 300 KiB:舊規則合法、超過新的 200 KiB
   const legacy = [{ pid:"p_big1", at:"2026-01-01T00:00:00.000Z", name:"舊格式大圖",
     title:"t", company:"c", services:[], targets:[], have:[], want:[], tagline:[],
     business_items:"", website:"", image: big, card:"", products:[] }];
-  {
-    const files = baseFiles(); files["data/_pending.json"] = JSON.stringify(legacy, null, 2) + "\n";
-    const gh = new FakeGitHub(files); gh.install();
-    const r2 = new FakeR2(); const env = makeEnv(r2);
-    const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
-    const r = await (await post(env, "/migrate-pending", { session:sOwner })).json();
-    chk("★ 舊格式大圖可以遷移", r.ok === true && r.migrated === 1, JSON.stringify(r).slice(0, 60));
-  }
-  {
-    const files = baseFiles(); files["data/_pending.json"] = JSON.stringify(legacy, null, 2) + "\n";
-    const gh = new FakeGitHub(files); gh.install();
-    const r2 = new FakeR2(); const env = makeEnv(r2);
-    const r = await (await post(env, "/claim", { session:sLeader, pid:"p_big1" })).json();
-    const m = JSON.parse(gh.files().get("data/a1.json")).members[0];
-    chk("★ 舊格式大圖可以直接認領", r.ok === true, JSON.stringify(r).slice(0, 60));
-    chk("★ 照片沒有靜默變成空的", !!(m && m.image) && gh.files().has("images/" + m.image),
-        m ? m.image : "(沒有成員)");
-  }
+  const files = baseFiles(); files["data/_pending.json"] = JSON.stringify(legacy, null, 2) + "\n";
+  const gh = new FakeGitHub(files); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  const r = await (await post(env, "/claim", { session:sLeader, pid:"p_big1" })).json();
+  const m = JSON.parse(gh.files().get("data/a1.json")).members[0];
+  chk("★ 舊格式大圖可以直接認領", r.ok === true, JSON.stringify(r).slice(0, 60));
+  chk("★ 照片沒有靜默變成空的", !!(m && m.image) && gh.files().has("images/" + m.image),
+      m ? m.image : "(沒有成員)");
 }
 
-/* ══ 20 ══ ★ /publish 不能把 base64 連同 photoRefs 一起寫回公開 repo。 */
-hr("⑳ ★ 從 publish 端點塞回 data URL");
+/* ══ 20 ══ ★ /pending-photo:預覽的授權。
+   這支端點會把「還沒被任何人認領的人的名片」原封送出去,所以它的門檻要與認領同級。
+   要驗的是四件事:
+     ① 沒有 session / 唯讀帳號 → 進不來
+     ② key 由伺服器從 _pending.json 查,呼叫端指定的 key 一律無效
+     ③ 被動過手腳的 _pending.json(key 指向別筆申請)→ 擋下,不是照著讀
+     ④ 回的是圖片位元組本身,而且不可以被快取 */
+hr("⑳ ★ /pending-photo 的授權與內容");
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  const sViewer = await W.makeSession("x".repeat(48), { name:"v", role:"viewer", group:"" });
+  const raw = Buffer.alloc(3000, 7); raw.write("prev", 0);
+  const dataUrl = "data:image/jpeg;base64," + raw.toString("base64");
+  await post(env, "/intake", { secret:"s3cret",
+    applicant:{ name:"要預覽的人", title:"t", image: dataUrl, card: photoBytes(2000, "cardy") } });
+  const a = pendOf(gh)[0];
+
+  const noSess = await post(env, "/pending-photo", { pid:a.pid, field:"image" });
+  chk("★ 沒有 session → 401", noSess.status === 401, "HTTP " + noSess.status);
+
+  const viewer = await post(env, "/pending-photo", { session:sViewer, pid:a.pid, field:"image" });
+  chk("★ 唯讀帳號 → 403", viewer.status === 403, "HTTP " + viewer.status);
+
+  const okRes = await post(env, "/pending-photo", { session:sLeader, pid:a.pid, field:"image" });
+  const body = Buffer.from(await okRes.arrayBuffer());
+  chk("★ 組長拿得到位元組本身", okRes.status === 200 && body.equals(raw),
+      `HTTP ${okRes.status} ${body.length} bytes`);
+  chk("Content-Type 是白名單內的圖片型別",
+      okRes.headers.get("Content-Type") === "image/jpeg", okRes.headers.get("Content-Type"));
+  chk("★ 明確禁止快取(未認領者的照片不留在中間層)",
+      /no-store/.test(okRes.headers.get("Cache-Control") || ""), okRes.headers.get("Cache-Control"));
+
+  const card = await post(env, "/pending-photo", { session:sLeader, pid:a.pid, field:"card" });
+  chk("名片也取得到", card.status === 200, "HTTP " + card.status);
+  const noProd = await post(env, "/pending-photo", { session:sLeader, pid:a.pid, field:"product", index:0 });
+  chk("沒有的商品照 → 404", noProd.status === 404, "HTTP " + noProd.status);
+  const badField = await post(env, "/pending-photo", { session:sLeader, pid:a.pid, field:"../../etc" });
+  chk("★ 欄位名不在白名單 → 400", badField.status === 400, "HTTP " + badField.status);
+  const gone = await post(env, "/pending-photo", { session:sLeader, pid:"p_nothere", field:"image" });
+  chk("★ 這筆已不在待認領區 → 409(不是 404,前端要知道該重整)",
+      gone.status === 409, "HTTP " + gone.status);
+
+  /* 呼叫端送 key 想繞過查表 —— 伺服器根本不看這個欄位 */
+  const otherKey = [...r2.objects.keys()].find(k => !k.startsWith("pending/" + a.pid + "/"));
+  const forged = await post(env, "/pending-photo",
+    { session:sLeader, pid:a.pid, field:"image", key:"pending/p_other/image-x.jpg" });
+  const forgedBody = Buffer.from(await forged.arrayBuffer());
+  chk("★ 呼叫端指定的 key 完全無效(仍然回自己那一張)",
+      forged.status === 200 && forgedBody.equals(raw), "HTTP " + forged.status);
+  chk("(前提)bucket 裡沒有別筆申請的物件可以被指到", otherKey === undefined);
+}
+
+/* ══ 21 ══ ★ _pending.json 被動過手腳:key 指向別筆申請的前綴 → 必須擋下。
+   與認領走的是同一道 keyBelongsToPid 檢查。少了它,只要有人能寫到那個檔(或
+   commit 被污染),預覽就變成一支「照著 key 讀 bucket」的任意讀取端點。 */
+hr("㉑ ★ 被竄改的 photoRefs.key");
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  await post(env, "/intake", { secret:"s3cret",
+    applicant:{ name:"甲", title:"t", image: photoBytes(1500, "one") } });
+  await post(env, "/intake", { secret:"s3cret",
+    applicant:{ name:"乙", title:"t", image: photoBytes(1500, "two") } });
+  const list = pendOf(gh);
+  // 把甲的 key 改成乙的
+  list[0].photoRefs.image.key = list[1].photoRefs.image.key;
+  const files = gh.files();
+  files.set("data/_pending.json", JSON.stringify(list, null, 2) + "\n");
+
+  const res = await post(env, "/pending-photo", { session:sLeader, pid:list[0].pid, field:"image" });
+  chk("★ 跨申請的 key → 403,不是照著讀出來", res.status === 403, "HTTP " + res.status);
+}
+
+/* ══ 22 ══ ★ /pending-audit:唯讀盤點。
+   它的價值在於「說得準」——所以要驗的不只是數得對,還有**數不準時要說自己數不準**。 */
+hr("㉒ ★ /pending-audit 盤點孤兒");
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
+
+  await post(env, "/intake", { secret:"s3cret",
+    applicant:{ name:"有引用的人", title:"t", image: photoBytes(1000, "ref") } });
+  // 沒有任何 pending 記錄指向它 —— 就是要盤出來的那種孤兒
+  await r2.put("pending/p_ghost/image--deadbeef.jpg", new Uint8Array(500));
+  r2.age("pending/p_ghost/image--deadbeef.jpg", 45);
+
+  const leaderTry = await (await post(env, "/pending-audit", { session:sLeader })).json();
+  chk("★ 組長不能盤點(只有總管理員)", leaderTry.ok === false && leaderTry.error === "forbidden_path",
+      leaderTry.error);
+
+  const r = await (await post(env, "/pending-audit", { session:sOwner })).json();
+  chk("★ 物件總數正確", r.objects === 2, String(r.objects));
+  chk("★ 孤兒數正確", r.orphans === 1, String(r.orphans));
+  chk("孤兒佔用空間正確", r.orphanBytes === 500, String(r.orphanBytes));
+  chk("孤兒的 pid 有列出來(給人追查)", (r.orphanPids || []).indexOf("p_ghost") >= 0,
+      JSON.stringify(r.orphanPids));
+  chk("★ 最舊的孤兒放了幾天(用來決定 lifecycle 設幾天)", r.oldestOrphanDays === 45,
+      String(r.oldestOrphanDays));
+  chk("★ 反向:被引用卻不存在的物件數 = 0", r.missingRefs === 0, String(r.missingRefs));
+  chk("★ 盤點不刪任何東西", r2.objects.size === 2, r2.objects.size + " 個");
+  chk("沒有列舉被截斷", r.truncated === false, String(r.truncated));
+}
+
+/* ══ 23 ══ ★ 被引用卻不存在(lifecycle 清掉了)要數得出來 —— 那是「認領會失敗」的預告。 */
+hr("㉓ ★ 引用存在但物件已消失");
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
+  await post(env, "/intake", { secret:"s3cret",
+    applicant:{ name:"照片被清掉的人", title:"t", image: photoBytes(1000, "gone") } });
+  const key = pendOf(gh)[0].photoRefs.image.key;
+  r2.objects.delete(key);                      // 模擬 lifecycle 規則清掉
+
+  const r = await (await post(env, "/pending-audit", { session:sOwner })).json();
+  chk("★ missingRefs 數得出來", r.missingRefs === 1, String(r.missingRefs));
+  chk("孤兒是 0(bucket 裡本來就空了)", r.orphans === 0, String(r.orphans));
+}
+
+/* ══ 24 ══ ★ 列舉被截斷時,不可以宣稱「有幾個被引用的物件不見了」。
+   看不到不等於不存在 —— 那個結論只在看完整份清單時才成立。回 null 而不是一個
+   會讓人跑去手動刪東西的 0。 */
+hr("㉔ ★ 列舉被截斷時不下結論");
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
+  await post(env, "/intake", { secret:"s3cret",
+    applicant: Object.assign({ name:"七張", title:"t" }, sevenPhotos("trunc")) });
+  r2.pageSize = 2;                              // 7 個物件 → 一定會分頁
+
+  const r = await (await post(env, "/pending-audit", { session:sOwner })).json();
+  chk("分頁時仍然數得到全部物件", r.objects === 7, String(r.objects));
+  chk("沒超過頁數上限,所以不算截斷", r.truncated === false, String(r.truncated));
+  chk("★ 沒截斷時 missingRefs 是數字", r.missingRefs === 0, String(r.missingRefs));
+
+  // 把每頁縮到 1 且塞超過上限的物件數,強制觸發截斷
+  r2.pageSize = 1;
+  for(let i = 0; i < 25; i++) await r2.put("pending/p_bulk" + i + "/image--x.jpg", new Uint8Array(10));
+  const t = await (await post(env, "/pending-audit", { session:sOwner })).json();
+  chk("★ 超過頁數上限 → truncated:true", t.truncated === true, String(t.truncated));
+  chk("★ 截斷時 missingRefs 回 null(不假裝知道)", t.missingRefs === null, String(t.missingRefs));
+}
+
+/* ══ 25 ══ ★ 沒綁 R2 時,兩支新端點都要明確回 503 而不是當作「沒有照片」。 */
+hr("㉕ ★ 沒綁 R2 時的兩支端點");
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const env = makeEnv(undefined);                // 沒有 PENDING_IMAGES binding
+  const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
+  const p = await (await post(env, "/pending-photo", { session:sLeader, pid:"p_x", field:"image" })).json();
+  chk("★ /pending-photo → pending_image_store_unavailable",
+      p.error === "pending_image_store_unavailable", p.error);
+  const au = await (await post(env, "/pending-audit", { session:sOwner })).json();
+  chk("★ /pending-audit → pending_image_store_unavailable",
+      au.error === "pending_image_store_unavailable", au.error);
+}
+
+/* ══ 26 ══ ★ /migrate-pending 已經移除:必須回 404,不可以還留著一支沒人維護的寫入端點。 */
+hr("㉖ ★ /migrate-pending 已移除");
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
+  const r = await post(env, "/migrate-pending", { session:sOwner });
+  const b = await r.json();
+  chk("★ 端點不存在", r.status === 404 && b.error === "not_found", `HTTP ${r.status} ${b.error}`);
+}
+
+/* ══ 27 ══ /ping 要如實回報新的能力旗標(前端靠它決定要不要抓預覽)。 */
+hr("㉗ /ping 的能力旗標");
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const r2 = new FakeR2();
+  const withR2 = await (await post(makeEnv(r2), "/ping", {})).json();
+  chk("綁了 R2 → pendingImages:'r2-v1'", withR2.caps.pendingImages === "r2-v1", String(withR2.caps.pendingImages));
+  chk("★ 有回報 pendingPhoto 能力", withR2.caps.pendingPhoto === true, String(withR2.caps.pendingPhoto));
+  const noR2 = await (await post(makeEnv(undefined), "/ping", {})).json();
+  chk("★ 沒綁 R2 → pendingImages:false", noR2.caps.pendingImages === false, String(noR2.caps.pendingImages));
+}
+
+/* ══ 28 ══ ★ /health 要把「R2 沒綁」講出來 —— 那是後台唯一看得見這件事的地方。
+   值刻意是字串 "unbound" 而不是 false:舊版 Worker 沒有這個欄位(undefined),
+   編輯頁必須分得出「新版但沒綁」與「Worker 該更新了」,兩者的處理方式不同。 */
+hr("㉘ ★ /health 回報 R2 綁定狀態");
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
+  const unbound = await (await post(makeEnv(undefined), "/health", { session:sOwner })).json();
+  chk("★ 沒綁 → pendingImages:'unbound'", unbound.pendingImages === "unbound", String(unbound.pendingImages));
+  const bound = await (await post(makeEnv(new FakeR2()), "/health", { session:sOwner })).json();
+  chk("綁好 → pendingImages:'r2-v1'", bound.pendingImages === "r2-v1", String(bound.pendingImages));
+}
+
+/* ══ 29 ══ ★ /publish 不能把 base64 連同 photoRefs 一起寫回公開 repo。 */
+hr("㉙ ★ 從 publish 端點塞回 data URL");
 {
   const gh = new FakeGitHub(baseFiles()); gh.install();
   const env = makeEnv(new FakeR2());
@@ -519,8 +680,8 @@ hr("⑳ ★ 從 publish 端點塞回 data URL");
   chk("★ 公開檔案裡沒有出現 base64", !/data:image\//.test(gh.files().get("data/_pending.json")));
 }
 
-/* ══ 21 ══ 刪除申請要一併清掉 R2,而且是在 commit 成功之後。 */
-hr("㉑ /drop-pending 的清理");
+/* ══ 30 ══ 刪除申請要一併清掉 R2,而且是在 commit 成功之後。 */
+hr("㉚ /drop-pending 的清理");
 {
   const gh = new FakeGitHub(baseFiles()); gh.install();
   const r2 = new FakeR2(); const env = makeEnv(r2);

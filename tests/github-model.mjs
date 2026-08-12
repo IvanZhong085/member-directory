@@ -145,9 +145,13 @@ export class FakeR2 {
   constructor(){
     this.objects = new Map();     // key → Uint8Array
     this.meta = new Map();        // key → { contentType }
+    this.uploaded = new Map();    // key → Date(盤點要用它算孤兒放了多久)
     this.calls = [];              // { op, key } 依序記錄
     this.fail = null;             // { op, key?, nth? } 符合就丟錯
-    this._n = { put:0, get:0, delete:0, head:0 };
+    /* list 每頁幾筆。真實 R2 是 1000,測「列舉被截斷時不可以下結論」那條保證時
+       調小它,否則要先塞一千多個假物件才驗得到。 */
+    this.pageSize = 1000;
+    this._n = { put:0, get:0, delete:0, head:0, list:0 };
   }
   _check(op, key){
     this.calls.push({ op, key });
@@ -163,6 +167,7 @@ export class FakeR2 {
     this._check("put", key);
     this.objects.set(key, new Uint8Array(bytes));
     this.meta.set(key, { contentType: opts && opts.httpMetadata && opts.httpMetadata.contentType });
+    this.uploaded.set(key, new Date());
     return { key };
   }
   async get(key){
@@ -174,7 +179,28 @@ export class FakeR2 {
       async arrayBuffer(){ return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength); },
     };
   }
-  async delete(key){ this._check("delete", key); this.objects.delete(key); this.meta.delete(key); }
+  async delete(key){
+    this._check("delete", key);
+    this.objects.delete(key); this.meta.delete(key); this.uploaded.delete(key);
+  }
+  /* 依 key 字典序分頁。cursor 就是「上一頁最後一個 key」——夠用而且好推理。
+     真實 R2 的 cursor 是不透明字串,但呼叫端只會原封帶回來,行為等價。 */
+  async list(opts){
+    const prefix = (opts && opts.prefix) || "";
+    this._check("list", prefix);
+    const all = [...this.objects.keys()].filter(k => k.startsWith(prefix)).sort();
+    const start = opts && opts.cursor ? all.indexOf(opts.cursor) + 1 : 0;
+    const page = all.slice(start, start + this.pageSize);
+    const truncated = start + this.pageSize < all.length;
+    return {
+      objects: page.map(k => ({ key:k, size:this.objects.get(k).length,
+                                uploaded: this.uploaded.get(k) || new Date(0) })),
+      truncated,
+      cursor: truncated ? page[page.length - 1] : undefined,
+    };
+  }
+  /* 把某個物件的上傳時間往回撥,用來測「孤兒放了幾天」。 */
+  age(key, days){ this.uploaded.set(key, new Date(Date.now() - days * 86400000)); }
   async head(key){
     this._check("head", key);
     return this.objects.has(key) ? { key, size: this.objects.get(key).length } : null;

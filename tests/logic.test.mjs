@@ -94,5 +94,44 @@ hr("③ 分頁 primary 選舉(isPrimaryTab)");
         .filter(Boolean).length === 1);
 }
 
+/* ══ pendingNotice ══
+   「有人在等認領」這件事原本沒有任何提示,申請就躺在待認領區直到有人剛好打開後台。
+   這幾個級距的界線要驗,因為它們各自對應一個不同的後果:
+     1 筆    清單本身就看得見,不必催 —— 每一筆都跳提醒會讓提醒本身變成雜訊
+     2 筆起  開始催
+     80% 起  滿了之後 /intake 會回 pending_full、新夥伴的申請**會被退回**
+     滿      申請已經在掉了 */
+hr("④ 待認領提醒(pendingNotice)");
+{
+  const P = L.pendingNotice;
+  chk("0 筆不提醒", P(0, 30) === null);
+  chk("★ 1 筆不提醒(清單本身就看得見)", P(1, 30) === null);
+
+  const two = P(2, 30);
+  chk("★ 2 筆開始提醒", !!two && two.level === "info", two && two.level);
+  chk("★ 文案要講「盡速認領」", !!two && two.text.indexOf("盡速認領") >= 0, two && two.text);
+  chk("文案帶出筆數", !!two && two.text.indexOf("2 位") >= 0, two && two.text);
+
+  chk("中間值仍是 info", (P(10, 30) || {}).level === "info", (P(10, 30) || {}).level);
+  chk("★ 23 筆(未達 80%)還不算快滿", (P(23, 30) || {}).level === "info", (P(23, 30) || {}).level);
+  chk("★ 24 筆(達 80%)升級為警示", (P(24, 30) || {}).level === "warn", (P(24, 30) || {}).level);
+  chk("快滿的文案要講「會被退回」",
+      (P(24, 30) || {}).text.indexOf("退回") >= 0, (P(24, 30) || {}).text);
+
+  chk("★ 滿了 → danger", (P(30, 30) || {}).level === "danger", (P(30, 30) || {}).level);
+  chk("超過上限也是 danger(不會掉回別的級距)",
+      (P(31, 30) || {}).level === "danger", (P(31, 30) || {}).level);
+
+  /* 上限由呼叫端傳進來(對齊 Worker 的 MAX_PENDING),所以換了數字級距要跟著換 ——
+     不能在這裡寫死第二份 30。 */
+  chk("★ 上限換成 10 時,8 筆就算快滿", (P(8, 10) || {}).level === "warn", (P(8, 10) || {}).level);
+  chk("上限換成 10 時,7 筆還是 info", (P(7, 10) || {}).level === "info", (P(7, 10) || {}).level);
+
+  // 壞輸入不可以讓待認領區畫不出來
+  chk("上限給 0 → 退回預設 30,不會除以零或永遠 danger",
+      (P(2, 0) || {}).level === "info", (P(2, 0) || {}).level);
+  chk("count 不是數字 → 當成 0,不提醒", P(undefined, 30) === null && P(null, 30) === null);
+}
+
 console.log(`\n${fail===0 ? "✅ 全數通過" : "❌ 有失敗"}:${pass} 通過 / ${fail} 失敗\n`);
 process.exit(fail === 0 ? 0 : 1);
