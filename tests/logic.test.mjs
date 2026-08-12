@@ -192,5 +192,22 @@ hr("⑤ 請求合流器(makeSingleFlight)");
   chk("★ clear() 之後清空", flight.size() === 0);
 }
 
+/* ══ 常數一致性 ══
+   pendingNotice 的註解宣稱「max 由呼叫端傳入,不在這裡寫死第二份」—— 但呼叫端
+   (admin.js 的 PENDING_MAX)確實是 Worker MAX_PENDING 的第二份副本。
+   兩者一旦不同步,後果是安靜的:待認領區在真正滿掉之前不會升級成紅色警示,
+   或是還沒滿就一直喊「已滿」,而使用者只會覺得提醒不準、然後開始忽略它。
+   沒有辦法在瀏覽器裡共用同一個常數(Worker 不是靜態站的一部分),所以用測試綁住。 */
+hr("⑥ 前端與 Worker 的待認領上限必須一致");
+{
+  const read = f => fs.readFileSync(path.join(ROOT, f), "utf8");
+  const feM = /const\s+PENDING_MAX\s*=\s*(\d+)/.exec(read("admin.js"));
+  const wkM = /const\s+MAX_PENDING\s*=\s*(\d+)/.exec(read("worker/publish-relay.js"));
+  chk("admin.js 找得到 PENDING_MAX", !!feM, feM && feM[1]);
+  chk("worker 找得到 MAX_PENDING", !!wkM, wkM && wkM[1]);
+  chk("★ 兩邊的數字相同", !!feM && !!wkM && feM[1] === wkM[1],
+      `前端 ${feM && feM[1]} / Worker ${wkM && wkM[1]}`);
+}
+
 console.log(`\n${fail===0 ? "✅ 全數通過" : "❌ 有失敗"}:${pass} 通過 / ${fail} 失敗\n`);
 process.exit(fail === 0 ? 0 : 1);

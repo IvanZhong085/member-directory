@@ -548,25 +548,44 @@ hr("㉒ ★ /pending-audit 盤點孤兒");
 
   await post(env, "/intake", { secret:"s3cret",
     applicant:{ name:"有引用的人", title:"t", image: photoBytes(1000, "ref") } });
-  // 沒有任何 pending 記錄指向它 —— 就是要盤出來的那種孤兒
+  /* 沒有任何 pending 記錄指向它們 —— 就是要盤出來的那種孤兒。
+     ★ 刻意放**兩個而且年齡不同**,而且讓比較舊的那個排在後面才被列舉到。
+       只放一個的話,「回最舊的」與「回最新的」「回最後看到的」三種寫法都會通過,
+       這個斷言等於什麼都沒驗 —— 而 README 正是叫總管理員拿這個數字去決定 R2
+       lifecycle 要幾天刪。數字若偏小,設出來的規則會刪到還在等處理的有效申請。 */
   await r2.put("pending/p_ghost/image--deadbeef.jpg", new Uint8Array(500));
   r2.age("pending/p_ghost/image--deadbeef.jpg", 45);
+  await r2.put("pending/p_zlast/image--cafe.jpg", new Uint8Array(300));   // key 排在後面
+  r2.age("pending/p_zlast/image--cafe.jpg", 12);                          // 但比較新
 
   const leaderTry = await (await post(env, "/pending-audit", { session:sLeader })).json();
   chk("★ 組長不能盤點(只有總管理員)", leaderTry.ok === false && leaderTry.error === "forbidden_path",
       leaderTry.error);
 
   const r = await (await post(env, "/pending-audit", { session:sOwner })).json();
-  chk("★ 物件總數正確", r.objects === 2, String(r.objects));
-  chk("★ 孤兒數正確", r.orphans === 1, String(r.orphans));
-  chk("孤兒佔用空間正確", r.orphanBytes === 500, String(r.orphanBytes));
+  chk("★ 物件總數正確", r.objects === 3, String(r.objects));
+  chk("★ 孤兒數正確", r.orphans === 2, String(r.orphans));
+  chk("孤兒佔用空間正確", r.orphanBytes === 800, String(r.orphanBytes));
   chk("孤兒的 pid 有列出來(給人追查)", (r.orphanPids || []).indexOf("p_ghost") >= 0,
       JSON.stringify(r.orphanPids));
-  chk("★ 最舊的孤兒放了幾天(用來決定 lifecycle 設幾天)", r.oldestOrphanDays === 45,
-      String(r.oldestOrphanDays));
+  chk("★ 回的是**最舊**的孤兒(不是最新的、也不是最後掃到的)",
+      r.oldestOrphanDays === 45, String(r.oldestOrphanDays));
   chk("★ 反向:被引用卻不存在的物件數 = 0", r.missingRefs === 0, String(r.missingRefs));
-  chk("★ 盤點不刪任何東西", r2.objects.size === 2, r2.objects.size + " 個");
+  chk("★ 盤點不刪任何東西", r2.objects.size === 3, r2.objects.size + " 個");
   chk("沒有列舉被截斷", r.truncated === false, String(r.truncated));
+
+  /* 順序反過來再驗一次:最舊的排在**前面**時也要回同一個答案。
+     少了這一半,「永遠回最後掃到的那個」在上面那組資料裡剛好也會過。 */
+  const r2b = new FakeR2(); const envB = makeEnv(r2b);
+  const ghB = new FakeGitHub(baseFiles()); ghB.install();
+  await post(envB, "/intake", { secret:"s3cret",
+    applicant:{ name:"有引用的人", title:"t", image: photoBytes(1000, "ref2") } });
+  await r2b.put("pending/p_aold/image--1.jpg", new Uint8Array(100));
+  r2b.age("pending/p_aold/image--1.jpg", 90);        // 最舊,排在最前面
+  await r2b.put("pending/p_bnew/image--2.jpg", new Uint8Array(100));
+  r2b.age("pending/p_bnew/image--2.jpg", 3);
+  const rb = await (await post(envB, "/pending-audit", { session:sOwner })).json();
+  chk("★ 最舊的排在前面時也回同一個答案", rb.oldestOrphanDays === 90, String(rb.oldestOrphanDays));
 }
 
 /* ══ 23 ══ ★ 被引用卻不存在(lifecycle 清掉了)要數得出來 —— 那是「認領會失敗」的預告。 */
@@ -645,6 +664,11 @@ hr("㉗ /ping 的能力旗標");
   chk("★ 有回報 pendingPhoto 能力", withR2.caps.pendingPhoto === true, String(withR2.caps.pendingPhoto));
   const noR2 = await (await post(makeEnv(undefined), "/ping", {})).json();
   chk("★ 沒綁 R2 → pendingImages:false", noR2.caps.pendingImages === false, String(noR2.caps.pendingImages));
+  /* ★ 旗標要跟著 binding 走。沒綁 R2 時這兩支端點一律 503,回報 true 等於叫編輯頁
+     去打一輪注定失敗的請求 —— 30 筆待認領就是 30 次白跑。 */
+  chk("★ 沒綁 R2 → pendingPhoto 也是 false(不要叫前端白跑)",
+      noR2.caps.pendingPhoto === false, String(noR2.caps.pendingPhoto));
+  chk("★ 沒綁 R2 → audit 也是 false", noR2.caps.audit === false, String(noR2.caps.audit));
 }
 
 /* ══ 28 ══ ★ /health 要把「R2 沒綁」講出來 —— 那是後台唯一看得見這件事的地方。

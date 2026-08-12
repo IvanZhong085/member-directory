@@ -389,9 +389,12 @@ async function handlePing(request, env){
      claim:認領是伺服器端交易。編輯頁靠這幾個旗標判斷該走新路徑還是舊路徑。 */
   return json(env, { ok:true, service:"member-directory-relay",
     caps:{ files:true, visitor: visitorConfigured(), atomic:true, read:true, claim:true, drop:true,
-           /* 待認領照片的授權預覽。舊版 Worker 沒有這個旗標,編輯頁就繼續顯示佔位圖
-              而不是把每一張都試著抓一次然後全部 404。 */
-           pendingPhoto:true, audit:true,
+           /* 待認領照片的授權預覽與盤點。舊版 Worker 沒有這兩個旗標,編輯頁就繼續
+              顯示佔位圖,而不是把每一張都試著抓一次然後全部失敗。
+              ★ 跟著 binding 走,不要寫死 true:沒綁 R2 時這兩支端點一律回 503,
+                回報 true 等於叫編輯頁去打一輪注定失敗的請求 —— 待認領區有 30 筆
+                就是 30 次白跑,而且每一次都要等一個完整的往返才變回佔位圖。 */
+           pendingPhoto: !!env.PENDING_IMAGES, audit: !!env.PENDING_IMAGES,
            /* 待認領照片存放方式。"r2-v1" = 私有 R2 bucket(照片不進公開 repo)。
               沒有這個欄位或值不同,代表 Worker 還沒更新到支援 R2 的版本 —— 部署時
               一定要先確認這一項,否則 Apps Script 送來的申請會被 503 擋下。 */
