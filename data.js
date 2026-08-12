@@ -2017,7 +2017,7 @@ const GROUPS = [
         "website": "",
         "id": "g4_m6",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "2026-08-11T15:58:09.186Z"
       }
     ],
     "id": "g4",
