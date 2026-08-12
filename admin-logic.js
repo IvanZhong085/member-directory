@@ -83,6 +83,45 @@ var AdminLogic = (function(){
     return null;
   }
 
-  return { computeConflicts, computeRenameRemovals, isPrimaryTab, pendingNotice };
+  /* 「同一把鑰匙同時只發一次請求」的合流器（single-flight）。
+
+     為什麼要抽出來:第一版直接寫在 fetchPendPhoto 裡,而且錯了 ——
+     內層 async 函式有兩條 early return 寫在 `try{` **之前**,於是 `finally` 裡的
+     「把這把鑰匙從進行中移除」對那兩條路完全不執行;接著呼叫端仍然把那顆
+     **已經 resolve 成 null** 的 promise 放進 map,之後每一次查詢都直接命中它。
+     結果是那把鑰匙從此再也不會發出第二次請求 —— 重繪、重新登入都救不回來,
+     只有整頁重新載入才會清掉。
+
+     踩到的路不是罕見情況,而是最需要它自我修復的那條:
+       ・session 過期(預設 30 分鐘)→ 拿不到 session → 走 early return
+       ・開機時 /ping 還沒回來 → caps 是空的 → 走 early return
+     兩者都是「等一下就會好」的暫時狀態,卻被記成永久失敗。
+
+     ★ 修法不是「把整段包進 try」。early return 那條路上沒有任何 await,函式是
+       **同步跑完**的,finally 會在呼叫端把 promise 放進 map **之前**就執行,
+       delete 變成空操作,毒化照樣發生。要在 promise settle **之後**才清除,
+       也就是靠 .finally() 排進 microtask —— 那必然晚於同步的 set。
+
+     run(key, fn) 回傳 fn 的結果;同一把鑰匙在進行中時共用同一顆 promise。
+     結束(成功或失敗)一律清掉,不做任何負向快取。 */
+  function makeSingleFlight(){
+    const inflight = new Map();
+    return {
+      run(key, fn){
+        if(inflight.has(key)) return inflight.get(key);
+        let job;
+        try{ job = Promise.resolve(fn()); }
+        catch(e){ return Promise.resolve(null); }     // fn 同步丟錯:不留任何痕跡
+        inflight.set(key, job);
+        // ★ .finally 的 callback 是 microtask,必然排在上一行的同步 set 之後
+        job.finally(() => { if(inflight.get(key) === job) inflight.delete(key); });
+        return job;
+      },
+      size(){ return inflight.size; },
+      clear(){ inflight.clear(); },
+    };
+  }
+
+  return { computeConflicts, computeRenameRemovals, isPrimaryTab, pendingNotice, makeSingleFlight };
 })();
 if(typeof module !== "undefined" && module.exports) module.exports = AdminLogic;

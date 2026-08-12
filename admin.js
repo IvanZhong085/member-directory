@@ -1784,7 +1784,12 @@
      ★ 為什麼要撤銷:blob URL 不 revoke 會一直佔著記憶體;而且那是還沒被認領的人的
        照片,不該在分頁裡留得比需要更久。申請一從清單消失就撤掉。 */
   const pendPhotoUrls = new Map();     // "pid|field|index" → blob URL
-  const pendPhotoBusy = new Map();     // 同一張同時被要兩次時共用同一個請求
+  /* 同一張照片同時被要兩次時共用同一個請求。
+     ★ 用 AdminLogic 的合流器而不是自己拿一個 Map 寫 —— 第一版就是自己寫而且錯了:
+       early return 寫在 try 之外,finally 不會跑,於是「暫時拿不到」被記成永久失敗,
+       整頁到重新載入為止都不再抓照片。那段歷史寫在 makeSingleFlight 的註解裡,
+       並且有測試守著。 */
+  const pendPhotoFlight = AdminLogic.makeSingleFlight();
   function pendPhotoKey(pid, field, index){ return pid + "|" + field + "|" + (index == null ? -1 : index); }
   function revokePendPhotos(keepPids){
     for(const [k, url] of [...pendPhotoUrls]){
@@ -1792,14 +1797,17 @@
       try{ URL.revokeObjectURL(url); }catch(e){}
       pendPhotoUrls.delete(k);
     }
+    // 清單整個換掉／登出時,進行中的請求結果已經沒有意義,別讓它們留在合流器裡
+    if(!keepPids) pendPhotoFlight.clear();
   }
   /* 回傳 blob URL,或 null(沒權限、照片不在了、Worker 太舊、網路不通)。
-     一律不丟例外 —— 預覽只是輔助,它失敗絕不能讓待認領區畫不出來。 */
-  async function fetchPendPhoto(pid, field, index){
+     一律不丟例外 —— 預覽只是輔助,它失敗絕不能讓待認領區畫不出來。
+     ★ 失敗不做負向快取:session 過期、Worker 冷啟動、caps 還沒回來,都是
+       「等一下就會好」的暫時狀態,下一次重繪要能重試。 */
+  function fetchPendPhoto(pid, field, index){
     const key = pendPhotoKey(pid, field, index);
-    if(pendPhotoUrls.has(key)) return pendPhotoUrls.get(key);
-    if(pendPhotoBusy.has(key)) return pendPhotoBusy.get(key);
-    const job = (async () => {
+    if(pendPhotoUrls.has(key)) return Promise.resolve(pendPhotoUrls.get(key));
+    return pendPhotoFlight.run(key, async () => {
       const session = loadSession();
       if(!session || isViewer() || !workerCaps.pendingPhoto) return null;
       const url = loadWorkerUrl();
@@ -1820,10 +1828,7 @@
         pendPhotoUrls.set(key, obj);
         return obj;
       }catch(e){ return null; }
-      finally{ pendPhotoBusy.delete(key); }
-    })();
-    pendPhotoBusy.set(key, job);
-    return job;
+    });
   }
 
   /* 這一筆申請有哪幾張照片。回傳 [{ field, index, label }]。
@@ -1851,11 +1856,19 @@
   /* 認領前把照片放大看清楚(名片上的字在 64px 縮圖裡讀不出來)。
      每次開啟才抓,關閉時不撤 URL —— 撤了的話同一張再開一次又要重抓;
      真正的撤銷交給 revokePendPhotos(),時機是「這筆申請已經不在清單裡」。 */
+  /* 燈箱的「第幾次開啟」。每開一次、每關一次都 +1。
+     ★ 沒有它會出事,而且不需要運氣就會重現:燈箱是**一組共用的 DOM 節點**。
+       先開一筆照片在 R2 的申請(要等網路)→ 按 Esc 關掉 → 再開一筆舊格式的
+       (照片內嵌,整段同步跑完,立刻畫好)→ 第一次那批 await 這時才回來,
+       把 #pv-body 換成前一位的照片,而 #pv-title 還寫著後一位的名字。
+       組長於是看著「李美華」的標題、王小明的名片,據此決定要把人分到哪一組。 */
+  let pvSeq = 0;
   async function openPendingPhotos(pid){
     const a = PENDING.find(x => x && x.pid === pid);
     if(!a) return;
     const overlay = byId("pv-overlay"), body = byId("pv-body"), title = byId("pv-title");
     if(!overlay || !body) return;
+    const mySeq = ++pvSeq;
     title.textContent = (a.name || "(未填姓名)") + "　的申請照片";
     body.innerHTML = '<div class="pv-empty">載入中…</div>';
     overlay.hidden = false;
@@ -1864,12 +1877,14 @@
     const slots = pendingPhotoSlots(a);
     const items = [];
     if(inline) items.push({ label:"形象照", url:inline });
-    for(const s of slots){
-      const url = await fetchPendPhoto(pid, s.field, s.index);
-      if(url) items.push({ label:s.label, url });
-    }
-    /* 開燈箱的過程中這筆被別人認領走、或使用者自己關掉了:別把畫面蓋回去 */
-    if(overlay.hidden) return;
+    /* 平行抓,不要逐張等 —— 一筆最多 7 張,序列的話就是 7 次完整往返
+       (每一次都是瀏覽器→Worker→GitHub→R2),畫面會停在「載入中…」好幾秒。 */
+    const got = await Promise.all(slots.map(s =>
+      fetchPendPhoto(pid, s.field, s.index).then(url => ({ label:s.label, url }))));
+    for(const g of got) if(g.url) items.push(g);
+
+    /* 這批結果還是不是「現在畫面上這一位」的。關掉了、或已經開了別位,就直接丟掉。 */
+    if(overlay.hidden || mySeq !== pvSeq) return;
     body.innerHTML = items.length
       ? items.map(it =>
           '<figure class="pv-item"><img src="' + esc(it.url) + '" alt="' + esc(it.label) + '">' +
@@ -1880,6 +1895,7 @@
   function closePendingPhotos(){
     const overlay = byId("pv-overlay"), body = byId("pv-body");
     if(!overlay) return;
+    pvSeq++;                      // 還在路上的那一批結果作廢,別讓它畫回已經關掉的燈箱
     overlay.hidden = true;
     if(body) body.innerHTML = "";
   }

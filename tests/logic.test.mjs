@@ -133,5 +133,64 @@ hr("④ 待認領提醒(pendingNotice)");
   chk("count 不是數字 → 當成 0,不提醒", P(undefined, 30) === null && P(null, 30) === null);
 }
 
+/* ══ makeSingleFlight ══
+   對抗式審查在這裡抓到一個 P1:第一版的合流邏輯直接寫在 fetchPendPhoto 裡,
+   兩條 early return 落在 try 之外,finally 不執行,於是「暫時拿不到」被永久記成失敗
+   —— 待認領照片預覽整頁失效到重新載入為止,而且重新登入也救不回來。
+
+   最關鍵的一條是 ③:把整段包進 try **修不好**。early return 那條路是同步跑完的,
+   finally 會在呼叫端把 promise 存進 map 之前就執行,delete 變成空操作。
+   所以這裡驗的不是「有沒有 try」,而是「同步就結束的那條路,結束後有沒有留下殘留」。 */
+hr("⑤ 請求合流器(makeSingleFlight)");
+{
+  const flight = L.makeSingleFlight();
+
+  // ① 進行中共用同一顆 promise
+  let started = 0;
+  let release;
+  const slow = () => { started++; return new Promise(r => { release = r; }); };
+  const p1 = flight.run("k", slow), p2 = flight.run("k", slow);
+  chk("★ 同一把鑰匙進行中只會發一次", started === 1, "發了 " + started + " 次");
+  chk("兩次呼叫拿到同一顆 promise", p1 === p2);
+  release("url-1");
+  chk("結果正確", (await p1) === "url-1");
+  await Promise.resolve();
+  chk("★ 結束後不留殘留", flight.size() === 0, flight.size() + " 筆");
+
+  // ② 失敗不做負向快取:下一次要能重試
+  let n = 0;
+  const failFirst = () => { n++; return Promise.resolve(n === 1 ? null : "url-2"); };
+  chk("第一次失敗回 null", (await flight.run("r", failFirst)) === null);
+  chk("★ 失敗不留殘留(否則永遠重試不了)", flight.size() === 0, flight.size() + " 筆");
+  chk("★ 第二次能重試而且拿得到結果", (await flight.run("r", failFirst)) === "url-2", "呼叫了 " + n + " 次");
+
+  // ③ ★ 同步就 return 的路徑(session 過期、caps 還沒回來)不可以毒化
+  let syncCalls = 0;
+  const syncNull = () => { syncCalls++; return Promise.resolve(null); };   // 沒有任何 await
+  chk("同步路徑回 null", (await flight.run("s", syncNull)) === null);
+  chk("★ 同步結束的路徑也不留殘留", flight.size() === 0, flight.size() + " 筆");
+  const again = await flight.run("s", () => Promise.resolve("url-3"));
+  chk("★ 之後恢復正常時真的會重新請求(這正是原本壞掉的地方)", again === "url-3", String(again));
+
+  // ④ reject 也要清乾淨,而且不可以變成未處理的 rejection
+  const boom = flight.run("b", () => Promise.reject(new Error("x")));
+  let caught = false;
+  try{ await boom; }catch(e){ caught = true; }
+  chk("reject 會傳出去", caught);
+  await Promise.resolve();
+  chk("★ reject 之後也不留殘留", flight.size() === 0, flight.size() + " 筆");
+
+  // ⑤ fn 同步丟例外:不能讓呼叫端整段炸掉,也不能留殘留
+  const threw = await flight.run("t", () => { throw new Error("同步炸了"); });
+  chk("★ fn 同步丟錯 → 回 null 而不是往外炸", threw === null, String(threw));
+  chk("★ 同步丟錯也不留殘留", flight.size() === 0, flight.size() + " 筆");
+
+  // ⑥ clear():登出／清單整批換掉時,進行中的結果作廢
+  flight.run("c", () => new Promise(() => {}));
+  chk("進行中有一筆", flight.size() === 1);
+  flight.clear();
+  chk("★ clear() 之後清空", flight.size() === 0);
+}
+
 console.log(`\n${fail===0 ? "✅ 全數通過" : "❌ 有失敗"}:${pass} 通過 / ${fail} 失敗\n`);
 process.exit(fail === 0 ? 0 : 1);

@@ -243,7 +243,7 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 | 1 | 建立 private R2 bucket（見 4-2） | bucket 存在、**沒有** Public Access |
 | 2 | 綁 `PENDING_IMAGES`、設 `pending/` 的 30 天 lifecycle rule | Bindings 清單裡看得到 |
 | 3 | **先**部署新版 Worker | 打 `/ping`，`caps.pendingImages === "r2-v1"` |
-| 4 | 更新 Apps Script（`tools/google-form.gs`）與前端 | 跑 `checkNewMemberSetup`，「失敗通知」那一行是 ✅ |
+| 4 | 更新 Apps Script（`tools/google-form.gs`）與前端 | 跑 `checkNotifySetup` **同意授權**，再跑 `checkNewMemberSetup`：「授權狀態」是 ✅、沒有紅字 |
 | 5 | 送一份**含 7 張照片**的測試申請 | R2 裡有 7 個物件、`_pending.json` 只有幾 KB、認領後 `images/` 有 7 張且 R2 被清空 |
 | 6 | 確認無誤後才處理／清掉舊的待認領資料 | — |
 

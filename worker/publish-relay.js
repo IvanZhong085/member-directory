@@ -765,7 +765,7 @@ function checkPhotoRefs(a){
     if(ref == null) return null;
     if(typeof ref !== "object" || Array.isArray(ref)) return "bad_photo_ref:" + label;
     if(!keyBelongsToPid(ref.key, a.pid)) return "bad_photo_ref_key:" + label;
-    if(!PENDING_IMG_MIME[ref.mime]) return "bad_photo_ref_mime:" + label;
+    if(!imgExtOf(ref.mime)) return "bad_photo_ref_mime:" + label;
     if(typeof ref.bytes !== "number" || !(ref.bytes > 0) || ref.bytes > PENDING_IMG_BYTES_MAX){
       return "bad_photo_ref_bytes:" + label;
     }
@@ -822,6 +822,16 @@ const PENDING_IMG_COUNT_MAX = 7;               // 形象照 1 + 名片 1 + 商�
    它的用途是防止 intake secret 外流後被拿來灌爆 R2,不是拿來截斷合法申請。 */
 const PENDING_IMG_TOTAL_BYTES_MAX = PENDING_IMG_COUNT_MAX * PENDING_IMG_BYTES_MAX;
 const PENDING_IMG_MIME = { "image/jpeg":"jpg", "image/png":"png", "image/webp":"webp" };
+/* ★ 一定要用這個查,不要寫 PENDING_IMG_MIME[x]。
+   物件字面量繼承 Object.prototype,所以 "constructor"、"toString"、"valueOf"、
+   "hasOwnProperty" 這些字串查出來都是 truthy —— 白名單等於破了一個洞。
+   會走到:被動過手腳的 _pending.json 把 photoRefs.image.mime 改成 "constructor",
+   /publish 的 checkPhotoRefs 放行、/pending-photo 用它當 Content-Type、
+   /claim 更會拿它當副檔名,在 repo 裡寫出一個檔名含空白與大括號的垃圾檔,
+   前台那位成員的照片變成永久 404。 */
+function imgExtOf(mime){
+  return Object.prototype.hasOwnProperty.call(PENDING_IMG_MIME, mime) ? PENDING_IMG_MIME[mime] : "";
+}
 /* 舊格式(照片還以 data URL 存在 _pending.json 裡)的相容上限。
    ★ 歷史上 Apps Script 曾允許約 650KB base64 一張(解碼後約 487KB),明顯大於現在的
      200KB。若拿新上限去驗舊資料,那些申請會遷移失敗、直接認領則靜默變成空照片。
@@ -882,7 +892,7 @@ async function parseOnePhoto(value, maxBytes){
   const m = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/]+={0,2})$/.exec(s);
   if(!m) return { ok:false, error:"bad_format" };
   const mime = m[1];
-  if(!PENDING_IMG_MIME[mime]) return { ok:false, error:"bad_mime" };
+  if(!imgExtOf(mime)) return { ok:false, error:"bad_mime" };
   let bytes;
   try{ bytes = b64ToBytes(m[2]); }
   catch(e){ return { ok:false, error:"bad_base64" }; }
@@ -936,7 +946,7 @@ async function parsePendingPhotos(raw, maxBytes){
 function pendingKeyFor(pid, field, index, sha256, mime){
   const base = field + (index >= 0 ? "-" + index : "");
   return PENDING_IMAGE_PREFIX + pid + "/" + base + "-" + sha256.slice(0, 16) +
-         "." + PENDING_IMG_MIME[mime];
+         "." + imgExtOf(mime);
 }
 /* 這個 key 是不是屬於這一筆申請。認領時每一個 photoRef 都要過這一關。 */
 function keyBelongsToPid(key, pid){
@@ -1254,13 +1264,19 @@ async function handlePendingPhoto(request, env){
      後者是照片真的沒了(lifecycle 清掉了),兩者要給操作者不同的訊息。 */
   if(!obj) return json(env, { ok:false, error:"pending_image_missing" }, 404);
 
+  /* ★ mime 不在白名單內就**擋下**,不要降級成 application/octet-stream 送出去。
+     記錄被寫壞了是一件要修的事,不是一件要繞過的事;而且降級之後前端只會看到
+     「這張顯示不出來」,查不出原因。回明確的錯誤碼,認領那條路也會用同一個碼擋下。 */
+  if(!imgExtOf(ref.mime)){
+    return json(env, { ok:false, error:"pending_image_corrupt", reason:"bad_mime" }, 502);
+  }
   const buf = await obj.arrayBuffer();
   /* 回的是圖片位元組,不是 JSON。
      ・Content-Type 取自申請記錄裡的 mime,而且只認白名單內的三種 —— 不採用物件上
        任何可能被寫壞的值,也就不會回出一個 text/html 讓瀏覽器當網頁執行。
      ・no-store:未認領者的照片不該留在瀏覽器快取或任何中間層。
      ・nosniff + attachment 以外的 inline 是刻意的:要能直接顯示在 <img> 裡。 */
-  const mime = PENDING_IMG_MIME[ref.mime] ? ref.mime : "application/octet-stream";
+  const mime = ref.mime;
   return new Response(buf, {
     status: 200,
     headers: Object.assign({
@@ -1381,7 +1397,7 @@ async function resolvePendingPhotos(env, a, memberId, allowMissing){
   const files = [], names = { image:"", card:"", products:[] }, missing = [];
   const suffixOf = (field, index) => field === "product" ? "p" + (index + 1) : (field === "card" ? "card" : "x");
   const record = (field, index, bytes, mime, sha) => {
-    const name = memberId + "_" + suffixOf(field, index) + "_" + sha.slice(0, 10) + "." + PENDING_IMG_MIME[mime];
+    const name = memberId + "_" + suffixOf(field, index) + "_" + sha.slice(0, 10) + "." + imgExtOf(mime);
     files.push({ path: "images/" + name, contentB64: bytesToB64(bytes) });
     if(field === "image") names.image = name;
     else if(field === "card") names.card = name;
@@ -1404,6 +1420,14 @@ async function resolvePendingPhotos(env, a, memberId, allowMissing){
          _pending.json 就能讓認領去讀別筆申請(甚至別的 prefix)的物件。 */
       if(!keyBelongsToPid(s.ref && s.ref.key, a.pid)){
         return { ok:false, error:"pending_image_forbidden", field:label };
+      }
+      /* mime 也要在這裡驗一次,而且是**擋下**而不是降級。
+         它決定寫進 repo 的副檔名;放行一個白名單外的值,最好的情況是檔名以 "." 結尾、
+         GitHub Pages 回錯的 content-type,最壞的情況是檔名裡出現空白與大括號 ——
+         兩種都讓那位成員的照片在前台永久 404,而認領本身回報成功、申請也已經
+         從待認領區消失。這種錯不能靠「盡量」處理,只能整筆停下來。 */
+      if(!imgExtOf(s.ref.mime)){
+        return { ok:false, error:"pending_image_corrupt", field:label, reason:"bad_mime" };
       }
       /* ★ 「讀不到」與「不存在」是兩件事。
          R2 暫時故障時 get() 會拋錯,先前把它一併當成 null(= 缺圖),於是操作者在

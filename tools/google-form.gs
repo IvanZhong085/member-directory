@@ -433,7 +433,16 @@ function checkNewMemberForm() {
                   沒設就不寄 —— 不是每個分會都想要每一筆都收信。
 
    ★ 信裡只放姓名、錯誤碼與處理建議。不放照片、不放 secret、不放完整申請內容 ——
-     信會被轉寄、會留在收件匣,那不是放未認領者資料的地方。 */
+     信會被轉寄、會留在收件匣,那不是放未認領者資料的地方。
+
+   ⚠⚠ 貼上這一版之後**必須手動執行一次任一函式重新授權**(建議 checkNotifySetup)。
+       MailApp 與 Session.getEffectiveUser 是這份腳本原本沒用過的 API,Apps Script
+       靠靜態分析整個專案推導所需權限,而「送出表單」那個觸發器用的是**建立當下那份
+       授權** —— 專案的權限集合一變大,舊授權就覆蓋不了,觸發器會以授權錯誤失敗。
+
+       這個失敗模式正好就是這段程式碼要消滅的東西:觸發器根本沒跑,所以連失敗通知
+       都發不出來;後台待認領區是空的,看起來就只是「最近沒人申請」。
+       checkNewMemberSetup 會偵測這件事並印出紅字,請務必跑一次。 */
 function alertEmail_() {
   var v = String(PropertiesService.getScriptProperties().getProperty("ALERT_EMAIL") || "").trim();
   if (v) return v;
@@ -451,8 +460,16 @@ function sendMail_(to, subject, body) {
 
 var MAIL_FOOTER_ = "\n\n———\n這封信由會員名錄的 Apps Script 自動寄出，內容不含照片與密碼。";
 
+/* 姓名來自表單,長度沒有保證(Worker 那頭會砍到 80,但這裡拿到的是原始值)。
+   直接組進主旨的話,一個貼了幾千字的惡作劇填答會讓主旨爆掉、信件難讀。 */
+function shortName_(s) {
+  var v = String(s == null ? "" : s).replace(/[\r\n\t]+/g, " ").trim();
+  if (!v) return "(未填姓名)";
+  return v.length > 80 ? v.slice(0, 80) + "…" : v;
+}
+
 function notifyIntakeFailure_(name, why, hint) {
-  var who = name || "(未填姓名)";
+  var who = shortName_(name);
   var to = alertEmail_();
   var sent = sendMail_(to, "【會員名錄】新夥伴申請沒有進待認領區：" + who,
     "有一筆新夥伴自填表單的申請沒有進到待認領區。\n\n" +
@@ -468,7 +485,7 @@ function notifyIntakeFailure_(name, why, hint) {
 function notifyIntakeSuccess_(name, pending) {
   var to = String(PropertiesService.getScriptProperties().getProperty("NOTIFY_EMAIL") || "").trim();
   if (!to) return;                       // 選用功能,沒設就安靜略過
-  var who = name || "(未填姓名)";
+  var who = shortName_(name);
   sendMail_(to, "【會員名錄】有新夥伴等待認領：" + who,
     "「" + who + "」的自填資料已經進到待認領區。\n" +
     "目前共 " + pending + " 筆等待認領。\n\n" +
@@ -480,6 +497,15 @@ function notifyIntakeSuccess_(name, pending) {
 /* 不改任何東西,只把通知設定印出來、並實際寄一封測試信。
    「以為有設好」與「真的收得到」是兩件事,而這條路只有在出事時才會被用到 ——
    那時候才發現寄不出去就太晚了。 */
+/* 專案的權限集合變大之後,舊授權會失效,而**觸發器會安靜地停擺**。
+   回傳 true 代表需要重新授權。這是唯一能在「申請開始掉」之前發現的方法。 */
+function needsReauth_() {
+  try {
+    var info = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
+    return info.getAuthorizationStatus() === ScriptApp.AuthorizationStatus.REQUIRED;
+  } catch (err) { return false; }        // 取不到就別嚇人,下面的測試信照樣會驗到
+}
+
 function checkNotifySetup() {
   var props = PropertiesService.getScriptProperties();
   var alertTo = String(props.getProperty("ALERT_EMAIL") || "").trim();
@@ -489,6 +515,9 @@ function checkNotifySetup() {
   Logger.log("實際收件人    :" + (effective || "✗ 取不到 —— 失敗通知會寄不出去,請設 ALERT_EMAIL"));
   Logger.log("NOTIFY_EMAIL  :" + (notifyTo || "(沒設 → 不寄「有新申請」的通知)"));
   try { Logger.log("今日可寄額度  :" + MailApp.getRemainingDailyQuota() + " 封"); } catch (err) {}
+  Logger.log("授權狀態      :" + (needsReauth_()
+    ? "🔴 需要重新授權 —— 在授權完成之前,送出表單的觸發器不會執行,申請會全部靜默失敗"
+    : "✅ 不需要重新授權"));
   if (!effective) return;
   var ok = sendMail_(effective, "【會員名錄】通知設定測試",
     "看到這封信代表失敗通知寄得出去。\n" +
@@ -847,6 +876,20 @@ function checkNewMemberSetup() {
      而那正是「表單看起來正常、申請卻一直沒進來」最常見的原因。 */
   Logger.log("失敗通知      :" + (alertEmail_() ? "✅ 寄給 " + alertEmail_() + "(細節與測試信跑 checkNotifySetup)"
                                                 : "✗ 沒有收件人 —— 申請送失敗時不會有人知道,請設 ALERT_EMAIL"));
+
+  /* ★ 最容易被忽略、後果卻最嚴重的一項。放在最後印,因為它會蓋掉上面所有的 ✅ ——
+     授權沒完成的話,觸發器根本不會跑,上面每一行設定得多正確都沒有用。 */
+  if (needsReauth_()) {
+    Logger.log("");
+    Logger.log("🔴🔴🔴 授權需要更新 —— 目前每一筆新夥伴申請都會靜默失敗 🔴🔴🔴");
+    Logger.log("   這一版的程式碼用到了新的 Google 權限(寄信、讀取自己的帳號信箱)。");
+    Logger.log("   Apps Script 的觸發器用的是「建立當時那份授權」,權限一變大它就會停擺,");
+    Logger.log("   而且**不會有任何錯誤通知**(連新加的失敗通知信也發不出去)。");
+    Logger.log("   處理方式:在上方函式下拉選單選 checkNotifySetup → 按「執行」→ 同意授權。");
+    Logger.log("   同意之後再跑一次這支檢查,這段紅字消失就代表好了。");
+  } else {
+    Logger.log("授權狀態      :✅ 不需要重新授權");
+  }
 
   if (!relay || !secret) return;
   // 故意送一份不完整的申請:secret 對的話會回 bad_applicant,代表這條路是通的

@@ -706,5 +706,127 @@ hr("㉚ /drop-pending 的清理");
       `pending=${pendOf(gh).length} r2=${r2.keys().length}`);
 }
 
+/* ══ 31 ══ ★ 超過 1 MB 的 data/_pending.json 必須整條路都走得通。
+   這是最初那個 bug 的原形,而且不是假想:合併這個 PR 之前,線上 main 的
+   _pending.json 就是 1.57 MB —— 一筆舊格式申請,內嵌 5 張照片(形象照、名片、
+   3 張商品照),照片各自都在當年的 512 KiB 上限內。
+
+   GitHub 的 contents API 對 >1 MB 的檔案會回 200 但 content:""、encoding:"none"。
+   當時的程式碼直接 JSON.parse("") → 502;而編輯頁那邊把「空內容」算出雜湊當成版本基準,
+   於是每一次發布都被判 stale_base,永遠發不出去。修法是超過就改走 git blobs API。
+
+   ★ 先前沒有任何一項測試踩到這條路 —— 假 GitHub 模擬了這個行為,卻沒有人去驗它。
+     這一段補上:讀得到、認領得出來、照片一張都不能少。 */
+hr("㉛ ★ 超過 1MB 的待認領區(原始 bug 的原形)");
+{
+  /* 尺寸與線上那一筆對齊:5 張照片、整份 JSON 超過 1 MB */
+  const legacy = [{
+    pid:"p_big1mb", at:"2026-01-01T00:00:00.000Z", name:"一點五MB的申請",
+    title:"t", company:"c", services:["s"], targets:[], have:[], want:[], tagline:[],
+    business_items:"", website:"",
+    image:  photoBytes(44 * 1024, "L-image"),
+    card:   photoBytes(498 * 1024, "L-card"),          // 498 KiB:貼著舊上限 512 KiB
+    products: [ photoBytes(296 * 1024, "L-p0"),
+                photoBytes(91 * 1024,  "L-p1"),
+                photoBytes(245 * 1024, "L-p2") ],
+  }];
+  const files = baseFiles();
+  files["data/_pending.json"] = JSON.stringify(legacy, null, 2) + "\n";
+  const rawSize = Buffer.byteLength(files["data/_pending.json"]);
+  chk("★ 前提:這份檔案真的超過 1 MB(才會走到 blobs 那條路)",
+      rawSize > 1024 * 1024, rawSize.toLocaleString() + " bytes");
+
+  const gh = new FakeGitHub(files); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
+
+  /* ① /read:編輯頁靠它拿到待認領區。回空字串就等於整個後台看不到這一筆。 */
+  const rd = await (await post(env, "/read",
+    { session:sOwner, paths:["data/_pending.json"] })).json();
+  const got = rd.ok && rd.files["data/_pending.json"];
+  chk("★ /read 讀得到內容(沒有被 contents API 的 1MB 上限吃掉)",
+      !!got && got.exists === true && got.text.length > 1024 * 1024,
+      got ? got.text.length.toLocaleString() + " bytes" : JSON.stringify(rd).slice(0, 60));
+  chk("★ 讀回來的內容 parse 得動,而且就是那一筆", (() => {
+      try{ const l = JSON.parse(got.text); return l.length === 1 && l[0].pid === "p_big1mb"; }
+      catch(e){ return false; }
+    })());
+  chk("有給版本基準(雜湊與 blob sha),發布才不會永遠 stale_base",
+      !!got.hash && !!got.blobSha);
+
+  /* ② /claim:照片要一張不少地落進 images/,而且待認領區要清空。 */
+  const cl = await (await post(env, "/claim", { session:sLeader, pid:"p_big1mb" })).json();
+  const a1 = JSON.parse(gh.files().get("data/a1.json"));
+  const m = a1.members[0];
+  chk("★ 1.5MB 的舊格式申請認領得出來", cl.ok === true, JSON.stringify(cl).slice(0, 70));
+  chk("★ 5 張照片一張都沒少",
+      !!(m && m.image && m.card) && m.products.length === 3,
+      m ? `image=${!!m.image} card=${!!m.card} products=${m.products.length}` : "(沒有成員)");
+  chk("★ 圖片檔真的在同一個 commit 裡",
+      [m.image, m.card].concat(m.products).every(n => gh.files().has("images/" + n)));
+  chk("待認領區已清空", pendOf(gh).length === 0);
+  chk("★ 公開檔案裡不再有任何 base64",
+      !/data:image\//.test(gh.files().get("data/_pending.json")) &&
+      !/data:image\//.test(gh.files().get("data/a1.json")));
+}
+
+/* ══ 32 ══ ★ mime 白名單不可以被 Object.prototype 上的鍵穿過去。
+   PENDING_IMG_MIME 是普通的物件字面量,所以 obj["constructor"]、obj["toString"]、
+   obj["valueOf"] 這些查出來都是 truthy —— 用 `if(!TABLE[x])` 當白名單等於開了一個洞。
+
+   會走到哪裡:一份被動過手腳的 _pending.json 把 photoRefs.image.mime 改成
+   "constructor",三道關卡會一起放行 ——
+     ・/publish 的 checkPhotoRefs 認為 mime 合法,把它寫進公開 repo
+     ・/pending-photo 拿它當 Content-Type 回給瀏覽器
+     ・/claim 拿它當副檔名,在 repo 裡建出一個檔名含空白與大括號的垃圾檔
+       (`...x_45f9542d.function Object() { [native code] }`),
+       而成員卡的 image 指向那個名字 → 前台照片永久 404。
+   這一段把三道關卡各驗一次。 */
+hr("㉜ ★ mime 白名單不吃 Object.prototype 的鍵");
+for(const evil of ["constructor", "toString", "valueOf", "hasOwnProperty", "__proto__"]){
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  await post(env, "/intake", { secret:"s3cret",
+    applicant:{ name:"被竄改 mime 的人", title:"t", image: photoBytes(1200, "mime-" + evil) } });
+
+  // 直接把檔案改掉,模擬「_pending.json 被動過手腳」
+  const list = pendOf(gh);
+  list[0].photoRefs.image.mime = evil;
+  gh.files().set("data/_pending.json", JSON.stringify(list, null, 2) + "\n");
+  const pid = list[0].pid;
+
+  // ① 預覽:不可以用這個字串當 Content-Type
+  const pv = await post(env, "/pending-photo", { session:sLeader, pid, field:"image" });
+  const ct = pv.headers.get("Content-Type") || "";
+  chk(`★ "${evil}" → /pending-photo 明確擋下(不是降級成 octet-stream)`,
+      pv.status === 502 && /json/.test(ct), `HTTP ${pv.status} ${ct}`);
+
+  // ② 認領:必須整筆擋下,而不是寫出一個副檔名怪異的檔案
+  const cl = await (await post(env, "/claim", { session:sLeader, pid })).json();
+  chk(`★ "${evil}" → 認領被擋下(pending_image_corrupt)`,
+      cl.ok !== true && cl.error === "pending_image_corrupt", JSON.stringify(cl).slice(0, 70));
+  const bad = [...gh.files().keys()].filter(k => k.startsWith("images/") && !/\.(jpg|png|webp)$/.test(k));
+  chk(`★ "${evil}" → repo 裡沒有副檔名怪異的檔案`, bad.length === 0, bad.join(",").slice(0, 80));
+  chk(`★ "${evil}" → 申請仍完整留在待認領區`, pendOf(gh).length === 1, pendOf(gh).length + " 筆");
+}
+
+/* ③ 同一個洞在 /publish 那一側:checkPhotoRefs 必須擋下被竄改的 mime。 */
+{
+  const gh = new FakeGitHub(baseFiles()); gh.install();
+  const r2 = new FakeR2(); const env = makeEnv(r2);
+  const sOwner = await W.makeSession("x".repeat(48), { name:"owner", role:"owner", group:"" });
+  await post(env, "/intake", { secret:"s3cret",
+    applicant:{ name:"發布時竄改", title:"t", image: photoBytes(1200, "pub-mime") } });
+  const list = pendOf(gh);
+  list[0].photoRefs.image.mime = "constructor";
+  const before = gh.files().get("data/_pending.json");
+  const body = JSON.stringify(list, null, 2) + "\n";
+  const r = await (await post(env, "/publish", { session:sOwner,
+    files:[{ path:"data/_pending.json", contentB64: Buffer.from(body).toString("base64") }],
+    baseHashes:{} })).json();
+  chk("★ /publish 擋下被竄改的 mime", r.ok !== true, JSON.stringify(r).slice(0, 80));
+  chk("★ 公開檔案沒有被寫進去", gh.files().get("data/_pending.json") === before);
+}
+
 console.log(`\n${fail===0 ? "✅ 全數通過" : "❌ 有失敗"}:${pass} 通過 / ${fail} 失敗\n`);
 process.exit(fail === 0 ? 0 : 1);
