@@ -1,0 +1,48 @@
+# 併發回歸測試。在 PR 與推送到 main 時都跑。
+#
+# 為什麼需要它:這個專案的正確性問題幾乎都不是語法錯誤,而是「兩個人同時操作」時的
+# 交錯 —— 那種缺陷不會讓任何檢查工具報錯,只會讓資料悄悄跑到錯的地方。
+# tests/concurrency.test.mjs 用真實的 Worker 原始碼配上一個忠實的假 GitHub
+# (含 git data API 與 fast-forward-only 的 ref 更新)重現這些交錯。
+# 加新功能時如果動到發布或認領路徑,請一併補上對應的交錯情境。
+name: 併發回歸測試
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 語法檢查
+        run: |
+          node --check admin.js
+          node --check tools/build-data.mjs
+          # Worker 是 ES module,--check 需要 .mjs 副檔名
+          cp worker/publish-relay.js /tmp/worker-check.mjs
+          node --check /tmp/worker-check.mjs
+
+      - name: 併發回歸測試
+        run: node tests/concurrency.test.mjs
+
+      - name: 待認領照片（私有 R2）測試
+        run: node tests/pending-r2.test.mjs
+
+      - name: 待認領區容量測試
+        run: node tests/capacity.test.mjs
+
+      - name: 前端純邏輯測試
+        run: node tests/logic.test.mjs
+
+      - name: 死程式碼掃描
+        run: node tools/check-dead-code.mjs

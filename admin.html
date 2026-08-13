@@ -8,6 +8,13 @@
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="stylesheet" href="styles.css?v=5">
 <style>
+  /* ★ hidden 屬性必須贏過任何 display 宣告。
+     瀏覽器對 [hidden] 的預設是 display:none,但那是**作者樣式表可以蓋掉**的預設值 ——
+     任何一條 .foo{display:flex} 都會讓 hidden 失效。這個專案已經踩過兩次:
+     來賓頁的按鈕(.cta-btn)與這裡的照片燈箱(.pv-overlay),兩次都是「元素明明
+     hidden 卻整片蓋在畫面上」。下面那幾條 .xxx[hidden] 是逐一補的,補得完全靠記性;
+     這一條是一次補完,新增元件不必再想起這件事。 */
+  [hidden]{display:none !important;}
   .adm-topbar{position:sticky; top:0; z-index:60; background:#fff; border-bottom:1px solid var(--border); box-shadow:var(--shadow-sm);}
   .adm-topbar-inner{max-width:1240px; margin:0 auto; padding:12px 20px; display:flex; align-items:center; gap:14px; flex-wrap:wrap;}
   .adm-brand{display:flex; align-items:center; gap:10px; font-weight:800; font-size:16px;}
@@ -121,6 +128,9 @@
   .perm-banner[hidden]{display:none;}
   .perm-banner .btn{margin-left:auto; flex:none; align-self:center;}
   .perm-banner b{color:#6B4A0B;}
+  /* 同時可能有不只一件設定沒完成（例如權杖沒寫入權限、又沒綁照片儲存空間）。
+     先前只顯示第一則，後面那幾件就永遠沒人知道 —— 一次列完。 */
+  #perm-banner-text{white-space:pre-line;}
 
   /* lock screen (password gate) */
   .lock-overlay{position:fixed; inset:0; z-index:150; background:#fff; display:flex; align-items:center; justify-content:center; padding:20px;}
@@ -225,7 +235,36 @@
   .pend-name{font-weight:800; font-size:15px;}
   .pend-meta{font-size:12px; color:var(--muted); line-height:1.6; word-break:break-word;}
   .pend-at{font-size:11px; color:var(--muted);}
+  /* 收件時就缺照片的提醒。醒目但不阻斷:認領照樣按得下去 */
+  .pend-warn{margin-top:6px; font-size:11.5px; line-height:1.6; color:#8a5a00;
+             background:#fff6e0; border:1px solid #f0d089; border-radius:8px; padding:6px 8px;}
   .pend-actions{display:flex; flex-direction:column; gap:6px; flex:none;}
+  /* 「請盡速認領」的提醒列。三個級距用顏色區分：有人在等 → 快滿 → 已滿。
+     放在清單**上方**而不是頁面頂端：待認領區本身就是要處理它的地方，
+     訊息與動作在同一個視野裡，才不會看到提醒卻要再找按鈕在哪。 */
+  .pend-notice{margin:12px 16px 0; font-size:13px; font-weight:700; line-height:1.6;
+               border-radius:8px; padding:8px 10px; display:flex; gap:8px; align-items:flex-start;}
+  .pend-notice.info{color:#0b4f6c; background:#e8f4fa; border:1px solid #a9d3e6;}
+  .pend-notice.warn{color:#8a5a00; background:#fff6e0; border:1px solid #f0d089;}
+  .pend-notice.danger{color:#8a1f1f; background:#fdecec; border:1px solid #f0a9a9;}
+  /* 待認領照片的預覽。物件在私有 bucket，縮圖是登入後另外抓回來的 blob URL；
+     抓不到就維持佔位樣式（不是壞掉，是還沒授權或照片已被 lifecycle 清掉）。 */
+  .pend-photo{display:flex; align-items:center; justify-content:center;
+              font-size:12px; color:var(--muted); overflow:hidden; cursor:default;}
+  .pend-photo.has-img{cursor:zoom-in;}
+  .pend-photo img{width:100%; height:100%; object-fit:cover; display:block;}
+  .pend-more{align-self:flex-start; font-size:11.5px; font-weight:700; color:var(--brand);
+             background:none; border:none; padding:2px 0; cursor:pointer; text-decoration:underline;}
+  /* 照片燈箱：認領前要看清楚名片上的字，所以是整頁覆蓋而不是小卡 */
+  .pv-overlay{position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.72);
+              display:flex; flex-direction:column; padding:16px; gap:12px;}
+  .pv-bar{display:flex; align-items:center; gap:10px; color:#fff; font-weight:700; font-size:14px;}
+  .pv-bar .btn{margin-left:auto;}
+  .pv-body{flex:1; overflow:auto; display:flex; flex-wrap:wrap; gap:12px; align-content:flex-start; justify-content:center;}
+  .pv-item{background:#fff; border-radius:10px; padding:8px; max-width:min(420px, 100%);}
+  .pv-item figcaption{font-size:12px; font-weight:700; color:var(--muted); padding:6px 2px 0;}
+  .pv-item img{max-width:100%; max-height:60vh; display:block; border-radius:6px;}
+  .pv-empty{color:#fff; font-size:13px; align-self:center;}
   @media (max-width:600px){
     .pend-card{flex-wrap:wrap;}
     .pend-actions{flex-direction:row; width:100%;}
@@ -384,7 +423,18 @@
     <span class="pending-title">🙋 新夥伴待認領</span>
     <span class="pending-sub" id="pending-sub"></span>
   </div>
+  <!-- 兩筆以上就催一次；接近上限時升級措辭（文案由 AdminLogic.pendingNotice 決定） -->
+  <div class="pend-notice" id="pending-notice" hidden></div>
   <div class="pending-list" id="pending-list"></div>
+</div>
+
+<!-- 待認領照片的燈箱。照片存在私有空間，這裡顯示的是登入後即時抓回來的內容 -->
+<div class="pv-overlay" id="pv-overlay" hidden>
+  <div class="pv-bar">
+    <span id="pv-title"></span>
+    <button class="btn btn-sm" id="pv-close" type="button">關閉</button>
+  </div>
+  <div class="pv-body" id="pv-body"></div>
 </div>
 
 <!-- 連線設定：只有「後端服務網址」這一項，不是密碼，設定一次就好 -->
@@ -484,6 +534,7 @@
 
 <script src="site-config.js?v=1"></script>
 <script src="csv-schema.js?v=2"></script>
-<script src="admin.js?v=9"></script>
+<script src="admin-logic.js?v=1"></script>
+<script src="admin.js?v=10"></script>
 </body>
 </html>

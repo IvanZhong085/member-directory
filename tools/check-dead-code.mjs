@@ -15,7 +15,9 @@ const read = f => { try { return readFileSync(join(ROOT, f), "utf8"); } catch (e
 
 /* 每個頁面實際載入的檔案組(依各 html 的 <script> 清單維護) */
 const PAGES = {
-  "admin.html":     ["site-config.js", "csv-schema.js", "admin.js", "admin.html"],
+  /* admin-logic.js 也要列進來:它是 admin.html 實際載入的檔案之一,漏了的話
+     它裡面的函式從來不會被掃到 —— 抽出來的純邏輯少了呼叫端也不會有人發現。 */
+  "admin.html":     ["site-config.js", "csv-schema.js", "admin-logic.js", "admin.js", "admin.html"],
   "index.html":     ["site-config.js", "data.js", "qrcode.js", "sharecard.js", "app.js", "index.html"],
   "spotlight.html": ["site-config.js", "data.js", "qrcode.js", "sharecard.js", "spotlight.js", "spotlight.html"],
   "groups.html":    ["site-config.js", "data.js", "qrcode.js", "groups.html"],

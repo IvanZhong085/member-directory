@@ -186,7 +186,9 @@ function objKeys_(o) { var a = []; for (var k in o) if (Object.prototype.hasOwnP
      「沒有上傳任何檔案」→ 表單那次就沒選圖,重填一次即可,程式沒問題。
      「Drive 讀不到」    → 腳本沒有 Drive 權限。這個函式本身會跳授權,允許後就好了。
                           (加了新權限之後觸發器會暫停,手動執行一次授權完就恢復。)
-     「縮圖拿不到」      → 不必處理,會自動改用原檔;只有原檔也超過 650KB 才會略過。
+     「縮圖拿不到」      → 會自動改用原檔;原檔也超過 190KB 時這一張會失敗,
+                           而失敗會讓**整筆申請不送出**(見 onNewMemberSubmit),
+                           資料仍完整留在表單回應與 Drive,修好後可補送。
      「不是名錄收得下的圖片格式」→ 那個檔不是圖片(例如把 PDF 傳到照片題)。
 
    ⚠ 這份表單有「上傳照片」題,Google 會要求填答者**登入 Google 帳號**才能送出。
@@ -417,11 +419,175 @@ function checkNewMemberForm() {
 
 /* 表單送出時自動觸發:把這份回應整理好,送到 Worker 的 /intake。
    任何一步失敗都寫進執行紀錄,回應本身仍留在試算表裡,不會遺失。 */
+/* ══ 通知 ═════════════════════════════════════════════════════════════════
+   為什麼需要這一段:先前申請沒送成功時,只寫進 Logger.log 就 return。
+   Apps Script 只有在函式**拋例外**時才會寄失敗信給擁有者,而這裡是正常 return ——
+   一封信都不會發。而執行紀錄沒有人會主動去看。
+
+   結果就是:填表的新夥伴看到「已送出」,名錄這邊零感知,申請一筆一筆掉,
+   要等到有人剛好想起來去翻執行紀錄才會發現。R2 還沒綁的那段時間正是這樣過去的。
+
+   兩個獨立的收件人,都是「專案設定 → 指令碼屬性」裡的一筆:
+     ALERT_EMAIL  失敗通知。這封是「東西壞了要修」,一定要寄;沒設就退回腳本擁有者。
+     NOTIFY_EMAIL 新申請進待認領區的通知。這封是「有人在等你認領」,
+                  沒設就不寄 —— 不是每個分會都想要每一筆都收信。
+
+   ★ 信裡只放姓名、錯誤碼與處理建議。不放照片、不放 secret、不放完整申請內容 ——
+     信會被轉寄、會留在收件匣,那不是放未認領者資料的地方。
+
+   ⚠⚠ 貼上這一版之後**必須手動執行一次任一函式重新授權**(建議 checkNotifySetup)。
+       MailApp 與 Session.getEffectiveUser 是這份腳本原本沒用過的 API,Apps Script
+       靠靜態分析整個專案推導所需權限,而「送出表單」那個觸發器用的是**建立當下那份
+       授權** —— 專案的權限集合一變大,舊授權就覆蓋不了,觸發器會以授權錯誤失敗。
+
+       這個失敗模式正好就是這段程式碼要消滅的東西:觸發器根本沒跑,所以連失敗通知
+       都發不出來;後台待認領區是空的,看起來就只是「最近沒人申請」。
+       checkNewMemberSetup 會偵測這件事並印出紅字,請務必跑一次。 */
+function alertEmail_() {
+  var v = String(PropertiesService.getScriptProperties().getProperty("ALERT_EMAIL") || "").trim();
+  if (v) return v;
+  // 沒設就寄給腳本擁有者。取不到(權限或帳號類型)就回空字串,由呼叫端記錄「沒寄出」。
+  try { return String(Session.getEffectiveUser().getEmail() || "").trim(); }
+  catch (err) { return ""; }
+}
+
+/* 寄信本身失敗絕不能影響上面的結論。配額用完、收件人打錯都只記一行紀錄。 */
+function sendMail_(to, subject, body) {
+  if (!to) return false;
+  try { MailApp.sendEmail(to, subject, body); return true; }
+  catch (err) { Logger.log("⚠ 通知信寄不出去(不影響上面的結果):" + err); return false; }
+}
+
+var MAIL_FOOTER_ = "\n\n———\n這封信由會員名錄的 Apps Script 自動寄出，內容不含照片與密碼。";
+
+/* 姓名來自表單,長度沒有保證(Worker 那頭會砍到 80,但這裡拿到的是原始值)。
+   直接組進主旨的話,一個貼了幾千字的惡作劇填答會讓主旨爆掉、信件難讀。 */
+function shortName_(s) {
+  var v = String(s == null ? "" : s).replace(/[\r\n\t]+/g, " ").trim();
+  if (!v) return "(未填姓名)";
+  return v.length > 80 ? v.slice(0, 80) + "…" : v;
+}
+
+function notifyIntakeFailure_(name, why, hint) {
+  var who = shortName_(name);
+  var to = alertEmail_();
+  var sent = sendMail_(to, "【會員名錄】新夥伴申請沒有進待認領區：" + who,
+    "有一筆新夥伴自填表單的申請沒有進到待認領區。\n\n" +
+    "姓名：" + who + "\n" +
+    "原因：" + why + "\n\n" +
+    hint + "\n\n" +
+    "表單回應與上傳的原始檔都完整保留在 Google 表單的回應試算表裡，修正後可以補送，不會遺失。" +
+    MAIL_FOOTER_);
+  Logger.log(sent ? "   ✉ 已通知 " + to
+                  : "   ✉ 沒有寄出通知(沒設 ALERT_EMAIL,也取不到腳本擁有者信箱)");
+}
+
+function notifyIntakeSuccess_(name, pending) {
+  var to = String(PropertiesService.getScriptProperties().getProperty("NOTIFY_EMAIL") || "").trim();
+  if (!to) return;                       // 選用功能,沒設就安靜略過
+  var who = shortName_(name);
+  sendMail_(to, "【會員名錄】有新夥伴等待認領：" + who,
+    "「" + who + "」的自填資料已經進到待認領區。\n" +
+    "目前共 " + pending + " 筆等待認領。\n\n" +
+    "請組長到編輯頁的「新夥伴待認領」區認領：\n" +
+    SITE_BASE_URL + "admin.html" +
+    MAIL_FOOTER_);
+}
+
+/* 不改任何東西,只把通知設定印出來、並實際寄一封測試信。
+   「以為有設好」與「真的收得到」是兩件事,而這條路只有在出事時才會被用到 ——
+   那時候才發現寄不出去就太晚了。 */
+/* 專案的權限集合變大之後,舊授權會失效,而**觸發器會安靜地停擺**。
+   回傳 true 代表需要重新授權。這是唯一能在「申請開始掉」之前發現的方法。 */
+function needsReauth_() {
+  try {
+    var info = ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL);
+    return info.getAuthorizationStatus() === ScriptApp.AuthorizationStatus.REQUIRED;
+  } catch (err) { return false; }        // 取不到就別嚇人,下面的測試信照樣會驗到
+}
+
+/* 授權用的網址。
+   ★ 為什麼需要它:這支腳本把 MailApp / Session 的呼叫都包在 try/catch 裡(寄信失敗
+     絕不能連累申請送出),而「權限不足」正是以例外的形式出現 —— 於是它被一起吞掉,
+     函式順順跑完,編輯器也就**不會跳出同意畫面**。
+     結果是一個死結:檢查函式告訴你「要重新授權」,但你怎麼跑它都不會出現授權畫面。
+     把 Google 給的授權網址直接印出來,是唯一一定走得到的路。 */
+function reauthUrl_() {
+  try { return ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL).getAuthorizationUrl() || ""; }
+  catch (err) { return ""; }
+}
+
+/* 設定失敗通知的收件人。用函式而不是叫人去「指令碼屬性」手動加一筆 ——
+   屬性名稱打錯一個字就完全沒有效果,而且不會有任何提示。 */
+function setAlertEmail(email) { return setNotifyProp_("ALERT_EMAIL", email, "失敗通知"); }
+
+/* 設定「有新申請」的通知收件人(選用)。傳空字串就是關掉。 */
+function setNotifyEmail(email) { return setNotifyProp_("NOTIFY_EMAIL", email, "新申請通知"); }
+
+function setNotifyProp_(key, email, label) {
+  var v = String(email == null ? "" : email).trim();
+  var props = PropertiesService.getScriptProperties();
+  if (!v) {
+    props.deleteProperty(key);
+    Logger.log("已清掉 " + key + "(" + label + "改為不寄／退回腳本擁有者)");
+    return;
+  }
+  // 只做基本形狀檢查:擋掉貼錯的網址或整段文字,不試圖驗證信箱真的存在
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+    throw new Error('看起來不像 email:「' + v + '」。用法:setAlertEmail("someone@gmail.com")');
+  }
+  props.setProperty(key, v);
+  Logger.log("✅ " + key + " 已設為 " + v + "(" + label + ")");
+  Logger.log("   接著跑 checkNotifySetup 確認授權並收一封測試信。");
+}
+
+function checkNotifySetup() {
+  var props = PropertiesService.getScriptProperties();
+  var alertTo = String(props.getProperty("ALERT_EMAIL") || "").trim();
+  var notifyTo = String(props.getProperty("NOTIFY_EMAIL") || "").trim();
+  var effective = alertEmail_();
+  Logger.log("ALERT_EMAIL   :" + (alertTo || "(沒設 → 用腳本擁有者)"));
+  Logger.log("實際收件人    :" + (effective || "✗ 取不到 —— 失敗通知會寄不出去,請設 ALERT_EMAIL"));
+  Logger.log("NOTIFY_EMAIL  :" + (notifyTo || "(沒設 → 不寄「有新申請」的通知)"));
+  try { Logger.log("今日可寄額度  :" + MailApp.getRemainingDailyQuota() + " 封"); }
+  catch (err) { Logger.log("今日可寄額度  :取不到(通常就是還沒授權)"); }
+
+  if (needsReauth_()) {
+    var url = reauthUrl_();
+    Logger.log("授權狀態      :🔴 需要重新授權");
+    Logger.log("");
+    Logger.log("   ⚠ 在授權完成之前,送出表單的觸發器不會執行,新夥伴的申請會全部靜默失敗。");
+    Logger.log("");
+    /* 一定要把網址印出來:直接按「執行」不會跳出同意畫面(見 reauthUrl_ 的說明),
+       只看到這段紅字卻找不到授權入口的話,人就卡在這裡了。 */
+    Logger.log("   👉 用瀏覽器打開這個網址完成授權(複製整行,含結尾):");
+    Logger.log("   " + (url || "(取不到授權網址 —— 改用編輯器左側「觸發條件」頁," +
+                               "點任一觸發器的「⋮」→ 執行一次,那裡會強制跳出同意畫面)"));
+    Logger.log("");
+    Logger.log("   同意之後回來再跑一次 checkNotifySetup,這段紅字消失就代表好了。");
+    return;                     // 還沒授權就別往下試寄信 —— 一定失敗,徒增困惑
+  }
+  Logger.log("授權狀態      :✅ 不需要重新授權");
+  if (!effective) {
+    Logger.log("測試信        :跳過(沒有收件人)—— 跑 setAlertEmail(\"你的信箱\") 設一個");
+    return;
+  }
+  var ok = sendMail_(effective, "【會員名錄】通知設定測試",
+    "看到這封信代表失敗通知寄得出去。\n" +
+    "真正的通知只會在新夥伴的申請沒有進到待認領區時寄出。" + MAIL_FOOTER_);
+  Logger.log(ok ? "測試信        :✅ 已寄到 " + effective : "測試信        :✗ 寄不出去(見上方錯誤)");
+}
+
 function onNewMemberSubmit(e) {
   var props = PropertiesService.getScriptProperties();
   var relay = String(props.getProperty("RELAY_URL") || "").replace(/\/+$/, "");
   var secret = props.getProperty("INTAKE_SECRET");
-  if (!relay || !secret) { Logger.log("✗ 沒設 RELAY_URL / INTAKE_SECRET,這筆沒有送出"); return; }
+  if (!relay || !secret) {
+    Logger.log("✗ 沒設 RELAY_URL / INTAKE_SECRET,這筆沒有送出");
+    notifyIntakeFailure_("(設定未完成)", "Apps Script 少了 RELAY_URL 或 INTAKE_SECRET",
+      "請到「專案設定 → 指令碼屬性」補上這兩筆,再跑一次 checkNewMemberSetup 確認。");
+    return;
+  }
 
   var byTitle = {};
   var items = e.response.getItemResponses();
@@ -450,14 +616,44 @@ function onNewMemberSubmit(e) {
     tagline:        text("tagline"),
     business_items: text("business_items"),
     website:        text("website"),
-    image:          photos.length ? driveImageDataUrl_(photos[0], 900, "形象照") : "",
-    card:           cards.length ? driveImageDataUrl_(cards[0], 900, "名片照片") : "",
-    products:       products.slice(0, 5).map(function (id, n) { return driveImageDataUrl_(id, 900, "商品照片 " + (n + 1)); })
-                      .filter(function (s) { return !!s; }),
+    image:          "",
+    card:           "",
+    products:       [],
   };
-  Logger.log("照片處理結果:形象照 " + (applicant.image ? "✓" : "✗") +
-             "、名片 " + (applicant.card ? "✓" : "✗") +
-             "、商品 " + applicant.products.length + "/" + Math.min(products.length, 5) + " 張");
+
+  /* ★ 轉圖失敗不可以變成空字串送出去。
+     先前的做法是「拿不到就回 ""」,而 Worker 看到空值只會當成「使用者沒有上傳這一張」——
+     於是 /intake 回報成功、photoWarnings 是空的、後台也只覺得照片比較少,
+     沒有任何人知道其實有一張照片處理失敗了。表單那頭更是完全無感。
+     現在:表單上傳了幾張,就必須成功轉出幾張;任何一張失敗就**整筆不送**,
+     資料與原檔都還在 Form/Drive,修好之後可以補送。
+     ★ 商品照也不再先 .filter() —— 那會讓索引與原始欄位對不起來,查問題時找錯張。 */
+  var photoFails = [];
+  var conv = function (id, label, field) {
+    var url = driveImageDataUrl_(id, 900, label);
+    if (!url) photoFails.push(field);
+    return url;
+  };
+  if (photos.length) applicant.image = conv(photos[0], "形象照", "image");
+  if (cards.length)  applicant.card  = conv(cards[0], "名片照片", "card");
+  var prodIds = products.slice(0, 5);
+  for (var pi = 0; pi < prodIds.length; pi++) {
+    applicant.products.push(conv(prodIds[pi], "商品照片 " + (pi + 1), "product[" + pi + "]"));
+  }
+
+  Logger.log("照片處理結果:形象照 " + (photos.length ? (applicant.image ? "✓" : "✗") : "—") +
+             "、名片 " + (cards.length ? (applicant.card ? "✓" : "✗") : "—") +
+             "、商品 " + applicant.products.filter(String).length + "/" + prodIds.length + " 張");
+
+  if (photoFails.length) {
+    Logger.log("✗ 這一筆【沒有】送出:" + applicant.name +
+               " —— 有上傳照片但轉檔失敗(" + photoFails.join("、") + ")。" +
+               "\n   常見原因:Drive 還沒產出縮圖(稍後重試即可)、原檔超過上限、或不是圖片格式。" +
+               "\n   表單回應與原始檔都完整保留,修正後可請網管補送 —— 不會遺失。");
+    notifyIntakeFailure_(applicant.name, "照片轉檔失敗(" + photoFails.join("、") + ")",
+      "常見原因:Drive 還沒產出縮圖(稍後重跑一次通常就好)、原檔太大、或上傳的不是圖片格式。");
+    return;
+  }
 
   var res;
   try {
@@ -469,13 +665,42 @@ function onNewMemberSubmit(e) {
     });
   } catch (err) {
     Logger.log("✗ 連不到發布服務:" + err + "(回應仍在試算表裡,可請網管手動處理)");
+    notifyIntakeFailure_(applicant.name, "連不到發布服務(Cloudflare Worker)",
+      "請確認 Worker 還在線上、RELAY_URL 沒有打錯。網路只是暫時抖動的話,補送一次即可。");
     return;
   }
+  /* ★ 真的把回應解析出來,不要只用字串比對。
+     照片改存私有 R2 之後,Worker 會在照片有問題時**整筆退回**(而不是像以前那樣
+     靜默丟掉一張照片仍回報成功)。所以這裡的紀錄必須讓人一眼看出:
+     這一筆到底進去了沒有、卡在哪一個欄位、要不要人工補送。 */
   var code = res.getResponseCode(), body = res.getContentText();
-  if (code === 200 && body.indexOf('"ok":true') >= 0) {
-    Logger.log("✅ 已送進待認領區:" + applicant.name + " " + body);
+  var out = null;
+  try { out = JSON.parse(body); } catch (err2) { out = null; }
+
+  if (code === 200 && out && out.ok === true) {
+    Logger.log("✅ 已送進待認領區:" + applicant.name +
+               "(pid " + out.pid + "、照片 " + (out.photos || 0) + " 張、目前共 " + out.pending + " 筆)");
+    /* Worker 回報的警告:記下是哪一位、哪一個欄位、什麼原因,但**不記照片內容**。 */
+    if (out.warnings && out.warnings.length) {
+      for (var wi = 0; wi < out.warnings.length; wi++) {
+        Logger.log("   ⚠ " + out.pid + " 欄位 " + out.warnings[wi].field + ":" + out.warnings[wi].reason);
+      }
+    }
+    notifyIntakeSuccess_(applicant.name, out.pending);
   } else {
-    Logger.log("✗ 送出失敗(HTTP " + code + "):" + body + "\n   回應仍在試算表裡,可請網管手動處理。");
+    var why = out && out.error ? out.error : ("HTTP " + code);
+    var where = out && out.field ? "(欄位 " + out.field + ")" : "";
+    var hint =
+      why === "pending_image_store_unavailable" ? "Worker 還沒接上待認領照片的儲存空間(R2),請先完成設定再重送。" :
+      why === "pending_image_too_large"         ? "照片超過單張上限,請用較小的圖或降低表單上傳解析度。" :
+      why === "invalid_pending_image"           ? "照片格式不是名錄收得下的 JPEG/PNG/WebP。" :
+      why === "pending_full"                    ? "待認領區已滿,請組長先認領或刪除幾筆再重送。" :
+      why === "pending_entry_too_large"         ? "文字欄位太長,請縮短後重送。" :
+      "請把這行紀錄提供給網管。";
+    Logger.log("✗ 這一筆【沒有】進待認領區:" + applicant.name + " —— " + why + where +
+               "\n   " + hint +
+               "\n   回應仍完整留在試算表裡,修正後可請網管手動補送(不會遺失)。");
+    notifyIntakeFailure_(applicant.name, why + where, hint);
   }
 
   /* 照片歸檔(選用,見 setPhotoArchiveFolder)。
@@ -502,7 +727,12 @@ function onNewMemberSubmit(e) {
    ③ 有些檔案 Drive 始終不產縮圖 —— 退回用原檔,小張的照片這樣就夠了。
    全部失敗才回傳空字串(照片沒了,其他資料照樣進待認領區),並在紀錄裡寫清楚卡在哪。 */
 function driveImageDataUrl_(fileId, maxWidth, label) {
-  var widths = [maxWidth, 600, 400];
+  /* 從 900 開始往下降,取**位元組上限之內能拿到的最大解析度**(不是「取最小的圖」)。
+     原本階梯是 [maxWidth, 600, 400],而呼叫端傳進來的 maxWidth 偏大,於是一張名片
+     進來 665KB。900px 寬的名片字仍然看得清楚,檔案約 80~150KB;拿不到才降到 700、500。
+     照片現在存在私有 R2、不進公開 repo,所以這個階梯只跟「畫質 vs 單張上限」有關,
+     與「同時能有幾筆待認領」已經完全脫鉤(見 worker 的 MAX_PENDING_ENTRY_BYTES)。 */
+  var widths = [Math.min(maxWidth || 900, 900), 700, 500];
   var tag = (label || "照片") + "(" + fileId + ")";
   var state = { code: 0, note: "" };
 
@@ -522,7 +752,7 @@ function driveImageDataUrl_(fileId, maxWidth, label) {
   try {   // ③ 縮圖始終拿不到,改用原檔
     var out2 = blobToDataUrl_(DriveApp.getFileById(fileId).getBlob(), tag);
     if (out2) { Logger.log("· " + tag + ":改用原檔(拿不到縮圖)"); return out2; }
-    Logger.log("⚠ " + tag + ":原檔超過 650KB 又沒有縮圖,這張略過");
+    Logger.log("⚠ " + tag + ":原檔超過上限(190KB)又沒有縮圖 —— 這一筆申請不會送出,請改用較小的圖重新上傳");
   } catch (err2) {
     Logger.log("⚠ " + tag + ":讀不到檔案(縮圖最後回 HTTP " + state.code + ")" + err2 +
                (state.note ? "\n   " + state.note : "") +
@@ -637,9 +867,12 @@ function blobToDataUrl_(blob, tag) {
       return "";
     }
   }
-  var b64 = Utilities.base64Encode(blob.getBytes());
-  if (b64.length > 650 * 1024) return "";   // Worker 端單張上限約 700KB base64,留一點餘裕
-  return "data:" + type + ";base64," + b64;
+  var bytes = blob.getBytes();
+  /* Worker 端單張上限是**解碼後 200KB**(PENDING_IMG_BYTES_MAX),這裡以同樣的單位
+     留一點餘裕。照片改存私有 R2 之後,7 張都保得住,不會再因為「單筆總額」而被
+     靜默丟掉其中幾張 —— 所以這裡也不再做任何總額判斷。 */
+  if (bytes.length > 190 * 1024) return "";
+  return "data:" + type + ";base64," + Utilities.base64Encode(bytes);
 }
 
 /* 觸發器不見了(手動刪掉、或表單重建過)時用這個補回來。
@@ -691,6 +924,30 @@ function checkNewMemberSetup() {
   var cn = 0;
   for (var k = 0; k < all.length; k++) if (all[k].getHandlerFunction() === CLEANUP_TRIGGER) cn++;
   Logger.log("每月清理照片  :" + (cn ? "✅ 已排定(每月 1 號)" : "未啟用(要開就跑 setupPhotoCleanupTrigger)"));
+
+  /* 申請沒送成功時唯一會主動通知人的路徑。沒設定的話,失敗就只留在執行紀錄裡 ——
+     而那正是「表單看起來正常、申請卻一直沒進來」最常見的原因。 */
+  Logger.log("失敗通知      :" + (alertEmail_() ? "✅ 寄給 " + alertEmail_() + "(細節與測試信跑 checkNotifySetup)"
+                                                : "✗ 沒有收件人 —— 申請送失敗時不會有人知道,請設 ALERT_EMAIL"));
+
+  /* ★ 最容易被忽略、後果卻最嚴重的一項。放在最後印,因為它會蓋掉上面所有的 ✅ ——
+     授權沒完成的話,觸發器根本不會跑,上面每一行設定得多正確都沒有用。 */
+  if (needsReauth_()) {
+    Logger.log("");
+    Logger.log("🔴🔴🔴 授權需要更新 —— 目前每一筆新夥伴申請都會靜默失敗 🔴🔴🔴");
+    Logger.log("   這一版的程式碼用到了新的 Google 權限(寄信、讀取自己的帳號信箱)。");
+    Logger.log("   Apps Script 的觸發器用的是「建立當時那份授權」,權限一變大它就會停擺,");
+    /* 措辭修正:Google **會**寄「Summary of failures for Google Apps Script」給腳本擁有者。
+       但那是每日彙總、標題長得像系統雜訊、而且在它寄達之前申請已經在掉了;
+       這支腳本自己的失敗通知信更是完全發不出去(觸發器根本沒跑到那一行)。
+       把話說準比說重要 —— 講成「完全沒有通知」的話,收到彙總信的人會以為是別的問題。 */
+    Logger.log("   自己的失敗通知信完全發不出去(觸發器根本沒跑到那一行);");
+    Logger.log("   Google 只會寄每日的「Summary of failures」彙總,很容易被當成雜訊略過。");
+    Logger.log("   ⚠ 直接按「執行」不會跳出同意畫面(權限錯誤被 try/catch 吞掉了),");
+    Logger.log("     請跑 checkNotifySetup,它會印出可以直接打開的授權網址。");
+  } else {
+    Logger.log("授權狀態      :✅ 不需要重新授權");
+  }
 
   if (!relay || !secret) return;
   // 故意送一份不完整的申請:secret 對的話會回 bad_applicant,代表這條路是通的

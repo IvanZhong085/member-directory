@@ -98,6 +98,10 @@
   }
   .cta-btn:hover{transform:translateY(-2px); background:var(--red-dark);}
   .cta-btn:disabled{opacity:.6; cursor:default; transform:none; box-shadow:none;}
+  /* hidden 屬性靠瀏覽器預設樣式的 display:none 生效,任何自訂 display 都會蓋過它。
+     .cta-btn 設了 inline-block,於是表單開通後 cta.hidden = true 形同無效,
+     內嵌表單與舊按鈕會同時出現。這條讓 el.hidden = true 一律說了算。 */
+  [hidden]{display:none !important;}
   .cta-alt{font-size:12.5px; color:var(--muted); margin-top:12px;}
 
   /* ── 內嵌報名表單(floating label)──
