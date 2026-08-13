@@ -506,6 +506,41 @@ function needsReauth_() {
   } catch (err) { return false; }        // 取不到就別嚇人,下面的測試信照樣會驗到
 }
 
+/* 授權用的網址。
+   ★ 為什麼需要它:這支腳本把 MailApp / Session 的呼叫都包在 try/catch 裡(寄信失敗
+     絕不能連累申請送出),而「權限不足」正是以例外的形式出現 —— 於是它被一起吞掉,
+     函式順順跑完,編輯器也就**不會跳出同意畫面**。
+     結果是一個死結:檢查函式告訴你「要重新授權」,但你怎麼跑它都不會出現授權畫面。
+     把 Google 給的授權網址直接印出來,是唯一一定走得到的路。 */
+function reauthUrl_() {
+  try { return ScriptApp.getAuthorizationInfo(ScriptApp.AuthMode.FULL).getAuthorizationUrl() || ""; }
+  catch (err) { return ""; }
+}
+
+/* 設定失敗通知的收件人。用函式而不是叫人去「指令碼屬性」手動加一筆 ——
+   屬性名稱打錯一個字就完全沒有效果,而且不會有任何提示。 */
+function setAlertEmail(email) { return setNotifyProp_("ALERT_EMAIL", email, "失敗通知"); }
+
+/* 設定「有新申請」的通知收件人(選用)。傳空字串就是關掉。 */
+function setNotifyEmail(email) { return setNotifyProp_("NOTIFY_EMAIL", email, "新申請通知"); }
+
+function setNotifyProp_(key, email, label) {
+  var v = String(email == null ? "" : email).trim();
+  var props = PropertiesService.getScriptProperties();
+  if (!v) {
+    props.deleteProperty(key);
+    Logger.log("已清掉 " + key + "(" + label + "改為不寄／退回腳本擁有者)");
+    return;
+  }
+  // 只做基本形狀檢查:擋掉貼錯的網址或整段文字,不試圖驗證信箱真的存在
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+    throw new Error('看起來不像 email:「' + v + '」。用法:setAlertEmail("someone@gmail.com")');
+  }
+  props.setProperty(key, v);
+  Logger.log("✅ " + key + " 已設為 " + v + "(" + label + ")");
+  Logger.log("   接著跑 checkNotifySetup 確認授權並收一封測試信。");
+}
+
 function checkNotifySetup() {
   var props = PropertiesService.getScriptProperties();
   var alertTo = String(props.getProperty("ALERT_EMAIL") || "").trim();
@@ -514,11 +549,29 @@ function checkNotifySetup() {
   Logger.log("ALERT_EMAIL   :" + (alertTo || "(沒設 → 用腳本擁有者)"));
   Logger.log("實際收件人    :" + (effective || "✗ 取不到 —— 失敗通知會寄不出去,請設 ALERT_EMAIL"));
   Logger.log("NOTIFY_EMAIL  :" + (notifyTo || "(沒設 → 不寄「有新申請」的通知)"));
-  try { Logger.log("今日可寄額度  :" + MailApp.getRemainingDailyQuota() + " 封"); } catch (err) {}
-  Logger.log("授權狀態      :" + (needsReauth_()
-    ? "🔴 需要重新授權 —— 在授權完成之前,送出表單的觸發器不會執行,申請會全部靜默失敗"
-    : "✅ 不需要重新授權"));
-  if (!effective) return;
+  try { Logger.log("今日可寄額度  :" + MailApp.getRemainingDailyQuota() + " 封"); }
+  catch (err) { Logger.log("今日可寄額度  :取不到(通常就是還沒授權)"); }
+
+  if (needsReauth_()) {
+    var url = reauthUrl_();
+    Logger.log("授權狀態      :🔴 需要重新授權");
+    Logger.log("");
+    Logger.log("   ⚠ 在授權完成之前,送出表單的觸發器不會執行,新夥伴的申請會全部靜默失敗。");
+    Logger.log("");
+    /* 一定要把網址印出來:直接按「執行」不會跳出同意畫面(見 reauthUrl_ 的說明),
+       只看到這段紅字卻找不到授權入口的話,人就卡在這裡了。 */
+    Logger.log("   👉 用瀏覽器打開這個網址完成授權(複製整行,含結尾):");
+    Logger.log("   " + (url || "(取不到授權網址 —— 改用編輯器左側「觸發條件」頁," +
+                               "點任一觸發器的「⋮」→ 執行一次,那裡會強制跳出同意畫面)"));
+    Logger.log("");
+    Logger.log("   同意之後回來再跑一次 checkNotifySetup,這段紅字消失就代表好了。");
+    return;                     // 還沒授權就別往下試寄信 —— 一定失敗,徒增困惑
+  }
+  Logger.log("授權狀態      :✅ 不需要重新授權");
+  if (!effective) {
+    Logger.log("測試信        :跳過(沒有收件人)—— 跑 setAlertEmail(\"你的信箱\") 設一個");
+    return;
+  }
   var ok = sendMail_(effective, "【會員名錄】通知設定測試",
     "看到這封信代表失敗通知寄得出去。\n" +
     "真正的通知只會在新夥伴的申請沒有進到待認領區時寄出。" + MAIL_FOOTER_);
@@ -890,8 +943,8 @@ function checkNewMemberSetup() {
        把話說準比說重要 —— 講成「完全沒有通知」的話,收到彙總信的人會以為是別的問題。 */
     Logger.log("   自己的失敗通知信完全發不出去(觸發器根本沒跑到那一行);");
     Logger.log("   Google 只會寄每日的「Summary of failures」彙總,很容易被當成雜訊略過。");
-    Logger.log("   處理方式:在上方函式下拉選單選 checkNotifySetup → 按「執行」→ 同意授權。");
-    Logger.log("   同意之後再跑一次這支檢查,這段紅字消失就代表好了。");
+    Logger.log("   ⚠ 直接按「執行」不會跳出同意畫面(權限錯誤被 try/catch 吞掉了),");
+    Logger.log("     請跑 checkNotifySetup,它會印出可以直接打開的授權網址。");
   } else {
     Logger.log("授權狀態      :✅ 不需要重新授權");
   }
