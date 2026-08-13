@@ -884,7 +884,12 @@ function checkNewMemberSetup() {
     Logger.log("🔴🔴🔴 授權需要更新 —— 目前每一筆新夥伴申請都會靜默失敗 🔴🔴🔴");
     Logger.log("   這一版的程式碼用到了新的 Google 權限(寄信、讀取自己的帳號信箱)。");
     Logger.log("   Apps Script 的觸發器用的是「建立當時那份授權」,權限一變大它就會停擺,");
-    Logger.log("   而且**不會有任何錯誤通知**(連新加的失敗通知信也發不出去)。");
+    /* 措辭修正:Google **會**寄「Summary of failures for Google Apps Script」給腳本擁有者。
+       但那是每日彙總、標題長得像系統雜訊、而且在它寄達之前申請已經在掉了;
+       這支腳本自己的失敗通知信更是完全發不出去(觸發器根本沒跑到那一行)。
+       把話說準比說重要 —— 講成「完全沒有通知」的話,收到彙總信的人會以為是別的問題。 */
+    Logger.log("   自己的失敗通知信完全發不出去(觸發器根本沒跑到那一行);");
+    Logger.log("   Google 只會寄每日的「Summary of failures」彙總,很容易被當成雜訊略過。");
     Logger.log("   處理方式:在上方函式下拉選單選 checkNotifySetup → 按「執行」→ 同意授權。");
     Logger.log("   同意之後再跑一次這支檢查,這段紅字消失就代表好了。");
   } else {
