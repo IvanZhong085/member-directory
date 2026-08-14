@@ -231,42 +231,6 @@
       "id": "g3_m8",
       "dataIssue": false,
       "updatedAt": ""
-    },
-    {
-      "id": "g3_m_mst6iq0redl",
-      "number": "",
-      "name": "測試",
-      "title": "水禽契約養殖",
-      "services": [
-        "8399787"
-      ],
-      "targets": [
-        "7837387"
-      ],
-      "have": [
-        "783783"
-      ],
-      "want": [
-        "783783"
-      ],
-      "tagline": [
-        "783783783"
-      ],
-      "image": "g3_m_mst6iq0redl_x_8a601ad2b0.jpg",
-      "card": "g3_m_mst6iq0redl_card_f5d7365927.png",
-      "products": [
-        "g3_m_mst6iq0redl_p1_8a601ad2b0.jpg",
-        "g3_m_mst6iq0redl_p2_3a74b8e80d.jpg",
-        "g3_m_mst6iq0redl_p3_7cdcd76a6e.jpg",
-        "g3_m_mst6iq0redl_p4_378786d58d.jpg",
-        "g3_m_mst6iq0redl_p5_2ff0e27fdb.jpg"
-      ],
-      "company": "12313215",
-      "business_items": "457857",
-      "website": "",
-      "dataIssue": true,
-      "claimedFrom": "p_mst6h7o12uhn",
-      "updatedAt": "2026-08-14T16:46:27.374Z"
     }
   ],
   "recruiting": [
