@@ -13,7 +13,8 @@
 
 <header class="topbar">
   <div class="topbar-inner">
-    <a class="brand" href="./" aria-label="回到名錄首頁">
+    <!-- 念名必須包含畫面上的字(WCAG 2.5.3),理由同 index.html 的 brand。 -->
+    <a class="brand" href="./" aria-label="夥伴聚光燈 SPOTLIGHT STUDIO，回到名錄首頁">
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
@@ -48,12 +49,16 @@
 
   <section class="sp-pane">
     <h2 class="sp-h">2・貼文文案</h2>
-    <div class="sp-tabs" role="tablist">
-      <button class="sp-tab active" data-style="warm" type="button">FB／IG</button>
-      <button class="sp-tab" data-style="pro" type="button">正式版</button>
-      <button class="sp-tab" data-style="short" type="button">LINE 短版</button>
+    <!-- 不標 role="tablist":ARIA 規定 tablist 底下必須是 role="tab"(axe 判 critical),
+         而這三顆其實只是文案風格切換鈕,不是真的分頁 —— 誠實地當按鈕群組就好。 -->
+    <div class="sp-tabs">
+      <!-- aria-pressed:選中狀態只靠 .active 配色的話,螢幕報讀的人按了「正式版」
+           什麼回饋都沒有,textarea 卻默默整段換掉 —— toggle button 才是這組的正解。 -->
+      <button class="sp-tab active" data-style="warm" type="button" aria-pressed="true">FB／IG</button>
+      <button class="sp-tab" data-style="pro" type="button" aria-pressed="false">正式版</button>
+      <button class="sp-tab" data-style="short" type="button" aria-pressed="false">LINE 短版</button>
     </div>
-    <textarea id="sp-text" class="sp-text" rows="14" spellcheck="false"></textarea>
+    <textarea id="sp-text" class="sp-text" rows="14" spellcheck="false" aria-label="貼文文案"></textarea>
     <div class="sp-actions">
       <button id="sp-copy" class="sp-btn sp-btn-primary" type="button">複製文案</button>
       <button id="sp-copy-ai" class="sp-btn" type="button" title="複製一段給 ChatGPT／Claude 的提示詞，讓 AI 幫你潤飾出更活的版本">複製 AI 潤飾提示詞</button>
@@ -63,8 +68,8 @@
   <section class="sp-pane">
     <h2 class="sp-h">3・分享卡</h2>
     <div class="sp-tabs">
-      <button class="sp-tab sp-fmt active" data-fmt="portrait" type="button">直式 4:5</button>
-      <button class="sp-tab sp-fmt" data-fmt="square" type="button">方形 1:1</button>
+      <button class="sp-tab sp-fmt active" data-fmt="portrait" type="button" aria-pressed="true">直式 4:5</button>
+      <button class="sp-tab sp-fmt" data-fmt="square" type="button" aria-pressed="false">方形 1:1</button>
     </div>
     <div class="sp-card-box"><canvas id="sp-canvas"></canvas></div>
     <div class="sp-actions">

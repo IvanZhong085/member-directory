@@ -24,7 +24,9 @@
     <button class="dir-toggle" id="dir-toggle" type="button" aria-label="開啟分組選單" aria-controls="dir-sidebar" aria-expanded="false">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
     </button>
-    <a class="brand" href="#/" id="brand-home" aria-label="回到首頁">
+    <!-- 念名必須「包含」畫面上的字:語音控制的人是對著看得到的字下指令的,
+         aria-label 只寫「回到首頁」的話,唸「點 雲榮鑽石分會」會點不到(WCAG 2.5.3)。 -->
+    <a class="brand" href="#/" id="brand-home" aria-label="雲榮鑽石分會 MEMBER DIRECTORY，回到首頁">
       <span class="brand-mark" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>

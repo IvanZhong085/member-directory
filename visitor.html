@@ -18,7 +18,10 @@
   :root{
     --red:#C8102E; --red-dark:#A50D26; --red-deep:#7C0A1D;
     --red-50:#FDF3F5; --red-100:#FAE4E8;
-    --ink:#1B1C22; --body:#3E414B; --muted:#6E727E; --hair:#ECEDF0; --bg-soft:#F7F7F8;
+    /* --muted 不能再淡:它在 --bg-soft 上的對比度只剩 4.41:1,低於 WCAG 的 4.5:1 ——
+       而這一頁的讀者正是年紀較大的參訪來賓,.cta-alt 與 footer 又只有 12.5px。
+       #676B77 在 #F7F7F8 上是 4.97:1、白底上 5.32:1,全頁用到 muted 的地方都過關。 */
+    --ink:#1B1C22; --body:#3E414B; --muted:#676B77; --hair:#ECEDF0; --bg-soft:#F7F7F8;
     --c-blue:#54C2F0; --c-yellow:#FFC42E; --c-green:#8CC63F; --c-peach:#FFB27D;
     --sans:"Noto Sans TC",-apple-system,BlinkMacSystemFont,"PingFang TC","Microsoft JhengHei",sans-serif;
   }
