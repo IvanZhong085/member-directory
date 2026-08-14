@@ -258,8 +258,10 @@
       const stack = withPhoto.map(m =>
         `<img src="${esc(imgSrc(m.image))}" alt="" loading="lazy">`
       ).join("") + (rest > 0 ? `<span class="avatar-more">+${rest}</span>` : "");
+      /* 卡片不另設 aria-label:語音控制的人是對著看得到的字下指令的,自訂念名一旦
+         與可見文字對不上(WCAG 2.5.3),唸「點 A1」就點不到。卡片內文本來就完整。 */
       html += `
-        <a class="group-card anim" style="--i:${Math.min(i,12)}" href="#/group/${encodeURIComponent(g.id)}" aria-label="${esc(g.code)} ${esc(g.name)}，共 ${g.members.length} 位成員">
+        <a class="group-card anim" style="--i:${Math.min(i,12)}" href="#/group/${encodeURIComponent(g.id)}">
           <div class="group-card-top">
             <span class="group-code">${esc(g.code)}</span>
             <span class="group-top-right">
