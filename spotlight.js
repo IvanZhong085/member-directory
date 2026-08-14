@@ -107,16 +107,18 @@
     const i = memberIndex.indexOf(cur);
     setCurrent(memberIndex[(i + 1) % memberIndex.length]);
   });
+  // aria-pressed 跟著 .active 走:選中狀態只有配色的話,螢幕報讀完全感知不到
+  const press = (x, on) => { x.classList.toggle("active", on); x.setAttribute("aria-pressed", String(on)); };
   document.querySelectorAll(".sp-tab[data-style]").forEach(b => {
     b.addEventListener("click", () => {
-      document.querySelectorAll(".sp-tab[data-style]").forEach(x => x.classList.toggle("active", x === b));
+      document.querySelectorAll(".sp-tab[data-style]").forEach(x => press(x, x === b));
       style = b.dataset.style;
       textEl.value = ShareTools.postText(cur, style);
     });
   });
   document.querySelectorAll(".sp-fmt").forEach(b => {
     b.addEventListener("click", () => {
-      document.querySelectorAll(".sp-fmt").forEach(x => x.classList.toggle("active", x === b));
+      document.querySelectorAll(".sp-fmt").forEach(x => press(x, x === b));
       fmt = b.dataset.fmt;
       drawCard();
     });

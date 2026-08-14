@@ -50,7 +50,9 @@
   .gitem-code{min-width:34px; height:28px; padding:0 7px; border-radius:8px; background:var(--red-50); color:var(--red); font-weight:900; font-size:12.5px; display:flex; align-items:center; justify-content:center; border:1px solid var(--red-100);}
   .gitem.active .gitem-code{background:var(--red); color:#fff; border-color:var(--red);}
   .gitem-name{font-size:13.5px; font-weight:700; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-  .gitem-count{font-size:11px; color:var(--faint); font-weight:700;}
+  /* 這幾個 11–12px 的「實體文字」不能用 --faint(#82868F 白底只有 3.65:1,低於 WCAG 4.5):
+     它是給裝飾性 icon 用的。文字一律至少 --muted。 */
+  .gitem-count{font-size:11px; color:var(--muted); font-weight:700;}
 
   .adm-main{display:flex; flex-direction:column; gap:16px; min-width:0;}
   .adm-card{background:#fff; border:1px solid var(--border); border-radius:var(--radius); padding:20px;}
@@ -65,7 +67,7 @@
   }
   .field textarea{resize:vertical; min-height:70px; line-height:1.6;}
   .field input:focus, .field textarea:focus{border-color:var(--red); box-shadow:0 0 0 3px var(--red-50);}
-  .field .hint{font-size:11px; color:var(--faint); font-weight:500;}
+  .field .hint{font-size:11px; color:var(--muted); font-weight:500;}
   .row3{display:grid; grid-template-columns:90px 1fr 1.3fr; gap:12px;}
   @media (max-width:560px){ .row3{grid-template-columns:1fr;} }
   .row2{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
@@ -76,14 +78,14 @@
   @media (max-width:640px){ .mem-card{grid-template-columns:1fr;} }
   .mem-photo-col{display:flex; flex-direction:column; gap:8px;}
   .mem-photo{width:100%; aspect-ratio:4/4.6; object-fit:cover; border-radius:10px; background:linear-gradient(160deg,#F3F4F6,#E8EAEE); display:block;}
-  .mem-photo-none{width:100%; aspect-ratio:4/4.6; border-radius:10px; background:var(--bg-soft); border:1.5px dashed var(--border-2); display:flex; flex-direction:column; gap:6px; align-items:center; justify-content:center; color:var(--faint); font-size:12px; font-weight:600;}
+  .mem-photo-none{width:100%; aspect-ratio:4/4.6; border-radius:10px; background:var(--bg-soft); border:1.5px dashed var(--border-2); display:flex; flex-direction:column; gap:6px; align-items:center; justify-content:center; color:var(--muted); font-size:12px; font-weight:600;}
   .mem-photo-none svg{width:30px; height:30px; opacity:.5;}
   .mem-photo-btns{display:flex; gap:6px;}
   .mem-photo-btns .btn{flex:1; justify-content:center;}
   .mem-fields{display:flex; flex-direction:column; gap:12px; min-width:0;}
   .mem-head{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
   .mem-idx{font-size:12px; font-weight:800; color:var(--red); background:var(--red-50); border:1px solid var(--red-100); border-radius:7px; padding:3px 8px;}
-  .mem-stamp{font-size:11px; font-weight:700; color:var(--faint); letter-spacing:.02em; font-variant-numeric:tabular-nums;}
+  .mem-stamp{font-size:11px; font-weight:700; color:var(--muted); letter-spacing:.02em; font-variant-numeric:tabular-nums;}
   .mem-tools{margin-left:auto; display:flex; gap:6px;}
   .icon-btn{width:32px; height:32px; border-radius:8px; border:1.5px solid var(--border-2); background:#fff; color:var(--muted); display:flex; align-items:center; justify-content:center; cursor:pointer; transition:.15s;}
   .icon-btn:hover{border-color:var(--red-200); color:var(--red);}
@@ -299,7 +301,7 @@
   /* 名片與商品照(後台編輯) */
   .cardimg-row{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
   .cardimg-thumb{height:56px; border-radius:8px; border:1px solid var(--border); background:var(--bg-soft);}
-  .cardimg-none{font-size:12px; color:var(--faint); border:1.5px dashed var(--border-2); border-radius:8px; padding:8px 14px;}
+  .cardimg-none{font-size:12px; color:var(--muted); border:1.5px dashed var(--border-2); border-radius:8px; padding:8px 14px;}
   .prod-row{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
   .prod-item{position:relative; display:inline-block;}
   .prod-item img{width:64px; height:64px; object-fit:cover; border-radius:8px; border:1px solid var(--border); display:block; background:var(--bg-soft);}
