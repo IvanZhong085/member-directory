@@ -41,31 +41,42 @@
   .tbtn-primary{background:var(--red); border-color:var(--red); color:#fff;}
   .tbtn-primary:hover{background:var(--red-dark); border-color:var(--red-dark); color:#fff;}
 
-  /* ── A4 橫式海報 ── */
+  /* ── 16:9 海報(底圖 = BNI ACCELERATE 品牌版型,960×540) ──
+     尺寸與比例由底圖決定:寬 297mm、高 = 297×540/960 = 167.06mm,固定高度不再讓內容撐開。
+     底圖量測(300dpi 逐像素):y 0–84% 整片全寬留白 = 內容區;84% 以下是品牌帶
+     (左:BNI 標誌與區域名、右下:紅色弧形)。品牌「文字」頂端在 90%,弧形只在
+     x>97% 的最右緣爬得比較高 —— padding-bottom 22mm 讓內容區到 86.8%:
+     12 組「剛好排滿」,離品牌字還有 3% 呼吸空間,最右欄文字也到不了弧形的位置。 */
   .sheet{
-    position:relative; width:297mm; min-height:210mm; margin:16px auto;
-    background:#fff; padding:7mm 9mm 13mm;
+    position:relative; width:297mm; height:167.06mm; margin:16px auto;
+    background:#fff; padding:3mm 7mm 22mm;
     box-shadow:0 14px 40px -16px rgba(27,28,34,.28);
     overflow:hidden;
     display:flex; flex-direction:column;
   }
-  /* 右下紅色斜帶(海報收尾) */
+  /* 底圖:一律用 <img> 而不是 CSS background —— 存成 JPG 那條路是把版面逐項畫回
+     canvas,CSS 背景畫不進去,<img> 可以直接 drawImage。 */
+  .sheet-bg{position:absolute; inset:0; width:100%; height:100%; z-index:0; pointer-events:none;}
+  .mast, .grid, .foot{position:relative; z-index:1;}
   /* ── 海報標題 ── */
-  .mast{position:relative; text-align:center; padding:2px 0 6px;}
+  .mast{text-align:center; padding:0 0 4px;}
   .mast-title{
-    margin:0; font-weight:900; font-size:31px; line-height:1.25; letter-spacing:.045em;
+    margin:0; font-weight:900; font-size:25px; line-height:1.3; letter-spacing:.045em;
     color:var(--purple); outline:none;
   }
   .mast-title .accent{color:var(--red);}
   .mast-title .count{color:var(--red);}
   .mast-date{
-    position:absolute; right:2px; bottom:8px; font-size:11px; font-weight:800;
+    position:absolute; right:150px; top:8px;   /* QR 在右上角佔約 130px,再靠右會疊到 */ font-size:11px; font-weight:800;
     color:var(--ink); letter-spacing:.06em; outline:none; font-variant-numeric:tabular-nums;
   }
 
   /* ── 12 組海報網格(6 欄 × 2 列) ── */
   .grid{
-    flex:1; display:grid; grid-template-columns:repeat(6, 1fr);
+    /* min-height:0 不能省:flex item 預設 min-height:auto,不會縮到內容高度以下 ——
+       grid 的盒子會跟著內容一起長,fit() 的溢出偵測永遠量到 0,內容就這樣
+       靜靜地蓋進底圖的品牌帶。 */
+    flex:1; min-height:0; display:grid; grid-template-columns:repeat(6, 1fr);
     gap:calc(8px * var(--s, 1)) calc(9px * var(--s, 1));
     align-content:start; --s:1;
   }
@@ -94,44 +105,51 @@
   li.recruit{padding-left:calc(46px * var(--s));}
   li.recruit .t{color:var(--recruit); font-weight:700;}
 
-  /* ── 頁尾(只留 QR) ── */
-  .foot{
-    position:relative; z-index:1; margin-top:6px; padding-top:5px;
-    display:flex; align-items:flex-end; gap:12px;
-  }
-  .foot-qr{margin-left:auto; margin-right:44px; display:flex; align-items:center; gap:7px;}
+  /* ── QR(右上角) ──
+     原本在頁尾,但底圖的下緣整條是品牌帶(標誌文字從 x 22% 一路到右邊的弧形),
+     塞 QR 一定壓到 —— 移到右上角,與標題同一水平帶,內容區完整留給 12 組。 */
+  .foot{position:absolute; top:2.5mm; right:7mm;}
+  .foot-qr{display:flex; align-items:center; gap:7px;}
   .foot-qr canvas{width:44px; height:44px; border:1px solid var(--hair); border-radius:5px; background:#fff;}
   .foot-qr span{font-size:7.4px; color:var(--muted); font-weight:700; letter-spacing:.12em; text-align:right; line-height:1.7;}
 
   [contenteditable]:hover, [contenteditable]:focus{background:#FDF3F5; border-radius:4px; outline:none;}
 
-  /* ── 列印:一律 A4 橫式,不做直式版本 ──
+  /* ── 列印:一律 A4 橫式紙、16:9 版面,不做直式版本 ──
      下面那組 @media screen 的窄螢幕規則刻意只掛 screen:手機上瀏覽時會變成兩欄好讀,
-     但一按列印就回到 6 欄的 A4 橫式海報 —— 列印出來的東西不該因為你用哪台裝置而不同。
+     但一按列印就回到 6 欄的 16:9 海報 —— 列印出來的東西不該因為你用哪台裝置而不同。
      ⚠ iOS Safari 會忽略 @page 的 size,列印面板要自己選「橫向」。
-       想避開這件事就用工具列的「存成 JPG」,那是固定 A4 橫式比例、跟裝置無關。 */
+       想避開這件事就用工具列的「存成 JPG」,那是固定 16:9 比例、跟裝置無關。 */
   @media print{
     body{background:#fff;}
     .toolbar{display:none !important;}
+    /* 16:9 的圖印在 A4 橫式紙上:填滿可印寬度(297−9×2=279mm),高度照比例,
+       上下自然留白。@page 仍是 A4 橫式 —— 印表機沒有 16:9 的紙。 */
     .sheet{
-      width:auto; min-height:0; margin:0; box-shadow:none; padding:0 0 2mm;
+      width:279mm; height:156.94mm; margin:0; box-shadow:none; padding:3mm 6.5mm 20.7mm;
       break-inside:avoid; page-break-inside:avoid;   /* 不允許被拆成兩頁 */
     }
     @page{size:A4 landscape; margin:7mm 9mm 5mm;}
   }
   @media screen and (max-width:900px){
-    .sheet{width:100%; min-height:0; padding:14px;}
+    /* 窄螢幕改直式兩欄好讀;底圖是 16:9 橫式,硬鋪在直式長版面上只會歪掉,收起來。
+       存 JPG 與列印都會先釘回桌面版面,所以產出物永遠帶底圖。 */
+    .sheet{width:100%; height:auto; min-height:0; padding:14px;}
+    .sheet-bg{display:none;}
     .grid{grid-template-columns:repeat(2, 1fr);}
     .mast-date{position:static; display:block; margin-top:4px;}
+    .foot{position:static; margin-top:10px;}
   }
-  /* 存成 JPG 時暫時套用:把版面強制釘回桌面 A4 橫式 6 欄,不管當下螢幕多窄。
+  /* 存成 JPG 時暫時套用:把版面強制釘回桌面 16:9 六欄,不管當下螢幕多窄。
      JPG 是「照著螢幕已排好的版面逐字重畫」,若在手機(窄螢幕 2 欄直式)下直接撷取,
      產出的會是直式長圖、甚至高度超過瀏覽器 canvas 上限而失敗 —— 偏偏這功能就是為
      iOS Safari/手機使用者而存在。這些選擇器比 @media screen 規則更具體,故能覆蓋它。
      (桌面本來就是這個版面,套上去沒有任何變化。) */
-  .sheet.exporting{width:297mm; min-height:210mm; padding:7mm 9mm 13mm;}
+  .sheet.exporting{width:297mm; height:167.06mm; min-height:0; padding:3mm 7mm 22mm;}
+  .sheet.exporting .sheet-bg{display:block;}
   .sheet.exporting .grid{grid-template-columns:repeat(6, 1fr);}
-  .sheet.exporting .mast-date{position:absolute; right:2px; bottom:8px; margin-top:0; display:block;}
+  .sheet.exporting .mast-date{position:absolute; right:150px; top:8px; margin-top:0; display:block;}
+  .sheet.exporting .foot{position:absolute; top:2.5mm; right:7mm; margin-top:0;}
 </style>
 </head>
 <body>
@@ -145,6 +163,7 @@
 </div>
 
 <div class="sheet">
+  <img class="sheet-bg" src="group-sheet-bg.svg?v=1" alt="" aria-hidden="true">
   <header class="mast">
     <h1 class="mast-title" id="mast-title" contenteditable="true" spellcheck="false"></h1>
     <div class="mast-date" id="sheet-date" contenteditable="true" spellcheck="false"></div>
@@ -212,36 +231,35 @@
       if(qr.isDark(r, c)) ctx.fillRect(quiet*cell + c*cell, quiet*cell + r*cell, Math.ceil(cell)+.3, Math.ceil(cell)+.3);
   }catch(e){ var fq = document.querySelector(".foot-qr"); if(fq) fq.style.display = "none"; }
 
-  /* 自動縮放:塞不下縮小、太空放大填滿,永遠一頁 A4 橫式。
-     頁尾被 flex 推在頁底,所以用「內容最低點與頁尾的空隙」判斷疏密。 */
+  /* 自動縮放:塞不下縮小、太空放大填滿。
+     版面高度現在由底圖比例釘死(16:9),內容多出來不會撐開版面、只會溢出蓋到品牌帶,
+     所以判斷改成「內容最低點 vs 網格區的底線」:超過就縮,留白超過 30px 就放大 ——
+     這就是「12 組剛好排滿留白區」的機制。 */
   var grid = document.getElementById("grid");
   var sheet = document.querySelector(".sheet");
-  var foot = document.querySelector(".foot");
   var scale = 1, guard = 0;
-  var PAGE_H = Math.round(210 * 96 / 25.4);
-  function sheetH(){ return sheet.getBoundingClientRect().height; }
-  function gapPx(){
+  function overflowPx(){
     var mx = 0;
     document.querySelectorAll(".g").forEach(function(e){
       var b = e.getBoundingClientRect().bottom;
       if(b > mx) mx = b;
     });
-    return foot.getBoundingClientRect().top - mx;
+    return mx - grid.getBoundingClientRect().bottom;
   }
   function setScale(v){ scale = v; grid.style.setProperty("--s", scale.toFixed(2)); }
   function fit(){
     guard = 0; setScale(1);
-    while(sheetH() > PAGE_H + 3 && scale > 0.6 && guard < 26){ setScale(scale - 0.03); guard++; }
+    while(overflowPx() > 2 && scale > 0.6 && guard < 26){ setScale(scale - 0.03); guard++; }
     guard = 0;
-    while(sheetH() <= PAGE_H + 3 && gapPx() > 40 && scale < 1.34 && guard < 30){ setScale(scale + 0.02); guard++; }
-    if(sheetH() > PAGE_H + 3 && scale > 0.64) setScale(scale - 0.02);
+    while(overflowPx() < -30 && scale < 1.6 && guard < 40){ setScale(scale + 0.02); guard++; }
+    if(overflowPx() > 2 && scale > 0.64) setScale(scale - 0.02);
   }
   fit();
   if(document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
 
   /* ══ 存成 JPG ══════════════════════════════════════════════════════════
-     固定 A4 橫式比例,跟裝置、跟瀏覽器的列印面板都無關 —— iOS Safari 會忽略
-     @page 的 size,列印常常跑出直式,這條路繞過那個問題。
+     固定 16:9(跟底圖同比例),跟裝置、跟瀏覽器的列印面板都無關 —— iOS Safari 會
+     忽略 @page 的 size,列印常常跑出直式,這條路繞過那個問題。
 
      做法是「照著螢幕上已經排好的版面畫」,不是另外寫一套排版:
      每個文字節點用 Range 逐字量位置,依 top 分行,再用 canvas 把每一行畫回原位。
@@ -250,8 +268,6 @@
 
      不用 SVG foreignObject 那條常見的路:它畫不出 <canvas> 內容(QR 會不見),
      載不到外部字體(中文會掉成預設字),而且在 iOS Safari 上時常直接產出空白圖。 */
-  var A4_RATIO = 210 / 297;
-
   function roundRect(ctx, x, y, w, h, r){
     r = Math.min(r || 0, w / 2, h / 2);
     ctx.beginPath();
@@ -295,6 +311,14 @@
     ctx.fillRect(0, 0, cv.width, cv.height);
     ctx.scale(scaleK, scaleK);
     ctx.translate(-base.left, -base.top);
+
+    /* ⓪ 底圖(BNI 品牌版型)。它是 <img>(SVG),同源所以 canvas 不會被污染;
+       畫在最底層,之後的色塊與文字疊上去 —— 順序就是畫面上的 z-index。 */
+    var bg = sheet.querySelector(".sheet-bg");
+    if(bg && bg.complete && bg.naturalWidth){
+      var rbg = bg.getBoundingClientRect();
+      try{ ctx.drawImage(bg, rbg.left, rbg.top, rbg.width, rbg.height); }catch(e){}
+    }
 
     // ① 有底色的方塊(各組的彩色標題列)
     var all = sheet.querySelectorAll("*");
@@ -342,7 +366,7 @@
     var label = btn.textContent;
     btn.disabled = true; btn.textContent = "產生中…";
 
-    /* A4 橫式 300dpi = 3508×2480。手機記憶體吃不下時退到 200、150dpi ——
+    /* 以 297mm 寬換算 300dpi = 3508×1973(16:9)。手機記憶體吃不下時退到 200、150dpi ——
        寧可解析度低一點,也不要按下去沒反應。 */
     var dpis = [300, 200, 150];
 
@@ -354,7 +378,7 @@
       }
       var targetW = Math.round(297 / 25.4 * dpis[i]);
       var cv;
-      /* 撷取期間把版面釘回桌面 A4:量寬與逐字重畫都必須在這個版面下進行,否則手機的
+      /* 撷取期間把版面釘回桌面 16:9:量寬與逐字重畫都必須在這個版面下進行,否則手機的
          窄螢幕 2 欄版面會被畫進圖裡。paintSheet 是同步的,畫完 cv 已含像素,之後的
          toBlob 不再碰 DOM,所以撷取一結束就能立刻還原,不會讓使用者看到寬版閃一下。 */
       sheet.classList.add("exporting");
