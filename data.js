@@ -1508,6 +1508,50 @@ const GROUPS = [
         "website": "",
         "dataIssue": false,
         "updatedAt": "2026-07-28T14:37:53.049Z"
+      },
+      {
+        "id": "g8_m_mtjjp2sy1rgp",
+        "number": "",
+        "name": "魏宛柔",
+        "title": "兒童理財",
+        "services": [
+          "兒童理財活動"
+        ],
+        "targets": [
+          "補習班、才藝班業者",
+          "家長會委員、家長會會長",
+          "親子共學空間經營者",
+          "關注家庭理財者"
+        ],
+        "have": [
+          "軍隊人脈 (先生軍職)",
+          "無人機產業",
+          "兒童理財活動",
+          "兒童英語教學"
+        ],
+        "want": [
+          "補習班、才藝班",
+          "私立國中、國小"
+        ],
+        "tagline": [
+          "小錢滾出大未來",
+          "理財從小動起來"
+        ],
+        "image": "g8_m_mtjjp2sy1rgp_x_c7535e9607.jpg",
+        "card": "g8_m_mtjjp2sy1rgp_card_c478f1bb1e.jpg",
+        "products": [
+          "g8_m_mtjjp2sy1rgp_p1_d2e7ab5d6b.jpg",
+          "g8_m_mtjjp2sy1rgp_p2_050889314a.jpg",
+          "g8_m_mtjjp2sy1rgp_p3_921b5f8828.jpg",
+          "g8_m_mtjjp2sy1rgp_p4_b6d0c071bc.jpg",
+          "g8_m_mtjjp2sy1rgp_p5_44b70767fc.jpg"
+        ],
+        "company": "立洋國際教育顧問有限公司",
+        "business_items": "顧問服務",
+        "website": "",
+        "dataIssue": true,
+        "claimedFrom": "p_mtiouthdee3z",
+        "updatedAt": "2026-09-02T03:37:20.118Z"
       }
     ],
     "id": "g8",
