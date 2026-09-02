@@ -2280,33 +2280,6 @@ const GROUPS = [
         "updatedAt": ""
       },
       {
-        "number": "184",
-        "name": "徐玉真",
-        "title": "太陽光電建置",
-        "services": [
-          "太陽光電規劃建置"
-        ],
-        "targets": [
-          "一般住宅閒置屋頂的屋主",
-          "廠房老闆、營造公司、水電行業，房仲業者、採光罩廠商"
-        ],
-        "have": [],
-        "want": [],
-        "tagline": [
-          "太陽公公當長工",
-          "累積財富很輕鬆"
-        ],
-        "image": "g11_m8_x.jpg",
-        "card": "",
-        "products": [],
-        "company": "",
-        "business_items": "",
-        "website": "",
-        "id": "g11_m8",
-        "dataIssue": false,
-        "updatedAt": ""
-      },
-      {
         "number": "207",
         "name": "杜成駿",
         "title": "商空裝修工程統籌",
@@ -2847,14 +2820,14 @@ const GROUPS = [
           "讓健康回到本源",
           "讓好水走進生活"
         ],
-        "image": "",
+        "image": "g1_m_ms8d1a021g8f_x_b99d84d406.jpg",
         "card": "",
         "products": [],
         "company": "源恆企業社",
         "business_items": "",
         "website": "",
         "dataIssue": false,
-        "updatedAt": "2026-07-31T03:11:21.303Z"
+        "updatedAt": "2026-09-02T03:38:51.363Z"
       }
     ],
     "id": "g1",
