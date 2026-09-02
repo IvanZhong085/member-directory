@@ -1511,7 +1511,7 @@ const GROUPS = [
       },
       {
         "id": "g8_m_mtjjp2sy1rgp",
-        "number": "",
+        "number": "227",
         "name": "魏宛柔",
         "title": "兒童理財",
         "services": [
@@ -1551,7 +1551,7 @@ const GROUPS = [
         "website": "",
         "dataIssue": true,
         "claimedFrom": "p_mtiouthdee3z",
-        "updatedAt": "2026-09-02T03:37:20.118Z"
+        "updatedAt": "2026-09-02T14:03:48.397Z"
       }
     ],
     "id": "g8",
