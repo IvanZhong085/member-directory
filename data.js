@@ -863,32 +863,6 @@ const GROUPS = [
         "updatedAt": ""
       },
       {
-        "number": "211",
-        "name": "林岳達",
-        "title": "四川蒜蓉醬批發零售",
-        "services": [
-          "四川蒜蓉醬製造批發\u000b蒜蓉醬代工\u000b手工胡椒鹽＆辣油"
-        ],
-        "targets": [
-          "電商\u000b團購主\u000b餐廳"
-        ],
-        "have": [],
-        "want": [],
-        "tagline": [
-          "胡椒沾醬找懿香",
-          "家庭美滿又健康"
-        ],
-        "image": "g7_m7_x.jpg",
-        "card": "",
-        "products": [],
-        "company": "",
-        "business_items": "",
-        "website": "",
-        "id": "g7_m7",
-        "dataIssue": false,
-        "updatedAt": ""
-      },
-      {
         "number": "213",
         "name": "簡士芸",
         "title": "手工冰淇淋批發銷售",
