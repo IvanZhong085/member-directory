@@ -2805,7 +2805,7 @@ const GROUPS = [
       },
       {
         "id": "g1_m_mtx0wciu8rv",
-        "number": "",
+        "number": "228",
         "name": "紀宜伶",
         "title": "廢氣再燃燒淨化設備",
         "services": [
@@ -2856,7 +2856,7 @@ const GROUPS = [
         "website": "https://www.lianggi.com",
         "dataIssue": true,
         "claimedFrom": "p_mtww26uec28",
-        "updatedAt": "2026-09-11T13:59:51.797Z"
+        "updatedAt": "2026-09-11T14:00:53.476Z"
       }
     ],
     "id": "g1",
