@@ -167,6 +167,28 @@
   .vhp{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden;}
   @media (max-width:560px){ .vgrid{grid-template-columns:1fr;} }
 
+  /* ── 送出成功後的下一步 ──
+     白底卡片配左紅邊:跟 .cta-box 同一家人,但看得出這塊是「結果」不是「表單」。
+     兩顆動作鍵手機上直排撐滿,拇指好按。 */
+  .next-steps{
+    margin-top:18px; padding:18px 20px; text-align:left;
+    background:#fff; border:1px solid var(--red-100); border-left:4px solid var(--red); border-radius:14px;
+  }
+  .next-steps h3{margin:0 0 8px; font-size:16px; font-weight:900; color:var(--ink);}
+  .next-steps ol{margin:0; padding-left:22px; font-size:14px; color:var(--body); line-height:1.7;}
+  .next-steps li{margin:3px 0;}
+  .next-actions{display:flex; flex-wrap:wrap; gap:10px; margin-top:14px;}
+  .next-actions button, .next-actions a{
+    display:inline-block; font:inherit; font-size:13.5px; font-weight:800; line-height:1.3;
+    padding:10px 18px; border-radius:999px; cursor:pointer; text-decoration:none; text-align:center;
+    transition:background .15s;
+  }
+  .next-actions button{color:#fff; background:var(--red); border:1.5px solid var(--red);}
+  .next-actions button:hover{background:var(--red-dark);}
+  .next-actions a{color:var(--red); background:#fff; border:1.5px solid var(--red-100);}
+  .next-actions a:hover{background:var(--red-50);}
+  @media (max-width:560px){ .next-actions{flex-direction:column;} .next-actions button, .next-actions a{width:100%;} }
+
   /* ── 頁尾 ── */
   .foot{border-top:1px solid var(--hair); background:var(--bg-soft); padding:22px 20px 30px; text-align:center;}
   .foot a{color:var(--red); font-weight:800; text-decoration:none;}
@@ -372,6 +394,18 @@
     });
   }
 
+  /* ── 下一個週四 ──
+     成功頁「加入行事曆」用。例會固定週四 06:30–09:00;這裡的數字要跟 VISITOR.meetTime 的字對得上,
+     改例會時間時兩邊一起改。用本地年月日湊日期、不走 toISOString:那會先轉成 UTC,
+     台灣早上六點半會被算成前一天。今天就是週四但已過 09:00,例會已經散了,自然指向下週四。
+     接受 now 參數而不是自己 new Date(),是為了能塞固定日期進去驗算。 */
+  function nextThursday(now){
+    var THU = 4;                                          // getDay():0 是週日、4 是週四
+    var ahead = (THU - now.getDay() + 7) % 7;
+    if(ahead === 0 && now.getHours() >= 9) ahead = 7;     // 週四 09:00 之後:這週的已經散會
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate() + ahead, 6, 30, 0, 0);
+  }
+
   /* ── 內嵌報名表單 ──────────────────────────────────────────────
      資料送到自家 Worker,再由它轉給 Google 表單。為什麼不讓瀏覽器直接打 Google:
      跨網域讀不到回應,送失敗時來賓看到的仍是「報名成功」,單子掉了沒人知道。
@@ -399,6 +433,55 @@
     function clearBad(){
       var bad = form.querySelectorAll(".vfield.bad");
       for(var i = 0; i < bad.length; i++) bad[i].classList.remove("bad");
+    }
+
+    /* ── 送出成功後的下一步 ──
+       「報名成功」那一行只是狀態,來賓接著最想知道的是「然後呢」:誰會聯絡我、幾點在哪、
+       要不要跟引薦人講一聲。放在 #cta-msg 後面而不是裡面:那格是 aria-live,
+       整段清單塞進去會被讀屏一口氣唸完。按鈕已 disabled 不可能重送,但 #next-steps 在就先拆掉再插,保險。 */
+    var COPY_LABEL = "複製報名訊息,傳給引薦人";
+    function showNextSteps(referrer){
+      var old = document.getElementById("next-steps");
+      if(old) old.parentNode.removeChild(old);
+
+      var start = nextThursday(new Date());
+      var end = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 9, 0, 0, 0);
+      var stamp = function(d){                            // Google 日曆要的 YYYYMMDDTHHMMSS(本地時間,時區另用 ctz 給)
+        var p = function(n){ return (n < 10 ? "0" : "") + n; };
+        return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "T" + p(d.getHours()) + p(d.getMinutes()) + "00";
+      };
+      var calUrl = "https://calendar.google.com/calendar/render?action=TEMPLATE" +
+        "&text=" + encodeURIComponent(SITE.ORG_NAME + " 例會參訪") +
+        "&dates=" + stamp(start) + "/" + stamp(end) +
+        "&ctz=Asia/Taipei" +
+        "&details=" + encodeURIComponent(VISITOR.meetTime + "," + VISITOR.meetPlace + "。接待夥伴會用 LINE 聯繫你,確認場次與座位。");
+      // 這段是要貼進 LINE 的純文字,不是 HTML,所以不過 esc()——過了會把符號變成 &amp; 之類的實體
+      var copyText = "我已經報名" + SITE.ORG_NAME + "的例會參訪(" + VISITOR.meetTime + "," + VISITOR.meetPlace + "),到時候見!";
+
+      var box = document.createElement("div");
+      box.className = "next-steps";
+      box.id = "next-steps";
+      box.innerHTML =
+        "<h3>接下來會發生什麼</h3>" +
+        "<ol>" +
+          "<li>接待夥伴會用 LINE 聯繫你,確認場次與座位。</li>" +
+          "<li>例會時間:" + esc(VISITOR.meetTime) + "," + esc(VISITOR.meetPlace) + "。</li>" +
+          (referrer ? "<li>記得跟 " + esc(referrer) + " 說一聲你報名了。</li>" : "") +
+        "</ol>" +
+        '<div class="next-actions">' +
+          '<button type="button" id="copy-msg">' + COPY_LABEL + "</button>" +
+          '<a id="add-cal" href="' + esc(calUrl) + '" target="_blank" rel="noopener">加入行事曆</a>' +
+        "</div>";
+      msg.parentNode.insertBefore(box, msg.nextSibling);
+
+      // 複製不成(舊瀏覽器、非 https)就退回 prompt 讓人手動選字,跟頁尾 btn-share 同一套
+      box.querySelector("#copy-msg").addEventListener("click", function(){
+        var b = this;
+        (navigator.clipboard ? navigator.clipboard.writeText(copyText) : Promise.reject()).then(function(){
+          b.textContent = "已複製 ✓";
+          setTimeout(function(){ b.textContent = COPY_LABEL; }, 2500);
+        }).catch(function(){ prompt("複製這段訊息:", copyText); });
+      });
     }
 
     // 先問 Worker 支不支援;支援才把表單換上來
@@ -449,6 +532,7 @@
           form.reset();
           say("報名成功 ✔ 我們會盡快與你聯繫，確認場次與座位。", "ok");
           btn.textContent = "已送出";
+          showNextSteps(body.referrer);
           return;   // 成功就不要讓人重複送出
         }
         btn.disabled = false; btn.textContent = label;
