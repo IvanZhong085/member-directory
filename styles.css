@@ -227,6 +227,26 @@ body.dir-collapsed .dir-label, body.dir-collapsed .dir-count{display:none;}
 .hero-deco{position:absolute; right:-40px; top:10px; width:300px; height:300px; pointer-events:none; opacity:.9;}
 @media (max-width:860px){ .hero-deco{display:none;} }
 
+/* 首頁大按鈕:產業小組總圖(groups.html 一頁式總表)。
+   要比統計卡更搶眼,所以用實心紅、字級 20px;手機撐滿一行。 */
+.hero-cta{margin-top:26px;}
+.hero-btn{
+  display:inline-flex; align-items:center; gap:14px; max-width:100%;
+  background:var(--red); color:#fff; text-decoration:none;
+  border-radius:999px; padding:16px 24px 16px 22px;
+  box-shadow:var(--shadow-lg);
+  transition:background .2s, transform .2s var(--ease), box-shadow .2s;
+}
+.hero-btn > svg{width:26px; height:26px; flex:none;}
+.hero-btn > svg:last-child{width:18px; height:18px; opacity:.85; margin-left:2px;}
+.hero-btn-text{display:flex; flex-direction:column; line-height:1.2; min-width:0;}
+.hero-btn-title{font-size:20px; font-weight:900; letter-spacing:.02em;}
+.hero-btn-sub{font-size:12.5px; font-weight:600; opacity:.9; margin-top:3px;}
+.hero-btn:hover{background:var(--red-dark); transform:translateY(-2px); box-shadow:0 22px 44px -14px rgba(124,10,29,.38);}
+.hero-btn:active{transform:scale(.98);}
+.hero-btn:focus-visible{outline-offset:4px; border-radius:999px;}
+@media (max-width:600px){ .hero-btn{width:100%; justify-content:flex-start;} .hero-btn-title{font-size:19px;} }
+
 .hero-stats{
   display:flex; gap:0; margin-top:32px;
   border:1px solid var(--border); border-radius:var(--radius-lg);
