@@ -179,7 +179,7 @@
       </a>`;
     });
     /* 參訪入口常駐在分組之後:來賓多半是從某位夥伴的連結進來逛名錄,逛完要報名時
-       不該還得回首頁找按鈕。沒有 data-gid,setActiveGroup 比對不到,永遠不會被標成目前頁。 */
+       不該還得回首頁找按鈕。沒有 data-gid,setActiveGroup 只掃有 data-gid 的項目,永遠不會被標成目前頁。 */
     html += `<a class="dir-item dir-item-visitor" href="visitor.html" title="來賓參訪">
         <span class="dir-code">${I.ticket}</span>
         <span class="dir-label"><span class="dir-name">來賓參訪</span></span>
@@ -189,7 +189,9 @@
   function setActiveGroup(gid){
     if(!dirNav) return;
     let activeEl = null;
-    dirNav.querySelectorAll(".dir-item").forEach(el => {
+    // 只掃有 data-gid 的項目:來賓參訪入口沒有這個屬性,getAttribute 會回 null,
+    // 而搜尋頁／找不到的路由是用 null 呼叫的,null === null 會把它誤標成目前頁
+    dirNav.querySelectorAll(".dir-item[data-gid]").forEach(el => {
       const on = el.getAttribute("data-gid") === gid;
       el.classList.toggle("active", on);
       if(on){ el.setAttribute("aria-current", "true"); activeEl = el; }
@@ -603,7 +605,7 @@
     const qParam = encodeURIComponent(q.trim());
     let html = `
       <div class="result-head">
-        <div class="result-title">「<span class="q">${esc(q)}</span>」的搜尋結果</div>
+        <h1 class="result-title">「<span class="q">${esc(q)}</span>」的搜尋結果</h1>
         <div class="result-sub">${countText}</div>
       </div>`;
     if(results.length === 0 && seats.length === 0){

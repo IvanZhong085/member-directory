@@ -116,6 +116,7 @@
   .cta-context{
     display:inline-block; margin:0 0 14px; padding:9px 16px; font-size:14px; color:var(--body);
     background:#fff; border:1px solid var(--red-100); border-radius:12px; line-height:1.6;
+    overflow-wrap:anywhere; /* ?q= 是使用者輸入,沒空白的長英文／網址在手機會撐破卡片並造成橫向捲動 */
   }
   .cta-context b{color:var(--red-dark);}
   .cta-btn{
@@ -327,8 +328,9 @@
     html += '<a class="gchip" style="--gc:' + groupColor(g.code) + '" href="./#/group/' + encodeURIComponent(g.id) + '">' +
       '<span class="code">' + esc(g.code || "") + '</span>' +
       '<span class="name">' + esc(g.name || "") + '</span>' +
-      (seats ? '<span class="seats">' + seats + '</span>' : '') +
-      '<span class="cnt">' + g.members.length + '</span></a>';
+      '<span class="cnt">' + g.members.length + '</span>' +
+      /* seats 放在 cnt 之後:讀屏是照 DOM 順序拼連結名稱,人數緊跟組名才不會像席次的一部分;版面由 grid-row 決定,不受順序影響 */
+      (seats ? '<span class="seats">' + seats + '</span>' : '') + '</a>';
   });
   document.getElementById("groups").innerHTML = html;
 
@@ -369,9 +371,10 @@
 
   /* 首屏主按鈕:捲到報名區;內嵌表單已開通時順手把游標放進姓名欄,少一次點擊。
      捲動是否平滑交給 CSS 的 scroll-behavior(它會照顧 prefers-reduced-motion),
-     所以 scrollIntoView 不指定 behavior;等捲完再 focus 是為了不讓 focus 把捲動搶走。 */
-  document.querySelector(".hero-cta").addEventListener("click", function(e){
-    e.preventDefault();
+     所以 scrollIntoView 不指定 behavior;等捲完再 focus 是為了不讓 focus 把捲動搶走。
+     不攔 preventDefault:原生錨點跳轉會把循序焦點起點搬到 #cta,退回「開新分頁到表單」
+     模式時鍵盤使用者按完 Enter 再 Tab 才會落到報名按鈕,而不是跳回頁首的分組 chip。 */
+  document.querySelector(".hero-cta").addEventListener("click", function(){
     var box = document.getElementById("cta");
     box.scrollIntoView({ block:"start" });
     var form = document.getElementById("cta-form");

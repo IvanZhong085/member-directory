@@ -336,7 +336,7 @@ body.dir-collapsed .dir-item-visitor{padding-top:12px;}
 .meta-chip{display:inline-flex; align-items:center; gap:6px; font-weight:600;}
 .meta-chip svg{width:14px; height:14px; color:var(--red);}
 /* 組長 chip 是連結時給 hover 回饋:同一排還有「N 位成員」純文字,得讓人看得出哪個能點 */
-.meta-link{text-decoration:underline; text-decoration-color:var(--border-2); text-underline-offset:3px; transition:color .15s, text-decoration-color .15s;}
+.meta-link{text-decoration:underline; text-decoration-color:currentColor; text-underline-offset:3px; transition:color .15s, text-decoration-color .15s;}
 .meta-link:hover{color:var(--red); text-decoration-color:var(--red);}
 .visit-link{
   display:inline-flex; align-items:center; gap:8px; margin-top:16px;
@@ -359,6 +359,7 @@ body.dir-collapsed .dir-item-visitor{padding-top:12px;}
 .recruit-chip{
   display:inline-flex; align-items:center; background:#fff; color:var(--red-dark);
   border:1px solid var(--red-200); border-radius:999px; padding:6px 13px; font-size:13.5px; font-weight:700;
+  overflow-wrap:anywhere; /* 席次是後台自由文字,沒有空白的長英文／網址也得折行,不然會被 html 的 overflow-x:clip 裁掉 */
 }
 /* 超過 6 席的先藏起來;展開狀態掛在橫幅上,單一 class 就能開關整批 */
 .recruit-chip.more{display:none;}
@@ -483,7 +484,7 @@ body.dir-collapsed .dir-item-visitor{padding-top:12px;}
 
 /* ============ Search results / empty ============ */
 .result-head{margin:30px 0 20px;}
-.result-title{font-size:21px; font-weight:800;}
+.result-title{margin:0; font-size:21px; font-weight:800;}
 .result-title .q{color:var(--red);}
 .result-sub{font-size:13px; color:var(--muted); margin-top:4px;}
 .empty-state{text-align:center; padding:70px 20px; color:var(--muted);}
@@ -504,7 +505,7 @@ body.dir-collapsed .dir-item-visitor{padding-top:12px;}
   display:flex; flex-direction:column; gap:6px; padding:16px 18px;
   background:#fff; border:1px solid var(--red-100); border-radius:var(--radius); box-shadow:var(--shadow-sm);
 }
-.seat-name{font-size:17px; font-weight:800; color:var(--red-dark);}
+.seat-name{font-size:17px; font-weight:800; color:var(--red-dark); overflow-wrap:anywhere;}
 .seat-group{font-size:13px; color:var(--muted);}
 .seat-cta{
   align-self:flex-start; margin-top:8px;
