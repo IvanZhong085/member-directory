@@ -83,7 +83,8 @@
      順序照後台輸入的,組長排的先後就是他們最想先找到的專業。 */
   function recruitList(g){
     const out = [];
-    (g.recruiting || []).forEach(x => {
+    // 後台一律存陣列;萬一有人手改 data.js 成字串,整站不能因此白屏
+    (Array.isArray(g.recruiting) ? g.recruiting : []).forEach(x => {
       const s = String(x == null ? "" : x).trim();
       if(s && !out.includes(s)) out.push(s);
     });

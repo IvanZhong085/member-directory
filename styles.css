@@ -205,6 +205,22 @@ main{min-width:0; outline:none;}
 .dir-item-visitor .dir-name{color:var(--red-dark);}
 .dir-item-visitor:hover .dir-code{background:var(--red); color:#fff; border-color:var(--red);}
 
+/* 矮螢幕(1366×768、1280×720 的筆電)側欄放不下 12 組 + 來賓參訪,最後一項會被推到要捲才看得到;
+   把每一項壓扁一點,13 項就剛好塞得進 max-height。 */
+@media (max-height:800px){
+  .dir-nav{gap:1px;}
+  .dir-item{min-height:40px; padding:5px 9px;}
+  .dir-code{height:28px; min-width:32px;}
+  .dir-item-visitor{margin-top:6px; padding-top:9px;}
+}
+/* 720 高的螢幕再矮 30px:分組項目再壓到 38px、去掉間距,13 項才不用捲 */
+@media (max-height:740px){
+  .dir-nav{gap:0; padding:6px 8px;}
+  .dir-item{min-height:36px; padding:3px 9px;}
+  .dir-code{height:26px;}
+  .dir-item-visitor{margin-top:4px; padding-top:7px;}
+}
+
 /* ---- Collapsed (desktop icon-strip) ---- */
 body.dir-collapsed .layout{grid-template-columns:66px minmax(0,1fr);}
 body.dir-collapsed .dir-head{justify-content:center; padding:12px 0;}
