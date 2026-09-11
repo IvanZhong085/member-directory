@@ -299,9 +299,15 @@ body.dir-collapsed .dir-item-visitor{padding-top:12px;}
 .group-arrow svg{width:17px; height:17px;}
 .group-card:hover .group-arrow{color:var(--red); background:var(--red-50); transform:translateX(3px);}
 .group-name{font-size:17.5px; font-weight:800; line-height:1.35;}
-.group-meta{display:flex; align-items:center; justify-content:space-between; font-size:12.5px; color:var(--muted);}
+.group-meta{display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 10px; font-size:12.5px; color:var(--muted);}
 .group-leader{display:flex; align-items:center; gap:6px;}
 .group-leader svg{width:13px; height:13px; color:var(--faint);}
+/* 招募中席次:純文字小標(組卡是 <a>,裡面不能再放連結);auto margin 讓頭像堆維持靠右 */
+.group-recruit{
+  font-size:12px; font-weight:800; color:var(--red); white-space:nowrap;
+  background:var(--red-50); border:1px solid var(--red-100); border-radius:999px; padding:2px 9px;
+  margin-right:auto;
+}
 .avatar-stack{display:flex; align-items:center;}
 .avatar-stack img, .avatar-more{
   width:30px; height:30px; border-radius:50%; border:2px solid #fff;
@@ -337,6 +343,41 @@ body.dir-collapsed .dir-item-visitor{padding-top:12px;}
 }
 .visit-link svg{width:16px; height:16px; flex:none;}
 .visit-link:hover{background:var(--red); color:#fff; border-color:var(--red);}
+
+/* ============ 招募席次橫幅(群組頁) ============ */
+.recruit-banner{
+  margin-top:18px; padding:18px 20px;
+  background:var(--red-50); border:1px solid var(--red-100); border-radius:var(--radius);
+}
+.recruit-head{display:flex; align-items:baseline; justify-content:space-between; gap:6px 12px; flex-wrap:wrap;}
+.recruit-head h2{margin:0; font-size:16.5px; font-weight:800; color:var(--ink);}
+.recruit-count{font-size:13px; font-weight:800; color:var(--red-dark); white-space:nowrap;}
+.recruit-chips{list-style:none; margin:12px 0 0; padding:0; display:flex; flex-wrap:wrap; gap:8px;}
+.recruit-chip{
+  display:inline-flex; align-items:center; background:#fff; color:var(--red-dark);
+  border:1px solid var(--red-200); border-radius:999px; padding:6px 13px; font-size:13.5px; font-weight:700;
+}
+/* 超過 6 席的先藏起來;展開狀態掛在橫幅上,單一 class 就能開關整批 */
+.recruit-chip.more{display:none;}
+.recruit-banner.recruit-open .recruit-chip.more{display:inline-flex;}
+.recruit-chip-more{display:inline-flex;}
+.recruit-more{
+  display:inline-flex; align-items:center; font:inherit; font-size:13.5px; font-weight:700; color:var(--red-dark);
+  background:transparent; border:1px dashed var(--red-200); border-radius:999px; padding:6px 13px; cursor:pointer;
+  transition:background .15s, border-color .15s;
+}
+.recruit-more:hover{background:#fff; border-color:var(--red);}
+.recruit-cta{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px; margin-top:14px;
+  background:var(--red); color:#fff; font-size:14px; font-weight:800; letter-spacing:.04em;
+  border-radius:999px; padding:10px 20px; box-shadow:0 8px 18px -8px rgba(200,16,46,.55);
+  transition:background .15s, transform .15s;
+}
+.recruit-cta svg{width:16px; height:16px; flex:none;}
+.recruit-cta:hover{background:var(--red-dark); transform:translateY(-1px);}
+@media (max-width:640px){ .recruit-cta{width:100%;} }
+/* 列印時席次全露、不印展開鈕 */
+@media print{ .recruit-chip.more{display:inline-flex !important;} .recruit-chip-more{display:none !important;} }
 
 /* ============ Member cards ============ */
 .grid-members{display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:18px;}

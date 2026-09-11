@@ -71,6 +71,16 @@
   function imgSrc(image){
     return /^data:image\//.test(image) ? image : "images/" + encodeURIComponent(image);
   }
+  /* 招募席次:後台填表時難免留下空白列或同一席打兩次,顯示前先清一次;
+     順序照後台輸入的,組長排的先後就是他們最想先找到的專業。 */
+  function recruitList(g){
+    const out = [];
+    (g.recruiting || []).forEach(x => {
+      const s = String(x == null ? "" : x).trim();
+      if(s && !out.includes(s)) out.push(s);
+    });
+    return out;
+  }
 
   /* ---------- inline SVG icons (Lucide) ---------- */
   const I = {
@@ -274,6 +284,8 @@
     GROUPS.forEach((g, i) => {
       const withPhoto = g.members.filter(m => m.image).slice(0,4);
       const rest = g.members.length - withPhoto.length;
+      /* 席次數只放純文字:組卡本身是 <a>,裡面不能再包連結;想看是哪些席次點進群組頁 */
+      const seats = recruitList(g).length;
       const stack = withPhoto.map(m =>
         `<img src="${esc(imgSrc(m.image))}" alt="" loading="lazy">`
       ).join("") + (rest > 0 ? `<span class="avatar-more">+${rest}</span>` : "");
@@ -291,6 +303,7 @@
           <div class="group-name">${esc(g.name)}</div>
           <div class="group-meta">
             <span class="group-leader">${I.crown} 組長 ${esc(g.leader||"—")}</span>
+            ${seats ? `<span class="group-recruit">招募中 ${seats} 席</span>` : ""}
             <span class="avatar-stack" aria-hidden="true">${stack}</span>
           </div>
         </a>`;
@@ -299,11 +312,33 @@
     app.innerHTML = html;
   }
 
+  /* 招募席次橫幅:席次是來賓最關心的「我的產業還有沒有位子」,放在組名正下方、成員格之前。
+     超過 6 席先只露 6 顆,其餘用 .more 這個 class 藏起來(index.html 沒有全域 [hidden] 規則,
+     而 li 是 inline-flex,用 hidden 屬性藏不住),按「還有 N 席」才全開;按鈕包在 li 裡是為了
+     維持 ul 只能裝 li 的合法結構。展開/收合由 #app 上的委派事件處理,重繪後不用重綁。 */
+  const RECRUIT_SHOW = 6;
+  function recruitBannerHTML(g, seats){
+    const chips = seats.map((s, i) =>
+      `<li class="recruit-chip${i >= RECRUIT_SHOW ? " more" : ""}">${esc(s)}</li>`
+    ).join("");
+    const hiddenN = seats.length - RECRUIT_SHOW;
+    const moreBtn = hiddenN > 0
+      ? `<li class="recruit-chip-more"><button type="button" class="recruit-more" aria-expanded="false">還有 ${hiddenN} 席</button></li>`
+      : "";
+    return `
+        <section class="recruit-banner anim" style="--i:0" aria-labelledby="recruit-title">
+          <div class="recruit-head"><h2 id="recruit-title">這組還在找這些專業的夥伴</h2><span class="recruit-count">${seats.length} 席</span></div>
+          <ul class="recruit-chips">${chips}${moreBtn}</ul>
+          <a class="recruit-cta" href="visitor.html?g=${encodeURIComponent(g.id)}">${I.ticket} 我是其中一種專業,我要參訪</a>
+        </section>`;
+  }
+
   function renderGroup(gid){
     const g = byId.get(gid);
     if(!g){ return renderNotFound("找不到這個分組"); }
-    /* 有招募席次的組,參訪按鈕由招募橫幅提供;這裡只補「沒有席次」的組,免得一頁兩顆。 */
-    const hasRecruiting = (g.recruiting || []).some(x => String(x).trim());
+    /* 有招募席次的組,參訪按鈕由招募橫幅提供;沒席次的組才補一顆小按鈕,免得一頁兩顆。 */
+    const seats = recruitList(g);
+    const hasRecruiting = seats.length > 0;
     let html = `
       <div class="page-top">
         <nav class="breadcrumb" aria-label="路徑">
@@ -321,7 +356,7 @@
             </div>
           </div>
         </div>
-        ${hasRecruiting ? "" : `<a class="visit-link" href="visitor.html?g=${encodeURIComponent(g.id)}">${I.ticket} 來參訪,認識${esc(g.name)}的夥伴</a>`}
+        ${hasRecruiting ? recruitBannerHTML(g, seats) : `<a class="visit-link" href="visitor.html?g=${encodeURIComponent(g.id)}">${I.ticket} 來參訪,認識${esc(g.name)}的夥伴</a>`}
       </div>
       <div class="grid-members">`;
     g.members.forEach((m, i) => { html += memberCardHTML(m, i, false); });
@@ -596,6 +631,17 @@
   if(skipLink){
     skipLink.addEventListener("click", e => { e.preventDefault(); app.focus(); });
   }
+
+  /* 招募橫幅「還有 N 席」展開/收合:藏的席次數直接從 DOM 數,收合時按鈕字才對得回去 */
+  app.addEventListener("click", e => {
+    const btn = e.target.closest && e.target.closest(".recruit-more");
+    if(!btn) return;
+    const banner = btn.closest(".recruit-banner");
+    if(!banner) return;
+    const open = banner.classList.toggle("recruit-open");
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.textContent = open ? "收合" : "還有 " + banner.querySelectorAll(".recruit-chip.more").length + " 席";
+  });
 
   /* ---------- sidebar / drawer wiring ---------- */
   buildSidebar();
