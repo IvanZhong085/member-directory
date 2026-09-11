@@ -437,15 +437,11 @@ body.dir-collapsed .dir-item-visitor{padding-top:12px;}
 .detail-body{padding:24px; display:grid; grid-template-columns:1fr 1fr; gap:16px;}
 @media (max-width:700px){ .detail-body{grid-template-columns:1fr;} }
 .info-card{border:1px solid var(--border); border-radius:var(--radius); padding:18px 20px; background:#fff;}
-.info-card.placeholder{border-style:dashed; border-color:var(--border-2); background:var(--bg-soft);}
 .info-head{display:flex; align-items:center; gap:10px; margin-bottom:10px;}
 .info-icon{width:32px; height:32px; border-radius:9px; flex:none; background:var(--red-50); color:var(--red); display:flex; align-items:center; justify-content:center;}
-.info-card.placeholder .info-icon{background:var(--border); color:var(--muted);}
 .info-icon svg{width:16px; height:16px;}
 .info-label{font-size:13.5px; font-weight:800; letter-spacing:.02em;}
-.pending-chip{margin-left:auto; font-size:10.5px; font-weight:700; color:var(--muted); border:1px solid var(--border-2); border-radius:999px; padding:2px 9px; background:#fff;}
 .info-text{font-size:14px; white-space:pre-line; color:var(--ink); line-height:1.75;}
-.info-card.placeholder .info-text{color:var(--muted); font-style:italic;}
 
 /* 本頁瀏覽計數 / 資料最後更新時間 */
 .detail-views, .detail-updated{display:flex; align-items:center; justify-content:center; gap:7px; padding:2px 24px 22px; font-size:12.5px; color:var(--muted); font-weight:600;}

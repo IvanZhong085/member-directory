@@ -383,6 +383,12 @@
       ? `<div class="detail-photo-wrap"><img class="detail-photo" src="${esc(imgSrc(m.image))}" alt="${esc(m.name)} 的照片"></div>`
       : `<div class="detail-photo-wrap"><div class="detail-photo-none">${I.camera}<span>照片待補</span></div></div>`;
 
+    /* 「我有…／我要…／所屬公司／主要營業項目」有資料才出卡:一排虛線「待補充」對訪客
+       沒有資訊量,對會員本人又像被公開催稿。「服務項目」「適合引薦對象」是名錄的核心
+       欄位,固定出現讓每一頁的版面一致,空的就寫「—」。公司卡只有網址、沒有公司名時
+       也要出卡,不然那個連結沒地方放。 */
+    const hasWebsite = /^https?:\/\//.test(m.website || "");
+
     function navCard(target, isNext){
       if(!target) return `<div class="dnav empty" aria-hidden="true"></div>`;
       const ph = target.image
@@ -432,23 +438,27 @@
             <div class="info-head"><span class="info-icon">${I.target}</span><span class="info-label">適合引薦對象</span></div>
             <div class="info-text">${esc(joinLines(m.targets)) || "—"}</div>
           </div>
-          <div class="info-card ${(m.have || []).length ? "" : "placeholder"}">
-            <div class="info-head"><span class="info-icon">${I.hand}</span><span class="info-label">我有…</span>${(m.have || []).length ? "" : '<span class="pending-chip">待補充</span>'}</div>
-            <div class="info-text">${esc(joinLines(m.have)) || "資料尚未提供，補充後將顯示於此。"}</div>
-          </div>
-          <div class="info-card ${(m.want || []).length ? "" : "placeholder"}">
-            <div class="info-head"><span class="info-icon">${I.megaphone}</span><span class="info-label">我要…</span>${(m.want || []).length ? "" : '<span class="pending-chip">待補充</span>'}</div>
-            <div class="info-text">${esc(joinLines(m.want)) || "資料尚未提供，補充後將顯示於此。"}</div>
-          </div>
-          <div class="info-card ${m.company ? "" : "placeholder"}">
-            <div class="info-head"><span class="info-icon">${I.building}</span><span class="info-label">所屬公司</span>${m.company ? "" : '<span class="pending-chip">待補充</span>'}</div>
-            <div class="info-text">${esc(m.company) || "資料尚未提供，補充後將顯示於此。"}</div>
-            ${/^https?:\/\//.test(m.website || "") ? `<a class="website-link" href="${esc(m.website)}" target="_blank" rel="noopener nofollow">${I.link} 公司網站 ↗</a>` : ""}
-          </div>
-          <div class="info-card ${m.business_items ? "" : "placeholder"}">
-            <div class="info-head"><span class="info-icon">${I.tags}</span><span class="info-label">主要營業項目</span>${m.business_items ? "" : '<span class="pending-chip">待補充</span>'}</div>
-            <div class="info-text">${esc(m.business_items) || "資料尚未提供，補充後將顯示於此。"}</div>
-          </div>
+          ${(m.have || []).length ? `
+          <div class="info-card">
+            <div class="info-head"><span class="info-icon">${I.hand}</span><span class="info-label">我有…</span></div>
+            <div class="info-text">${esc(joinLines(m.have))}</div>
+          </div>` : ""}
+          ${(m.want || []).length ? `
+          <div class="info-card">
+            <div class="info-head"><span class="info-icon">${I.megaphone}</span><span class="info-label">我要…</span></div>
+            <div class="info-text">${esc(joinLines(m.want))}</div>
+          </div>` : ""}
+          ${m.company || hasWebsite ? `
+          <div class="info-card">
+            <div class="info-head"><span class="info-icon">${I.building}</span><span class="info-label">所屬公司</span></div>
+            <div class="info-text">${esc(m.company) || "—"}</div>
+            ${hasWebsite ? `<a class="website-link" href="${esc(m.website)}" target="_blank" rel="noopener nofollow">${I.link} 公司網站 ↗</a>` : ""}
+          </div>` : ""}
+          ${m.business_items ? `
+          <div class="info-card">
+            <div class="info-head"><span class="info-icon">${I.tags}</span><span class="info-label">主要營業項目</span></div>
+            <div class="info-text">${esc(m.business_items)}</div>
+          </div>` : ""}
         </div>
         ${m.card || (m.products || []).length ? `
         <div class="detail-extra">
