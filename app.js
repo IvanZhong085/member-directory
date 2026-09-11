@@ -49,13 +49,21 @@
       m._group = g;
       m._idx = i;
       // precomputed search haystack: name, title, number, group, services, targets, tagline
+      // 公司、營業項目、我有/我要也放進來:成員頁有顯示的欄位,搜尋卻找不到會讓人以為沒這個人
       m._haystack = [m.name, m.title, m.number, g.code, g.name,
-        (m.services||[]).join(" "), (m.targets||[]).join(" "), (m.tagline||[]).join(" ")
+        (m.services||[]).join(" "), (m.targets||[]).join(" "), (m.tagline||[]).join(" "),
+        m.company, m.business_items, (m.have||[]).join(" "), (m.want||[]).join(" ")
       ].join(" ").toLowerCase();
       memberIndex.push(m);
     });
   });
   const TOTAL_MEMBERS = memberIndex.length;
+  /* 招募席次索引:搜尋時連「哪一組正在找這個專業」一起找出來,
+     來賓搜自己的行業找不到成員時,至少知道有組在等他。recruitList 在下方 helpers(函式宣告會提升)。 */
+  const seatIndex = [];
+  GROUPS.forEach(g => {
+    recruitList(g).forEach(seat => seatIndex.push({ g, seat, key: seat.toLowerCase() }));
+  });
 
   /* ---------- helpers ---------- */
   function esc(s){
@@ -70,6 +78,25 @@
      <a href> 變成一頁可導覽的內容,不給這個空間。 */
   function imgSrc(image){
     return /^data:image\//.test(image) ? image : "images/" + encodeURIComponent(image);
+  }
+  /* 招募席次:後台填表時難免留下空白列或同一席打兩次,顯示前先清一次;
+     順序照後台輸入的,組長排的先後就是他們最想先找到的專業。 */
+  function recruitList(g){
+    const out = [];
+    // 後台一律存陣列;萬一有人手改 data.js 成字串,整站不能因此白屏
+    (Array.isArray(g.recruiting) ? g.recruiting : []).forEach(x => {
+      const s = String(x == null ? "" : x).trim();
+      if(s && !out.includes(s)) out.push(s);
+    });
+    return out;
+  }
+  /* 組長:資料只存名字(g.leader),沒有存成員 id,顯示時得回頭在該組成員裡比對。
+     比對前先 trim,後台填表時名字尾端多個空白很常見,不該因此讓組長標示消失;
+     沒填組長就直接回 null,免得空字串跟沒名字的成員對上。 */
+  function leaderOf(g){
+    const name = (g.leader || "").trim();
+    if(!name) return null;
+    return g.members.find(m => (m.name || "").trim() === name) || null;
   }
 
   /* ---------- inline SVG icons (Lucide) ---------- */
@@ -99,6 +126,7 @@
     hand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 15h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.4.6L3 17"/><path d="m7 21 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-4.4a2 2 0 0 0-2.75-2.91l-4.2 3.9"/><path d="m2 16 6 6"/><circle cx="16" cy="9" r="2.9"/><circle cx="6" cy="5" r="3"/></svg>',
     megaphone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>',
     clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+    ticket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>',
   };
 
   /* 資料最後更新時間：存的是 ISO 字串，前台只顯示到「年/月/日」 */
@@ -124,11 +152,14 @@
 
   function memberCardHTML(m, i, showGroup){
     const sub = showGroup ? `${esc(m.title)} · ${esc(m._group.code)} ${esc(m._group.name)}` : esc(m.title);
+    /* 組長標示:卡片看得到「組長」兩個字,aria-label 就得一起唸,語音控制的人才對得上(WCAG 2.5.3) */
+    const isLeader = leaderOf(m._group) === m;
+    const label = isLeader ? `${esc(m.name)}，組長，${esc(m.title)}` : `${esc(m.name)}，${esc(m.title)}`;
     return `
-      <a class="member-card anim" style="--i:${Math.min(i,14)}" href="#/member/${encodeURIComponent(m.id)}" aria-label="${esc(m.name)}，${esc(m.title)}">
+      <a class="member-card anim" style="--i:${Math.min(i,14)}" href="#/member/${encodeURIComponent(m.id)}" aria-label="${label}">
         ${photoCard(m)}
         <div class="member-info">
-          <div class="member-name">${esc(m.name)}</div>
+          <div class="member-name">${esc(m.name)}${isLeader ? `<span class="leader-tag">${I.crown}組長</span>` : ""}</div>
           <div class="member-title">${sub}</div>
         </div>
       </a>`;
@@ -148,12 +179,20 @@
         <span class="dir-count">${g.members.length}</span>
       </a>`;
     });
+    /* 參訪入口常駐在分組之後:來賓多半是從某位夥伴的連結進來逛名錄,逛完要報名時
+       不該還得回首頁找按鈕。沒有 data-gid,setActiveGroup 只掃有 data-gid 的項目,永遠不會被標成目前頁。 */
+    html += `<a class="dir-item dir-item-visitor" href="visitor.html" title="來賓參訪">
+        <span class="dir-code">${I.ticket}</span>
+        <span class="dir-label"><span class="dir-name">來賓參訪</span></span>
+      </a>`;
     dirNav.innerHTML = html;
   }
   function setActiveGroup(gid){
     if(!dirNav) return;
     let activeEl = null;
-    dirNav.querySelectorAll(".dir-item").forEach(el => {
+    // 只掃有 data-gid 的項目:來賓參訪入口沒有這個屬性,getAttribute 會回 null,
+    // 而搜尋頁／找不到的路由是用 null 呼叫的,null === null 會把它誤標成目前頁
+    dirNav.querySelectorAll(".dir-item[data-gid]").forEach(el => {
       const on = el.getAttribute("data-gid") === gid;
       el.classList.toggle("active", on);
       if(on){ el.setAttribute("aria-current", "true"); activeEl = el; }
@@ -241,7 +280,19 @@
         <div class="hero-eyebrow anim" style="--i:0">${esc(SITE.BRAND_SUB)}</div>
         <h1 class="anim" style="--i:1">${esc(SITE.ORG_NAME)}<span class="accent">會員名錄</span></h1>
         <p class="hero-sub anim" style="--i:2">依專業分組瀏覽每一位成員的照片、專業項目與引薦資訊，點進個人頁面查看完整介紹。</p>
-        <div class="hero-stats anim" style="--i:3">
+        <!-- 產業小組總圖:一頁式總表(groups.html),來賓最常要的「一眼看完 12 組」;
+             做成首頁最大的按鈕,手機上撐滿一行。 -->
+        <div class="hero-cta anim" style="--i:3">
+          <a class="hero-btn" href="groups.html">
+            ${I.grid}
+            <span class="hero-btn-text">
+              <span class="hero-btn-title">產業小組總圖</span>
+              <span class="hero-btn-sub">一頁看完 ${GROUPS.length} 組的成員與招募中席次</span>
+            </span>
+            ${I.chevR}
+          </a>
+        </div>
+        <div class="hero-stats anim" style="--i:4">
           <div class="stat"><div class="stat-num">${GROUPS.length}</div><div class="stat-label">專業分組</div></div>
           <div class="stat"><div class="stat-num">${TOTAL_MEMBERS}</div><div class="stat-label">位成員</div></div>
           ${siteViews === "failed" ? "" : `<div class="stat" id="stat-views"><div class="stat-num">${typeof siteViews === "number" ? fmtNum(siteViews) : "…"}</div><div class="stat-label">累計瀏覽</div></div>`}
@@ -255,6 +306,8 @@
     GROUPS.forEach((g, i) => {
       const withPhoto = g.members.filter(m => m.image).slice(0,4);
       const rest = g.members.length - withPhoto.length;
+      /* 席次數只放純文字:組卡本身是 <a>,裡面不能再包連結;想看是哪些席次點進群組頁 */
+      const seats = recruitList(g).length;
       const stack = withPhoto.map(m =>
         `<img src="${esc(imgSrc(m.image))}" alt="" loading="lazy">`
       ).join("") + (rest > 0 ? `<span class="avatar-more">+${rest}</span>` : "");
@@ -272,6 +325,7 @@
           <div class="group-name">${esc(g.name)}</div>
           <div class="group-meta">
             <span class="group-leader">${I.crown} 組長 ${esc(g.leader||"—")}</span>
+            ${seats ? `<span class="group-recruit">招募中 ${seats} 席</span>` : ""}
             <span class="avatar-stack" aria-hidden="true">${stack}</span>
           </div>
         </a>`;
@@ -280,9 +334,35 @@
     app.innerHTML = html;
   }
 
+  /* 招募席次橫幅:席次是來賓最關心的「我的產業還有沒有位子」,放在組名正下方、成員格之前。
+     超過 6 席先只露 6 顆,其餘用 .more 這個 class 藏起來(index.html 沒有全域 [hidden] 規則,
+     而 li 是 inline-flex,用 hidden 屬性藏不住),按「還有 N 席」才全開;按鈕包在 li 裡是為了
+     維持 ul 只能裝 li 的合法結構。展開/收合由 #app 上的委派事件處理,重繪後不用重綁。 */
+  const RECRUIT_SHOW = 6;
+  function recruitBannerHTML(g, seats){
+    const chips = seats.map((s, i) =>
+      `<li class="recruit-chip${i >= RECRUIT_SHOW ? " more" : ""}">${esc(s)}</li>`
+    ).join("");
+    const hiddenN = seats.length - RECRUIT_SHOW;
+    const moreBtn = hiddenN > 0
+      ? `<li class="recruit-chip-more"><button type="button" class="recruit-more" aria-expanded="false">還有 ${hiddenN} 席</button></li>`
+      : "";
+    return `
+        <section class="recruit-banner anim" style="--i:0" aria-labelledby="recruit-title">
+          <div class="recruit-head"><h2 id="recruit-title">這組還在找這些專業的夥伴</h2><span class="recruit-count">${seats.length} 席</span></div>
+          <ul class="recruit-chips">${chips}${moreBtn}</ul>
+          <a class="recruit-cta" href="visitor.html?g=${encodeURIComponent(g.id)}">${I.ticket} 我是其中一種專業,我要參訪</a>
+        </section>`;
+  }
+
   function renderGroup(gid){
     const g = byId.get(gid);
     if(!g){ return renderNotFound("找不到這個分組"); }
+    /* 有招募席次的組,參訪按鈕由招募橫幅提供;沒席次的組才補一顆小按鈕,免得一頁兩顆。 */
+    const seats = recruitList(g);
+    const hasRecruiting = seats.length > 0;
+    /* 組長在成員裡找得到就直接連到他的頁:訪客看到組長名字,最常見的下一步就是想認識這個人 */
+    const leader = leaderOf(g);
     let html = `
       <div class="page-top">
         <nav class="breadcrumb" aria-label="路徑">
@@ -295,11 +375,14 @@
           <div class="group-hero-info">
             <h1>${esc(g.name)}</h1>
             <div class="group-hero-meta">
-              <span class="meta-chip">${I.crown} 組長 ${esc(g.leader||"—")}</span>
+              ${leader
+                ? `<a class="meta-chip meta-link" href="#/member/${encodeURIComponent(leader.id)}">${I.crown} 組長 ${esc(leader.name)}</a>`
+                : `<span class="meta-chip">${I.crown} 組長 ${esc(g.leader||"—")}</span>`}
               <span class="meta-chip">${I.users} ${g.members.length} 位成員</span>
             </div>
           </div>
         </div>
+        ${hasRecruiting ? recruitBannerHTML(g, seats) : `<a class="visit-link" href="visitor.html?g=${encodeURIComponent(g.id)}">${I.ticket} 來參訪,認識${esc(g.name)}的夥伴</a>`}
       </div>
       <div class="grid-members">`;
     g.members.forEach((m, i) => { html += memberCardHTML(m, i, false); });
@@ -317,6 +400,14 @@
     const photo = m.image
       ? `<div class="detail-photo-wrap"><img class="detail-photo" src="${esc(imgSrc(m.image))}" alt="${esc(m.name)} 的照片"></div>`
       : `<div class="detail-photo-wrap"><div class="detail-photo-none">${I.camera}<span>照片待補</span></div></div>`;
+
+    /* 「我有…／我要…／所屬公司／主要營業項目」有資料才出卡:一排虛線「待補充」對訪客
+       沒有資訊量,對會員本人又像被公開催稿。「服務項目」「適合引薦對象」是名錄的核心
+       欄位,固定出現讓每一頁的版面一致,空的就寫「—」。公司卡只有網址、沒有公司名時
+       也要出卡,不然那個連結沒地方放。 */
+    const hasWebsite = /^https?:\/\//.test(m.website || "");
+    /* 本人是組長就多一顆金色徽章:跟卡片上的標示對得上,來賓才知道要找誰接待 */
+    const isLeader = leaderOf(g) === m;
 
     function navCard(target, isNext){
       if(!target) return `<div class="dnav empty" aria-hidden="true"></div>`;
@@ -350,6 +441,7 @@
           <div class="detail-main">
             <div class="detail-badges">
               <span class="badge badge-group">${I.users} ${esc(g.code)}・${esc(g.name)}</span>
+              ${isLeader ? `<span class="badge badge-leader">${I.crown} 組長</span>` : ""}
               <span class="badge badge-num">編號 ${esc(m.number)}</span>
             </div>
             <h1 class="detail-name">${esc(m.name)}</h1>
@@ -367,23 +459,27 @@
             <div class="info-head"><span class="info-icon">${I.target}</span><span class="info-label">適合引薦對象</span></div>
             <div class="info-text">${esc(joinLines(m.targets)) || "—"}</div>
           </div>
-          <div class="info-card ${(m.have || []).length ? "" : "placeholder"}">
-            <div class="info-head"><span class="info-icon">${I.hand}</span><span class="info-label">我有…</span>${(m.have || []).length ? "" : '<span class="pending-chip">待補充</span>'}</div>
-            <div class="info-text">${esc(joinLines(m.have)) || "資料尚未提供，補充後將顯示於此。"}</div>
-          </div>
-          <div class="info-card ${(m.want || []).length ? "" : "placeholder"}">
-            <div class="info-head"><span class="info-icon">${I.megaphone}</span><span class="info-label">我要…</span>${(m.want || []).length ? "" : '<span class="pending-chip">待補充</span>'}</div>
-            <div class="info-text">${esc(joinLines(m.want)) || "資料尚未提供，補充後將顯示於此。"}</div>
-          </div>
-          <div class="info-card ${m.company ? "" : "placeholder"}">
-            <div class="info-head"><span class="info-icon">${I.building}</span><span class="info-label">所屬公司</span>${m.company ? "" : '<span class="pending-chip">待補充</span>'}</div>
-            <div class="info-text">${esc(m.company) || "資料尚未提供，補充後將顯示於此。"}</div>
-            ${/^https?:\/\//.test(m.website || "") ? `<a class="website-link" href="${esc(m.website)}" target="_blank" rel="noopener nofollow">${I.link} 公司網站 ↗</a>` : ""}
-          </div>
-          <div class="info-card ${m.business_items ? "" : "placeholder"}">
-            <div class="info-head"><span class="info-icon">${I.tags}</span><span class="info-label">主要營業項目</span>${m.business_items ? "" : '<span class="pending-chip">待補充</span>'}</div>
-            <div class="info-text">${esc(m.business_items) || "資料尚未提供，補充後將顯示於此。"}</div>
-          </div>
+          ${(m.have || []).length ? `
+          <div class="info-card">
+            <div class="info-head"><span class="info-icon">${I.hand}</span><span class="info-label">我有…</span></div>
+            <div class="info-text">${esc(joinLines(m.have))}</div>
+          </div>` : ""}
+          ${(m.want || []).length ? `
+          <div class="info-card">
+            <div class="info-head"><span class="info-icon">${I.megaphone}</span><span class="info-label">我要…</span></div>
+            <div class="info-text">${esc(joinLines(m.want))}</div>
+          </div>` : ""}
+          ${m.company || hasWebsite ? `
+          <div class="info-card">
+            <div class="info-head"><span class="info-icon">${I.building}</span><span class="info-label">所屬公司</span></div>
+            <div class="info-text">${esc(m.company) || "—"}</div>
+            ${hasWebsite ? `<a class="website-link" href="${esc(m.website)}" target="_blank" rel="noopener nofollow">${I.link} 公司網站 ↗</a>` : ""}
+          </div>` : ""}
+          ${m.business_items ? `
+          <div class="info-card">
+            <div class="info-head"><span class="info-icon">${I.tags}</span><span class="info-label">主要營業項目</span></div>
+            <div class="info-text">${esc(m.business_items)}</div>
+          </div>` : ""}
         </div>
         ${m.card || (m.products || []).length ? `
         <div class="detail-extra">
@@ -419,6 +515,7 @@
             </div>
           </div>
         </div>
+        <div class="visit-nudge">${I.ticket}<div class="visit-nudge-text"><b>想認識 ${esc(m.name)}?</b><span>來參訪一次例會,現場就能聊。</span></div><a class="visit-nudge-btn" href="visitor.html?m=${encodeURIComponent(m.id)}">我要報名參訪</a></div>
         ${fmtStamp(m.updatedAt) ? `<div class="detail-updated">${I.clock}<span>資料最後更新 <b>${esc(fmtStamp(m.updatedAt))}</b></span></div>` : ""}
         <div class="detail-views" id="detail-views" hidden>${I.eye}<span>本頁已被瀏覽 <b>—</b> 次</span></div>
       </article>
@@ -500,23 +597,54 @@
   function renderSearch(q){
     const query = q.trim().toLowerCase();
     const results = memberIndex.filter(m => m._haystack.includes(query));
-    if(liveRegion) liveRegion.textContent = `搜尋「${q}」，共 ${results.length} 筆結果`;
+    // 席次名稱很短,單一個字(像「師」)會掃到一大片席次,滿兩個字才拿去比對
+    const seats = query.length >= 2 ? seatIndex.filter(s => s.key.includes(query)) : [];
+    const countText = seats.length
+      ? `成員 ${results.length} 筆、招募席次 ${seats.length} 筆`
+      : `成員 ${results.length} 筆`;
+    if(liveRegion) liveRegion.textContent = `搜尋「${q}」，${countText}`;
+    const qParam = encodeURIComponent(q.trim());
     let html = `
       <div class="result-head">
-        <div class="result-title">「<span class="q">${esc(q)}</span>」的搜尋結果</div>
-        <div class="result-sub">共 ${results.length} 筆</div>
+        <h1 class="result-title">「<span class="q">${esc(q)}</span>」的搜尋結果</h1>
+        <div class="result-sub">${countText}</div>
       </div>`;
-    if(results.length === 0){
+    if(results.length === 0 && seats.length === 0){
+      // 找不到人也別讓來賓卡在這頁:給他三條路——看席次、直接報名參訪(帶著關鍵字)、回首頁
       html += `
         <div class="empty-state">
           ${I.search}
           <p>沒有符合的成員</p>
           <div class="hint">試試姓名、行業關鍵字或成員編號</div>
+          <div class="empty-actions">
+            <a class="back-btn" href="groups.html">${I.megaphone} 看看各組招募中的席次</a>
+            <a class="back-btn" href="visitor.html?q=${qParam}">${I.ticket} 報名參訪,現場認識更多夥伴</a>
+            <a class="back-btn" href="#/">${I.arrowL} 回到總覽</a>
+          </div>
         </div>`;
     } else {
-      html += `<div class="grid-members">`;
-      results.forEach((m, i) => { html += memberCardHTML(m, i, true); });
-      html += `</div>`;
+      if(results.length){
+        html += `<div class="grid-members">`;
+        results.forEach((m, i) => { html += memberCardHTML(m, i, true); });
+        html += `</div>`;
+      }
+      if(seats.length){
+        html += `
+          <section class="seat-results" aria-labelledby="seat-results-title">
+            <h2 id="seat-results-title">招募中的席次 <span class="section-count">${seats.length} 筆</span></h2>
+            <div class="seat-grid">`;
+        seats.forEach((s, i) => {
+          html += `
+              <div class="seat-card anim" style="--i:${Math.min(i,14)}">
+                <div class="seat-name">${esc(s.seat)}</div>
+                <div class="seat-group">${esc(s.g.code)}・${esc(s.g.name)} 正在找這個專業</div>
+                <a class="seat-cta" href="visitor.html?g=${encodeURIComponent(s.g.id)}&q=${qParam}">${I.ticket} 我是這個專業,我要參訪</a>
+              </div>`;
+        });
+        html += `
+            </div>
+          </section>`;
+      }
     }
     app.innerHTML = html;
   }
@@ -573,6 +701,17 @@
   if(skipLink){
     skipLink.addEventListener("click", e => { e.preventDefault(); app.focus(); });
   }
+
+  /* 招募橫幅「還有 N 席」展開/收合:藏的席次數直接從 DOM 數,收合時按鈕字才對得回去 */
+  app.addEventListener("click", e => {
+    const btn = e.target.closest && e.target.closest(".recruit-more");
+    if(!btn) return;
+    const banner = btn.closest(".recruit-banner");
+    if(!banner) return;
+    const open = banner.classList.toggle("recruit-open");
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.textContent = open ? "收合" : "還有 " + banner.querySelectorAll(".recruit-chip.more").length + " 席";
+  });
 
   /* ---------- sidebar / drawer wiring ---------- */
   buildSidebar();

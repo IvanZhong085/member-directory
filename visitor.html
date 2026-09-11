@@ -26,6 +26,8 @@
     --sans:"Noto Sans TC",-apple-system,BlinkMacSystemFont,"PingFang TC","Microsoft JhengHei",sans-serif;
   }
   *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  @media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto;} }
   body{margin:0; font-family:var(--sans); color:var(--ink); background:#fff; -webkit-font-smoothing:antialiased; line-height:1.65;}
   .wrap{max-width:720px; margin:0 auto; padding:0 20px;}
 
@@ -43,6 +45,16 @@
   .hstat{background:rgba(255,255,255,.14); border:1px solid rgba(255,255,255,.35); border-radius:14px; padding:10px 18px; backdrop-filter:blur(2px);}
   .hstat b{display:block; font-size:24px; font-weight:900; line-height:1.15; font-variant-numeric:tabular-nums;}
   .hstat span{font-size:11px; font-weight:700; letter-spacing:.18em; opacity:.9;}
+  /* 首屏就給一顆報名鍵:報名表單在最底下,來賓不必先捲過整頁才知道怎麼報名。
+     z-index 跟 .hero-stats 一樣,免得被 .hero::after 那塊白色弧形蓋到。 */
+  .hero-cta{
+    position:relative; z-index:1; display:block; width:100%; max-width:420px; margin:24px auto 0;
+    background:#fff; color:var(--red); text-decoration:none; text-align:center;
+    font-size:17px; font-weight:900; letter-spacing:.08em; padding:15px 32px; border-radius:999px;
+    box-shadow:0 12px 28px -10px rgba(0,0,0,.45); transition:transform .15s, background .15s;
+  }
+  .hero-cta:hover{background:var(--red-50); transform:translateY(-2px);}
+  .hero-cta:focus-visible{outline:3px solid #fff; outline-offset:3px;}
 
   /* ── 區塊標題 ── */
   .sec{padding:34px 0 6px;}
@@ -67,8 +79,11 @@
   /* ── 產業組成 ── */
   .groups{display:grid; grid-template-columns:repeat(2,1fr); gap:10px;}
   @media (min-width:641px){ .groups{grid-template-columns:repeat(3,1fr);} }
+  /* 兩列格線:第一列 代號｜組名｜人數,第二列在組名下方列招募席次;代號跨兩列置中。
+     沒席次的組第二列高度是 0,不會多出空行。 */
   .gchip{
-    display:flex; align-items:center; gap:9px; text-decoration:none; color:var(--ink);
+    display:grid; grid-template-columns:auto minmax(0,1fr) auto; grid-template-rows:auto auto;
+    align-items:center; column-gap:9px; text-decoration:none; color:var(--ink);
     border:1px solid var(--hair); border-radius:13px; padding:11px 13px; background:#fff;
     transition:transform .15s, box-shadow .15s;
     /* 格線項目預設 min-width:auto,擠不下時不會縮,整頁就被推出去橫向捲動(手機上很明顯)。
@@ -77,12 +92,17 @@
   }
   .gchip:hover{transform:translateY(-2px); box-shadow:0 8px 20px -10px rgba(27,28,34,.25);}
   .gchip .code{
-    flex:none; min-width:34px; height:26px; padding:0 6px; border-radius:8px;
+    grid-row:1 / 3; min-width:34px; height:26px; padding:0 6px; border-radius:8px;
     display:inline-flex; align-items:center; justify-content:center;
     font-size:12px; font-weight:900; color:#1B1C22; background:var(--gc, var(--c-blue));
   }
-  .gchip .name{font-size:13.5px; font-weight:800; flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis;}
-  .gchip .cnt{font-size:11.5px; color:var(--muted); font-weight:800;}
+  /* 組名讓它折行:手機兩欄時「肉品海鮮批發組」會被截成「肉品海鮮批…」,
+     chip 本來就有第二列放席次,組名多一行不影響版面 */
+  .gchip .name{grid-row:1; font-size:13.5px; font-weight:800; min-width:0; line-height:1.3; overflow-wrap:anywhere;}
+  .gchip .cnt{grid-row:1; font-size:11.5px; color:var(--muted); font-weight:800;}
+  /* 招募席次:紅字小字,長的席次名讓它折行,不截斷——「等 N 席」是來賓要看的重點 */
+  .gchip .seats{grid-column:2 / 4; grid-row:2; margin-top:2px; font-size:12px; font-weight:700; color:var(--red); line-height:1.45; overflow-wrap:anywhere;}
+  .gchip .seats-n{white-space:nowrap;}
   .g-note{font-size:12.5px; color:var(--muted); margin-top:12px;}
   .g-note a{color:var(--red); font-weight:700;}
 
@@ -90,9 +110,17 @@
   .cta-box{
     margin:38px 0 30px; text-align:center; background:var(--red-50);
     border:1px solid var(--red-100); border-radius:20px; padding:30px 22px;
+    scroll-margin-top:16px;
   }
   .cta-box h2{margin:0 0 6px; font-size:21px; font-weight:900;}
   .cta-box p{margin:0 0 18px; font-size:14px; color:var(--body);}
+  /* 從名錄某位夥伴／某組／搜尋帶過來的脈絡:讓來賓知道「我們知道你想認識誰」 */
+  .cta-context{
+    display:inline-block; margin:0 0 14px; padding:9px 16px; font-size:14px; color:var(--body);
+    background:#fff; border:1px solid var(--red-100); border-radius:12px; line-height:1.6;
+    overflow-wrap:anywhere; /* ?q= 是使用者輸入,沒空白的長英文／網址在手機會撐破卡片並造成橫向捲動 */
+  }
+  .cta-context b{color:var(--red-dark);}
   .cta-btn{
     display:inline-block; background:var(--red); color:#fff; text-decoration:none;
     font-size:17px; font-weight:900; letter-spacing:.08em;
@@ -142,6 +170,28 @@
   .vhp{position:absolute; left:-9999px; width:1px; height:1px; overflow:hidden;}
   @media (max-width:560px){ .vgrid{grid-template-columns:1fr;} }
 
+  /* ── 送出成功後的下一步 ──
+     白底卡片配左紅邊:跟 .cta-box 同一家人,但看得出這塊是「結果」不是「表單」。
+     兩顆動作鍵手機上直排撐滿,拇指好按。 */
+  .next-steps{
+    margin-top:18px; padding:18px 20px; text-align:left;
+    background:#fff; border:1px solid var(--red-100); border-left:4px solid var(--red); border-radius:14px;
+  }
+  .next-steps h3{margin:0 0 8px; font-size:16px; font-weight:900; color:var(--ink);}
+  .next-steps ol{margin:0; padding-left:22px; font-size:14px; color:var(--body); line-height:1.7;}
+  .next-steps li{margin:3px 0;}
+  .next-actions{display:flex; flex-wrap:wrap; gap:10px; margin-top:14px;}
+  .next-actions button, .next-actions a{
+    display:inline-block; font:inherit; font-size:13.5px; font-weight:800; line-height:1.3;
+    padding:10px 18px; border-radius:999px; cursor:pointer; text-decoration:none; text-align:center;
+    transition:background .15s;
+  }
+  .next-actions button{color:#fff; background:var(--red); border:1.5px solid var(--red);}
+  .next-actions button:hover{background:var(--red-dark);}
+  .next-actions a{color:var(--red); background:#fff; border:1.5px solid var(--red-100);}
+  .next-actions a:hover{background:var(--red-50);}
+  @media (max-width:560px){ .next-actions{flex-direction:column;} .next-actions button, .next-actions a{width:100%;} }
+
   /* ── 頁尾 ── */
   .foot{border-top:1px solid var(--hair); background:var(--bg-soft); padding:22px 20px 30px; text-align:center;}
   .foot a{color:var(--red); font-weight:800; text-decoration:none;}
@@ -165,6 +215,7 @@
     <div class="hstat"><b id="stat-groups">12</b><span>產業分組</span></div>
     <div class="hstat"><b>1<small style="font-size:13px;">對</small>1</b><span>深度引薦</span></div>
   </div>
+  <a class="hero-cta" href="#cta">我要報名參訪</a>
 </header>
 
 <main class="wrap">
@@ -199,7 +250,7 @@
     <p class="g-note">點任一組可看完整成員介紹,或直接逛 <a href="./">會員名錄</a>、看 <a href="groups.html">產業小組總表</a>(含招募中席次)。</p>
   </section>
 
-  <div class="cta-box">
+  <div class="cta-box" id="cta">
     <h2>報名參訪</h2>
     <p>填 1 分鐘表單,我們會與你確認場次與座位。</p>
     <!-- 內嵌表單:Worker 有設定好來賓表單時才顯示,否則退回下面那顆按鈕 -->
@@ -259,14 +310,83 @@
     if(ch === "E" || ch === "F") return "var(--c-green)";
     return "var(--c-peach)";
   }
+  /* 招募席次:跟 app.js 的 recruitList 同一套清理(去空白、去重);這頁不載 app.js,所以各留一份。 */
+  function recruitList(g){
+    var out = [];
+    (g.recruiting || []).forEach(function(x){
+      var s = String(x == null ? "" : x).trim();
+      if(s && out.indexOf(s) < 0) out.push(s);
+    });
+    return out;
+  }
+  /* 每組最多點名 3 席,再多就「等 N 席」——chip 很小,列完反而沒人看;點進群組頁有完整清單 */
+  function seatsText(seats){
+    if(!seats.length) return "";
+    return esc(seats.slice(0, 3).join("、")) + (seats.length > 3 ? ' <span class="seats-n">等 ' + seats.length + " 席</span>" : "");
+  }
   var html = "";
   GROUPS.forEach(function(g){
+    var seats = seatsText(recruitList(g));
     html += '<a class="gchip" style="--gc:' + groupColor(g.code) + '" href="./#/group/' + encodeURIComponent(g.id) + '">' +
       '<span class="code">' + esc(g.code || "") + '</span>' +
       '<span class="name">' + esc(g.name || "") + '</span>' +
-      '<span class="cnt">' + g.members.length + '</span></a>';
+      '<span class="cnt">' + g.members.length + '</span>' +
+      /* seats 放在 cnt 之後:讀屏是照 DOM 順序拼連結名稱,人數緊跟組名才不會像席次的一部分;版面由 grid-row 決定,不受順序影響 */
+      (seats ? '<span class="seats">' + seats + '</span>' : '') + '</a>';
   });
   document.getElementById("groups").innerHTML = html;
+
+  /* ── 從名錄帶過來的脈絡 ──
+     成員頁帶 ?m=成員id、群組頁帶 ?g=組id、搜尋帶 ?q=關鍵字。找得到就在報名標題下說一句,
+     讓來賓知道報名後會有人幫他安排;找不到就當沒這回事,不報錯。
+     搜尋頁的席次卡片會同時帶 ?g 與 ?q:來賓是搜了某個關鍵字才點進來的,那個字不能在這裡被吃掉,
+     所以組名那句後面接著把關鍵字複述一次。
+     只顯示、不送進表單:Google 表單目前沒有對應欄位,之後表單加了欄位再一起帶。 */
+  (function(){
+    var params = new URLSearchParams(location.search);
+    var text = "";
+    var mid = params.get("m"), gid = params.get("g"), q = (params.get("q") || "").trim();
+    // 用 Array.from 切,才不會把 emoji 之類的代理對從中間剪斷
+    var qPart = q ? "你在找「<b>" + esc(Array.from(q).slice(0, 40).join("")) + "</b>」" : "";
+    if(mid){
+      GROUPS.forEach(function(g){
+        if(text) return;
+        g.members.forEach(function(m){
+          if(!text && m.id === mid) text = "你想認識的是 <b>" + esc(m.name) + "</b>(" + esc(g.code) + "・" + esc(g.name) + ")—— 報名後接待夥伴會幫你安排。";
+        });
+      });
+    }
+    if(!text && gid){
+      GROUPS.forEach(function(g){
+        if(!text && g.id === gid) text = "你想認識 <b>" + esc(g.code) + "・" + esc(g.name) + "</b> 的夥伴" + (qPart ? "," + qPart : "") + " —— 報名後接待夥伴會幫你安排。";
+      });
+    }
+    if(!text && qPart) text = qPart + "—— 報名後接待夥伴會幫你留意。";
+    if(!text) return;
+    var p = document.createElement("p");
+    p.className = "cta-context";
+    p.id = "cta-context";
+    p.innerHTML = text;
+    var h2 = document.querySelector(".cta-box h2");
+    h2.parentNode.insertBefore(p, h2.nextSibling);
+  })();
+
+  /* 首屏主按鈕:捲到報名區;內嵌表單已開通時順手把游標放進姓名欄,少一次點擊。
+     捲動是否平滑交給 CSS 的 scroll-behavior(它會照顧 prefers-reduced-motion),
+     所以 scrollIntoView 不指定 behavior;等捲完再 focus 是為了不讓 focus 把捲動搶走。
+     不攔 preventDefault:原生錨點跳轉會把循序焦點起點搬到 #cta,退回「開新分頁到表單」
+     模式時鍵盤使用者按完 Enter 再 Tab 才會落到報名按鈕,而不是跳回頁首的分組 chip。 */
+  document.querySelector(".hero-cta").addEventListener("click", function(){
+    var box = document.getElementById("cta");
+    box.scrollIntoView({ block:"start" });
+    var form = document.getElementById("cta-form");
+    if(form && !form.hidden){
+      setTimeout(function(){
+        var name = document.getElementById("v-name");
+        if(name) name.focus({ preventScroll:true });
+      }, 400);
+    }
+  });
 
   var cta = document.getElementById("cta-btn");
   if(VISITOR.formUrl){
@@ -277,6 +397,18 @@
       e.preventDefault();
       document.getElementById("cta-alt").textContent = "報名表單即將開通——請先聯繫邀請你的分會夥伴,或到會員名錄找到想認識的夥伴。";
     });
+  }
+
+  /* ── 下一個週四 ──
+     成功頁「加入行事曆」用。例會固定週四 06:30–09:00;這裡的數字要跟 VISITOR.meetTime 的字對得上,
+     改例會時間時兩邊一起改。用本地年月日湊日期、不走 toISOString:那會先轉成 UTC,
+     台灣早上六點半會被算成前一天。今天就是週四但已過 09:00,例會已經散了,自然指向下週四。
+     接受 now 參數而不是自己 new Date(),是為了能塞固定日期進去驗算。 */
+  function nextThursday(now){
+    var THU = 4;                                          // getDay():0 是週日、4 是週四
+    var ahead = (THU - now.getDay() + 7) % 7;
+    if(ahead === 0 && now.getHours() >= 9) ahead = 7;     // 週四 09:00 之後:這週的已經散會
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate() + ahead, 6, 30, 0, 0);
   }
 
   /* ── 內嵌報名表單 ──────────────────────────────────────────────
@@ -306,6 +438,55 @@
     function clearBad(){
       var bad = form.querySelectorAll(".vfield.bad");
       for(var i = 0; i < bad.length; i++) bad[i].classList.remove("bad");
+    }
+
+    /* ── 送出成功後的下一步 ──
+       「報名成功」那一行只是狀態,來賓接著最想知道的是「然後呢」:誰會聯絡我、幾點在哪、
+       要不要跟引薦人講一聲。放在 #cta-msg 後面而不是裡面:那格是 aria-live,
+       整段清單塞進去會被讀屏一口氣唸完。按鈕已 disabled 不可能重送,但 #next-steps 在就先拆掉再插,保險。 */
+    var COPY_LABEL = "複製報名訊息,傳給引薦人";
+    function showNextSteps(referrer){
+      var old = document.getElementById("next-steps");
+      if(old) old.parentNode.removeChild(old);
+
+      var start = nextThursday(new Date());
+      var end = new Date(start.getFullYear(), start.getMonth(), start.getDate(), 9, 0, 0, 0);
+      var stamp = function(d){                            // Google 日曆要的 YYYYMMDDTHHMMSS(本地時間,時區另用 ctz 給)
+        var p = function(n){ return (n < 10 ? "0" : "") + n; };
+        return d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + "T" + p(d.getHours()) + p(d.getMinutes()) + "00";
+      };
+      var calUrl = "https://calendar.google.com/calendar/render?action=TEMPLATE" +
+        "&text=" + encodeURIComponent(SITE.ORG_NAME + " 例會參訪") +
+        "&dates=" + stamp(start) + "/" + stamp(end) +
+        "&ctz=Asia/Taipei" +
+        "&details=" + encodeURIComponent(VISITOR.meetTime + "," + VISITOR.meetPlace + "。接待夥伴會用 LINE 聯繫你,確認場次與座位。");
+      // 這段是要貼進 LINE 的純文字,不是 HTML,所以不過 esc()——過了會把符號變成 &amp; 之類的實體
+      var copyText = "我已經報名" + SITE.ORG_NAME + "的例會參訪(" + VISITOR.meetTime + "," + VISITOR.meetPlace + "),到時候見!";
+
+      var box = document.createElement("div");
+      box.className = "next-steps";
+      box.id = "next-steps";
+      box.innerHTML =
+        "<h3>接下來會發生什麼</h3>" +
+        "<ol>" +
+          "<li>接待夥伴會用 LINE 聯繫你,確認場次與座位。</li>" +
+          "<li>例會時間:" + esc(VISITOR.meetTime) + "," + esc(VISITOR.meetPlace) + "。</li>" +
+          (referrer ? "<li>記得跟 " + esc(referrer) + " 說一聲你報名了。</li>" : "") +
+        "</ol>" +
+        '<div class="next-actions">' +
+          '<button type="button" id="copy-msg">' + COPY_LABEL + "</button>" +
+          '<a id="add-cal" href="' + esc(calUrl) + '" target="_blank" rel="noopener">加入行事曆</a>' +
+        "</div>";
+      msg.parentNode.insertBefore(box, msg.nextSibling);
+
+      // 複製不成(舊瀏覽器、非 https)就退回 prompt 讓人手動選字,跟頁尾 btn-share 同一套
+      box.querySelector("#copy-msg").addEventListener("click", function(){
+        var b = this;
+        (navigator.clipboard ? navigator.clipboard.writeText(copyText) : Promise.reject()).then(function(){
+          b.textContent = "已複製 ✓";
+          setTimeout(function(){ b.textContent = COPY_LABEL; }, 2500);
+        }).catch(function(){ prompt("複製這段訊息:", copyText); });
+      });
     }
 
     // 先問 Worker 支不支援;支援才把表單換上來
@@ -356,6 +537,7 @@
           form.reset();
           say("報名成功 ✔ 我們會盡快與你聯繫，確認場次與座位。", "ok");
           btn.textContent = "已送出";
+          showNextSteps(body.referrer);
           return;   // 成功就不要讓人重複送出
         }
         btn.disabled = false; btn.textContent = label;
