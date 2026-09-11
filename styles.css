@@ -335,6 +335,9 @@ body.dir-collapsed .dir-item-visitor{padding-top:12px;}
 .group-hero-meta{display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:6px; font-size:13.5px; color:var(--muted);}
 .meta-chip{display:inline-flex; align-items:center; gap:6px; font-weight:600;}
 .meta-chip svg{width:14px; height:14px; color:var(--red);}
+/* 組長 chip 是連結時給 hover 回饋:同一排還有「N 位成員」純文字,得讓人看得出哪個能點 */
+.meta-link{text-decoration:underline; text-decoration-color:var(--border-2); text-underline-offset:3px; transition:color .15s, text-decoration-color .15s;}
+.meta-link:hover{color:var(--red); text-decoration-color:var(--red);}
 .visit-link{
   display:inline-flex; align-items:center; gap:8px; margin-top:16px;
   font-size:14px; font-weight:700; color:var(--red-dark);
@@ -400,6 +403,14 @@ body.dir-collapsed .dir-item-visitor{padding-top:12px;}
 }
 .member-info{padding:14px 16px 16px; display:flex; flex-direction:column; gap:3px;}
 .member-name{font-size:16px; font-weight:800;}
+/* 組長小標:金色系跟成員頁的組長徽章同一套,卡片一眼就能認出誰是這組的接待窗口;
+   用 inline-flex 而不是把 .member-name 改成 flex,長名字換行時標籤才會跟著字尾走 */
+.leader-tag{
+  display:inline-flex; align-items:center; gap:3px; vertical-align:middle; margin-left:6px; position:relative; top:-1px;
+  font-size:11px; font-weight:800; line-height:1.4; letter-spacing:.02em; white-space:nowrap;
+  color:var(--warn-ink); background:var(--warn-bg); border:1px solid var(--warn-border); border-radius:999px; padding:1px 7px;
+}
+.leader-tag svg{width:11px; height:11px;}
 .member-title{font-size:14px; color:var(--muted); line-height:1.5; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
 
 /* ============ Member detail ============ */
@@ -418,6 +429,8 @@ body.dir-collapsed .dir-item-visitor{padding-top:12px;}
 .badge svg{width:12.5px; height:12.5px;}
 .badge-group{background:var(--red-50); color:var(--red-dark); border:1px solid var(--red-100);}
 .badge-num{background:var(--bg-soft); color:var(--muted); border:1px solid var(--border); font-variant-numeric:tabular-nums;}
+/* 組長徽章走金色系(跟 .issue-banner 同一組 token),不跟紅色的分組徽章搶眼 */
+.badge-leader{background:var(--warn-bg); color:var(--warn-ink); border:1px solid var(--warn-border);}
 .detail-name{font-size:clamp(28px,4vw,36px); font-weight:900; line-height:1.2;}
 .detail-title{font-size:16px; color:var(--red); font-weight:800; margin-top:6px; display:flex; align-items:center; gap:8px;}
 .detail-tagline{

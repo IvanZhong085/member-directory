@@ -89,6 +89,14 @@
     });
     return out;
   }
+  /* 組長:資料只存名字(g.leader),沒有存成員 id,顯示時得回頭在該組成員裡比對。
+     比對前先 trim,後台填表時名字尾端多個空白很常見,不該因此讓組長標示消失;
+     沒填組長就直接回 null,免得空字串跟沒名字的成員對上。 */
+  function leaderOf(g){
+    const name = (g.leader || "").trim();
+    if(!name) return null;
+    return g.members.find(m => (m.name || "").trim() === name) || null;
+  }
 
   /* ---------- inline SVG icons (Lucide) ---------- */
   const I = {
@@ -143,11 +151,14 @@
 
   function memberCardHTML(m, i, showGroup){
     const sub = showGroup ? `${esc(m.title)} · ${esc(m._group.code)} ${esc(m._group.name)}` : esc(m.title);
+    /* 組長標示:卡片看得到「組長」兩個字,aria-label 就得一起唸,語音控制的人才對得上(WCAG 2.5.3) */
+    const isLeader = leaderOf(m._group) === m;
+    const label = isLeader ? `${esc(m.name)}，組長，${esc(m.title)}` : `${esc(m.name)}，${esc(m.title)}`;
     return `
-      <a class="member-card anim" style="--i:${Math.min(i,14)}" href="#/member/${encodeURIComponent(m.id)}" aria-label="${esc(m.name)}，${esc(m.title)}">
+      <a class="member-card anim" style="--i:${Math.min(i,14)}" href="#/member/${encodeURIComponent(m.id)}" aria-label="${label}">
         ${photoCard(m)}
         <div class="member-info">
-          <div class="member-name">${esc(m.name)}</div>
+          <div class="member-name">${esc(m.name)}${isLeader ? `<span class="leader-tag">${I.crown}組長</span>` : ""}</div>
           <div class="member-title">${sub}</div>
         </div>
       </a>`;
@@ -347,6 +358,8 @@
     /* 有招募席次的組,參訪按鈕由招募橫幅提供;沒席次的組才補一顆小按鈕,免得一頁兩顆。 */
     const seats = recruitList(g);
     const hasRecruiting = seats.length > 0;
+    /* 組長在成員裡找得到就直接連到他的頁:訪客看到組長名字,最常見的下一步就是想認識這個人 */
+    const leader = leaderOf(g);
     let html = `
       <div class="page-top">
         <nav class="breadcrumb" aria-label="路徑">
@@ -359,7 +372,9 @@
           <div class="group-hero-info">
             <h1>${esc(g.name)}</h1>
             <div class="group-hero-meta">
-              <span class="meta-chip">${I.crown} 組長 ${esc(g.leader||"—")}</span>
+              ${leader
+                ? `<a class="meta-chip meta-link" href="#/member/${encodeURIComponent(leader.id)}">${I.crown} 組長 ${esc(leader.name)}</a>`
+                : `<span class="meta-chip">${I.crown} 組長 ${esc(g.leader||"—")}</span>`}
               <span class="meta-chip">${I.users} ${g.members.length} 位成員</span>
             </div>
           </div>
@@ -388,6 +403,8 @@
        欄位,固定出現讓每一頁的版面一致,空的就寫「—」。公司卡只有網址、沒有公司名時
        也要出卡,不然那個連結沒地方放。 */
     const hasWebsite = /^https?:\/\//.test(m.website || "");
+    /* 本人是組長就多一顆金色徽章:跟卡片上的標示對得上,來賓才知道要找誰接待 */
+    const isLeader = leaderOf(g) === m;
 
     function navCard(target, isNext){
       if(!target) return `<div class="dnav empty" aria-hidden="true"></div>`;
@@ -421,6 +438,7 @@
           <div class="detail-main">
             <div class="detail-badges">
               <span class="badge badge-group">${I.users} ${esc(g.code)}・${esc(g.name)}</span>
+              ${isLeader ? `<span class="badge badge-leader">${I.crown} 組長</span>` : ""}
               <span class="badge badge-num">編號 ${esc(m.number)}</span>
             </div>
             <h1 class="detail-name">${esc(m.name)}</h1>
