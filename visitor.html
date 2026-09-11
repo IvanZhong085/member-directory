@@ -337,11 +337,15 @@
   /* ── 從名錄帶過來的脈絡 ──
      成員頁帶 ?m=成員id、群組頁帶 ?g=組id、搜尋帶 ?q=關鍵字。找得到就在報名標題下說一句,
      讓來賓知道報名後會有人幫他安排;找不到就當沒這回事,不報錯。
+     搜尋頁的席次卡片會同時帶 ?g 與 ?q:來賓是搜了某個關鍵字才點進來的,那個字不能在這裡被吃掉,
+     所以組名那句後面接著把關鍵字複述一次。
      只顯示、不送進表單:Google 表單目前沒有對應欄位,之後表單加了欄位再一起帶。 */
   (function(){
     var params = new URLSearchParams(location.search);
     var text = "";
     var mid = params.get("m"), gid = params.get("g"), q = (params.get("q") || "").trim();
+    // 用 Array.from 切,才不會把 emoji 之類的代理對從中間剪斷
+    var qPart = q ? "你在找「<b>" + esc(Array.from(q).slice(0, 40).join("")) + "</b>」" : "";
     if(mid){
       GROUPS.forEach(function(g){
         if(text) return;
@@ -352,14 +356,10 @@
     }
     if(!text && gid){
       GROUPS.forEach(function(g){
-        if(!text && g.id === gid) text = "你想認識 <b>" + esc(g.code) + "・" + esc(g.name) + "</b> 的夥伴 —— 報名後接待夥伴會幫你安排。";
+        if(!text && g.id === gid) text = "你想認識 <b>" + esc(g.code) + "・" + esc(g.name) + "</b> 的夥伴" + (qPart ? "," + qPart : "") + " —— 報名後接待夥伴會幫你安排。";
       });
     }
-    if(!text && q){
-      // 用 Array.from 切,才不會把 emoji 之類的代理對從中間剪斷
-      var shown = Array.from(q).slice(0, 40).join("");
-      text = "你在找「<b>" + esc(shown) + "</b>」—— 報名後接待夥伴會幫你留意。";
-    }
+    if(!text && qPart) text = qPart + "—— 報名後接待夥伴會幫你留意。";
     if(!text) return;
     var p = document.createElement("p");
     p.className = "cta-context";
