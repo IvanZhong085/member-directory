@@ -1424,12 +1424,12 @@ const GROUPS = [
         "image": "g8_m7_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "果冉整合設計有限公司",
         "business_items": "",
         "website": "",
         "id": "g8_m7",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "2026-09-11T14:08:58.109Z"
       },
       {
         "number": "222",
