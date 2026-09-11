@@ -99,6 +99,7 @@
     hand: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 15h2a2 2 0 1 0 0-4h-3c-.6 0-1.1.2-1.4.6L3 17"/><path d="m7 21 1.6-1.4c.3-.4.8-.6 1.4-.6h4c1.1 0 2.1-.4 2.8-1.2l4.6-4.4a2 2 0 0 0-2.75-2.91l-4.2 3.9"/><path d="m2 16 6 6"/><circle cx="16" cy="9" r="2.9"/><circle cx="6" cy="5" r="3"/></svg>',
     megaphone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>',
     clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+    ticket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 9a3 3 0 0 1 0 6v2a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-2a3 3 0 0 1 0-6V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2Z"/><path d="M13 5v2"/><path d="M13 17v2"/><path d="M13 11v2"/></svg>',
   };
 
   /* 資料最後更新時間：存的是 ISO 字串，前台只顯示到「年/月/日」 */
@@ -148,6 +149,12 @@
         <span class="dir-count">${g.members.length}</span>
       </a>`;
     });
+    /* 參訪入口常駐在分組之後:來賓多半是從某位夥伴的連結進來逛名錄,逛完要報名時
+       不該還得回首頁找按鈕。沒有 data-gid,setActiveGroup 比對不到,永遠不會被標成目前頁。 */
+    html += `<a class="dir-item dir-item-visitor" href="visitor.html" title="來賓參訪">
+        <span class="dir-code">${I.ticket}</span>
+        <span class="dir-label"><span class="dir-name">來賓參訪</span></span>
+      </a>`;
     dirNav.innerHTML = html;
   }
   function setActiveGroup(gid){
@@ -295,6 +302,8 @@
   function renderGroup(gid){
     const g = byId.get(gid);
     if(!g){ return renderNotFound("找不到這個分組"); }
+    /* 有招募席次的組,參訪按鈕由招募橫幅提供;這裡只補「沒有席次」的組,免得一頁兩顆。 */
+    const hasRecruiting = (g.recruiting || []).some(x => String(x).trim());
     let html = `
       <div class="page-top">
         <nav class="breadcrumb" aria-label="路徑">
@@ -312,6 +321,7 @@
             </div>
           </div>
         </div>
+        ${hasRecruiting ? "" : `<a class="visit-link" href="visitor.html?g=${encodeURIComponent(g.id)}">${I.ticket} 來參訪,認識${esc(g.name)}的夥伴</a>`}
       </div>
       <div class="grid-members">`;
     g.members.forEach((m, i) => { html += memberCardHTML(m, i, false); });
@@ -431,6 +441,7 @@
             </div>
           </div>
         </div>
+        <div class="visit-nudge">${I.ticket}<div class="visit-nudge-text"><b>想認識 ${esc(m.name)}?</b><span>來參訪一次例會,現場就能聊。</span></div><a class="visit-nudge-btn" href="visitor.html?m=${encodeURIComponent(m.id)}">我要報名參訪</a></div>
         ${fmtStamp(m.updatedAt) ? `<div class="detail-updated">${I.clock}<span>資料最後更新 <b>${esc(fmtStamp(m.updatedAt))}</b></span></div>` : ""}
         <div class="detail-views" id="detail-views" hidden>${I.eye}<span>本頁已被瀏覽 <b>—</b> 次</span></div>
       </article>

@@ -199,6 +199,11 @@ main{min-width:0; outline:none;}
   padding:2px 8px; font-variant-numeric:tabular-nums;
 }
 .dir-item.active .dir-count{background:#fff; color:var(--red); border-color:var(--red-100);}
+/* 來賓參訪入口:用分隔線與分組隔開,圓角只留下方 —— hover 底色才不會在分隔線上方露出一截圓角 */
+.dir-item-visitor{margin-top:8px; border-top:1px solid var(--border); padding-top:12px; border-radius:0 0 var(--radius-sm) var(--radius-sm);}
+.dir-item-visitor .dir-code{background:var(--red-50); color:var(--red-dark); border-color:var(--red-200);}
+.dir-item-visitor .dir-name{color:var(--red-dark);}
+.dir-item-visitor:hover .dir-code{background:var(--red); color:#fff; border-color:var(--red);}
 
 /* ---- Collapsed (desktop icon-strip) ---- */
 body.dir-collapsed .layout{grid-template-columns:66px minmax(0,1fr);}
@@ -208,6 +213,7 @@ body.dir-collapsed .dir-collapse{transform:rotate(180deg);}
 body.dir-collapsed .dir-nav{padding:8px 6px;}
 body.dir-collapsed .dir-item{justify-content:center; padding:7px 0; gap:0;}
 body.dir-collapsed .dir-label, body.dir-collapsed .dir-count{display:none;}
+body.dir-collapsed .dir-item-visitor{padding-top:12px;}
 
 /* ---- Mobile drawer backdrop ---- */
 .dir-backdrop{position:fixed; inset:0; z-index:55; background:rgba(27,28,34,.42);}
@@ -323,6 +329,14 @@ body.dir-collapsed .dir-label, body.dir-collapsed .dir-count{display:none;}
 .group-hero-meta{display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:6px; font-size:13.5px; color:var(--muted);}
 .meta-chip{display:inline-flex; align-items:center; gap:6px; font-weight:600;}
 .meta-chip svg{width:14px; height:14px; color:var(--red);}
+.visit-link{
+  display:inline-flex; align-items:center; gap:8px; margin-top:16px;
+  font-size:14px; font-weight:700; color:var(--red-dark);
+  background:var(--red-50); border:1px solid var(--red-100); border-radius:999px; padding:9px 18px;
+  transition:background .15s, color .15s, border-color .15s;
+}
+.visit-link svg{width:16px; height:16px; flex:none;}
+.visit-link:hover{background:var(--red); color:#fff; border-color:var(--red);}
 
 /* ============ Member cards ============ */
 .grid-members{display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:18px;}
@@ -583,7 +597,29 @@ body.dir-collapsed .dir-label, body.dir-collapsed .dir-count{display:none;}
 .sp-card-box canvas{max-width:100%; height:auto; border-radius:10px; box-shadow:var(--shadow-md);}
 @media (max-width:1100px){ .sp-wrap{grid-template-columns:1fr 1fr;} .sp-pane-pick{grid-column:1/-1;} }
 @media (max-width:720px){ .sp-wrap{grid-template-columns:1fr; padding:20px 16px 56px;} }
-@media print{ .share-bar{display:none !important;} }
+@media print{ .share-bar, .visit-nudge{display:none !important;} }
+
+/* ============ 參訪邀請(成員內頁) ============ */
+.visit-nudge{
+  margin:0 24px 22px; display:flex; align-items:center; gap:14px; padding:16px 18px;
+  background:var(--red-50); border:1px solid var(--red-100); border-radius:var(--radius);
+}
+.visit-nudge > svg{width:28px; height:28px; flex:none; color:var(--red);}
+.visit-nudge-text{flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;}
+.visit-nudge-text b{font-size:15px; font-weight:800;}
+/* 淡紅底上 --muted 的對比只有 4.4:1,這行說明字用 --ink 才過 WCAG 的 4.5:1 */
+.visit-nudge-text span{font-size:13.5px; color:var(--ink);}
+.visit-nudge-btn{
+  flex:none; display:inline-flex; align-items:center; justify-content:center;
+  background:var(--red); color:#fff; font-size:14px; font-weight:800; letter-spacing:.04em;
+  border-radius:999px; padding:10px 20px; box-shadow:0 8px 18px -8px rgba(200,16,46,.55);
+  transition:background .15s, transform .15s;
+}
+.visit-nudge-btn:hover{background:var(--red-dark); transform:translateY(-1px);}
+@media (max-width:640px){
+  .visit-nudge{flex-direction:column; align-items:center; text-align:center;}
+  .visit-nudge-btn{width:100%;}
+}
 
 /* ============ 名片與商品照片(成員內頁) ============ */
 .detail-extra{padding:0 24px 8px; display:flex; flex-direction:column; gap:16px;}
