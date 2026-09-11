@@ -481,6 +481,32 @@ body.dir-collapsed .dir-item-visitor{padding-top:12px;}
 .empty-state svg{width:52px; height:52px; color:var(--border-2); margin-bottom:14px;}
 .empty-state p{margin:0; font-size:15px; font-weight:600;}
 .empty-state .hint{font-size:13px; color:var(--muted); margin-top:6px; font-weight:400;}
+/* 空結果的三條出口:沿用 .back-btn,手機直排撐滿才好按 */
+.empty-actions{display:flex; flex-wrap:wrap; justify-content:center; gap:10px; margin-top:22px;}
+/* .empty-state svg 是給上方那顆大放大鏡用的,別讓它把按鈕裡的小圖示也撐到 52px */
+.empty-actions .back-btn svg{width:15px; height:15px; margin-bottom:0; color:currentColor;}
+@media (max-width:640px){ .empty-actions{flex-direction:column; align-items:stretch;} .empty-actions .back-btn{justify-content:center;} }
+
+/* ============ 搜尋:招募中的席次 ============ */
+.seat-results{margin-top:36px;}
+.seat-results h2{margin:0 0 14px; font-size:18px; font-weight:800; display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;}
+.seat-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:14px;}
+.seat-card{
+  display:flex; flex-direction:column; gap:6px; padding:16px 18px;
+  background:#fff; border:1px solid var(--red-100); border-radius:var(--radius); box-shadow:var(--shadow-sm);
+}
+.seat-name{font-size:17px; font-weight:800; color:var(--red-dark);}
+.seat-group{font-size:13px; color:var(--muted);}
+.seat-cta{
+  align-self:flex-start; margin-top:8px;
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  font-size:13.5px; font-weight:700; color:var(--red-dark);
+  background:var(--red-50); border:1px solid var(--red-100); border-radius:999px; padding:8px 16px;
+  transition:background .15s, color .15s, border-color .15s;
+}
+.seat-cta svg{width:15px; height:15px; flex:none;}
+.seat-cta:hover{background:var(--red); color:#fff; border-color:var(--red);}
+@media (max-width:640px){ .seat-grid{grid-template-columns:1fr;} .seat-cta{align-self:stretch;} }
 
 /* ============ Footer ============ */
 .footer{border-top:1px solid var(--border); background:var(--bg-soft);}

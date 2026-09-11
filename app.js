@@ -49,13 +49,21 @@
       m._group = g;
       m._idx = i;
       // precomputed search haystack: name, title, number, group, services, targets, tagline
+      // 公司、營業項目、我有/我要也放進來:成員頁有顯示的欄位,搜尋卻找不到會讓人以為沒這個人
       m._haystack = [m.name, m.title, m.number, g.code, g.name,
-        (m.services||[]).join(" "), (m.targets||[]).join(" "), (m.tagline||[]).join(" ")
+        (m.services||[]).join(" "), (m.targets||[]).join(" "), (m.tagline||[]).join(" "),
+        m.company, m.business_items, (m.have||[]).join(" "), (m.want||[]).join(" ")
       ].join(" ").toLowerCase();
       memberIndex.push(m);
     });
   });
   const TOTAL_MEMBERS = memberIndex.length;
+  /* 招募席次索引:搜尋時連「哪一組正在找這個專業」一起找出來,
+     來賓搜自己的行業找不到成員時,至少知道有組在等他。recruitList 在下方 helpers(函式宣告會提升)。 */
+  const seatIndex = [];
+  GROUPS.forEach(g => {
+    recruitList(g).forEach(seat => seatIndex.push({ g, seat, key: seat.toLowerCase() }));
+  });
 
   /* ---------- helpers ---------- */
   function esc(s){
@@ -558,23 +566,54 @@
   function renderSearch(q){
     const query = q.trim().toLowerCase();
     const results = memberIndex.filter(m => m._haystack.includes(query));
-    if(liveRegion) liveRegion.textContent = `搜尋「${q}」，共 ${results.length} 筆結果`;
+    // 席次名稱很短,單一個字(像「師」)會掃到一大片席次,滿兩個字才拿去比對
+    const seats = query.length >= 2 ? seatIndex.filter(s => s.key.includes(query)) : [];
+    const countText = seats.length
+      ? `成員 ${results.length} 筆、招募席次 ${seats.length} 筆`
+      : `成員 ${results.length} 筆`;
+    if(liveRegion) liveRegion.textContent = `搜尋「${q}」，${countText}`;
+    const qParam = encodeURIComponent(q.trim());
     let html = `
       <div class="result-head">
         <div class="result-title">「<span class="q">${esc(q)}</span>」的搜尋結果</div>
-        <div class="result-sub">共 ${results.length} 筆</div>
+        <div class="result-sub">${countText}</div>
       </div>`;
-    if(results.length === 0){
+    if(results.length === 0 && seats.length === 0){
+      // 找不到人也別讓來賓卡在這頁:給他三條路——看席次、直接報名參訪(帶著關鍵字)、回首頁
       html += `
         <div class="empty-state">
           ${I.search}
           <p>沒有符合的成員</p>
           <div class="hint">試試姓名、行業關鍵字或成員編號</div>
+          <div class="empty-actions">
+            <a class="back-btn" href="groups.html">${I.megaphone} 看看各組招募中的席次</a>
+            <a class="back-btn" href="visitor.html?q=${qParam}">${I.ticket} 報名參訪,現場認識更多夥伴</a>
+            <a class="back-btn" href="#/">${I.arrowL} 回到總覽</a>
+          </div>
         </div>`;
     } else {
-      html += `<div class="grid-members">`;
-      results.forEach((m, i) => { html += memberCardHTML(m, i, true); });
-      html += `</div>`;
+      if(results.length){
+        html += `<div class="grid-members">`;
+        results.forEach((m, i) => { html += memberCardHTML(m, i, true); });
+        html += `</div>`;
+      }
+      if(seats.length){
+        html += `
+          <section class="seat-results" aria-labelledby="seat-results-title">
+            <h2 id="seat-results-title">招募中的席次 <span class="section-count">${seats.length} 筆</span></h2>
+            <div class="seat-grid">`;
+        seats.forEach((s, i) => {
+          html += `
+              <div class="seat-card anim" style="--i:${Math.min(i,14)}">
+                <div class="seat-name">${esc(s.seat)}</div>
+                <div class="seat-group">${esc(s.g.code)}・${esc(s.g.name)} 正在找這個專業</div>
+                <a class="seat-cta" href="visitor.html?g=${encodeURIComponent(s.g.id)}&q=${qParam}">${I.ticket} 我是這個專業,我要參訪</a>
+              </div>`;
+        });
+        html += `
+            </div>
+          </section>`;
+      }
     }
     app.innerHTML = html;
   }
