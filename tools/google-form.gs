@@ -4,6 +4,7 @@
  * 這個檔只做兩件事,各對應一個函式,彼此獨立、可以只跑其中一個:
  *   createVisitorForm()  建立「來賓參訪報名」表單 + 報名回應試算表(來賓 CRM)
  *   createRosterSheet()  建立「名冊鏡像」試算表(A1 放 IMPORTDATA,名錄一發布就自動跟上)
+ *   setupVisitorNotify() 裝上「有人報名就寄信到分會信箱」的觸發器(做一次;之後用 checkVisitorNotify 確認)
  *
  * ── 建立來賓報名表單(約 3 分鐘)────────────────────────────────
  * 1. 開 https://script.google.com → 「新增專案」,把這整個檔案內容貼進去、儲存。
@@ -153,6 +154,147 @@ function checkVisitorEntryIds() {
   Logger.log(n === 5
     ? "✅ 五題都在。請比對這些編號與 Worker 裡的 VISITOR_ENTRY 是否一致,不一致就重跑 printVisitorFormEntryIds 並重貼。"
     : "⚠ 只對上 " + n + " 題 —— 這樣送出會安靜地少欄位,請先修好表單題目或 VISITOR_FIELD_TITLES。");
+}
+
+/* ══ 有人報名時寄信到分會信箱 ═══════════════════════════════════════════
+   來賓在 visitor.html 送出報名後,資料只會靜靜地多一列在來賓 CRM 試算表裡 ——
+   沒有人會每天去開那張表,於是「有人報名了」這件事常常隔好幾天才被發現。
+   這一段掛一個「表單送出」觸發器,每收到一筆就寄一封信到分會信箱。
+
+   收件人(依序找第一個有設的):
+     VISITOR_NOTIFY_EMAIL  來賓報名通知專用(setVisitorNotifyEmail 設定)
+     NOTIFY_EMAIL          新申請通知(組長群)
+     ALERT_EMAIL           失敗通知(分會信箱)
+     腳本擁有者            都沒設時的退路
+
+   ★ 信裡會有電話與 LINE ID —— 那正是接待夥伴要聯繫來賓用的。所以這封信只寄到
+     分會自己的信箱;不要在信箱設自動轉寄到群組,要轉寄前先想一下收件人是誰。
+
+   設定(做一次):函式下拉選單選 setupVisitorNotify → 執行 → 看執行紀錄。
+   它會裝好觸發器、印出收件人與授權狀態,並寄一封測試信;之後想再確認就跑 checkVisitorNotify。 */
+var VISITOR_TRIGGER = "onVisitorSubmit";
+
+function visitorNotifyEmail_() {
+  var props = PropertiesService.getScriptProperties();
+  var keys = ["VISITOR_NOTIFY_EMAIL", "NOTIFY_EMAIL", "ALERT_EMAIL"];
+  for (var i = 0; i < keys.length; i++) {
+    var v = String(props.getProperty(keys[i]) || "").trim();
+    if (v) return v;
+  }
+  return alertEmail_();   // 退回腳本擁有者;取不到就回空字串,由呼叫端記錄「沒寄出」
+}
+
+/* 設定來賓報名通知的收件人;傳空字串就是清掉(退回 NOTIFY_EMAIL / ALERT_EMAIL / 擁有者)。 */
+function setVisitorNotifyEmail(email) { return setNotifyProp_("VISITOR_NOTIFY_EMAIL", email, "來賓報名通知"); }
+
+/* 表單回應 → { name, phone, line, job, referrer }。題目標題對照 VISITOR_FIELD_TITLES;
+   對不上的題目一律忽略 —— 多一題或改了題目,信照寄,只是那一欄會是「(未填)」。 */
+function visitorAnswers_(e) {
+  var byTitle = {};
+  var items = (e && e.response) ? e.response.getItemResponses() : [];
+  for (var i = 0; i < items.length; i++) {
+    var v = items[i].getResponse();
+    byTitle[normTitle_(items[i].getItem().getTitle())] = v == null ? "" : String(v);
+  }
+  var out = {};
+  for (var key in VISITOR_FIELD_TITLES) {
+    if (!Object.prototype.hasOwnProperty.call(VISITOR_FIELD_TITLES, key)) continue;
+    var t = normTitle_(VISITOR_FIELD_TITLES[key]);
+    out[key] = Object.prototype.hasOwnProperty.call(byTitle, t) ? byTitle[t] : "";
+  }
+  return out;
+}
+
+/* 壓成一行:主旨與各欄位都不能被多行填答撐爆;超過上限就截。 */
+function oneLine_(s, max) {
+  var v = String(s == null ? "" : s).replace(/[\r\n\t]+/g, " ").replace(/\s{2,}/g, " ").trim();
+  var cap = max || 200;
+  return v.length > cap ? v.slice(0, cap) + "…" : v;
+}
+
+/* 組信件內容。獨立成純函式是為了能在本機測試(tests/google-form.test.mjs)。 */
+function visitorMailText_(a, when, sheetUrl) {
+  var who = shortName_(a.name);
+  var job = oneLine_(a.job, 80);
+  var subject = "【來賓報名】" + who + (job ? "(" + job + ")" : "");
+  var body =
+    "有一位來賓在名錄網站報名參訪，請接待夥伴用 LINE 聯繫，確認場次與座位。\n\n" +
+    "姓名：" + who + "\n" +
+    "電話：" + (oneLine_(a.phone) || "(未填)") + "\n" +
+    "LINE ID：" + (oneLine_(a.line) || "(未填)") + "\n" +
+    "職業：" + (job || "(未填)") + "\n" +
+    "引薦人：" + (oneLine_(a.referrer) || "(沒有引薦人，自己找上門的)") + "\n" +
+    "送出時間：" + when + "\n\n" +
+    (sheetUrl ? "來賓 CRM 試算表（這一筆在最下面一列，記得填追蹤狀態）：\n" + sheetUrl + "\n\n" : "") +
+    "⚠ 這封信含來賓的電話與 LINE ID，請不要轉寄到群組。" +
+    MAIL_FOOTER_;
+  return { subject: subject, body: body };
+}
+
+/* 「表單送出」觸發器的處理函式。這裡任何一步失敗都只記執行紀錄:
+   來賓那一筆早就安全地寫進試算表了,寄不出通知不能變成例外去嚇人。 */
+function onVisitorSubmit(e) {
+  if (!e || !e.response) {
+    Logger.log("這個函式是給「表單送出」觸發器跑的,不能直接按執行。要裝觸發器請跑 setupVisitorNotify。");
+    return;
+  }
+  var to = visitorNotifyEmail_();
+  var a = visitorAnswers_(e);
+  if (!to) {
+    Logger.log("✗ 沒有收件人(VISITOR_NOTIFY_EMAIL / NOTIFY_EMAIL / ALERT_EMAIL 都沒設,也取不到腳本擁有者),這筆報名沒有寄通知：" + shortName_(a.name));
+    return;
+  }
+  var when = "";
+  try { when = Utilities.formatDate(new Date(), "Asia/Taipei", "yyyy/MM/dd HH:mm"); }
+  catch (err) { when = String(new Date()); }
+  var sheetUrl = "";
+  try {
+    var destId = (e.source && e.source.getDestinationId) ? e.source.getDestinationId() : "";
+    if (destId) sheetUrl = SpreadsheetApp.openById(destId).getUrl();
+  } catch (err) { /* 拿不到就不附連結,信照寄 */ }
+  var mail = visitorMailText_(a, when, sheetUrl);
+  var sent = sendMail_(to, mail.subject, mail.body);
+  // 執行紀錄只放姓名、不放電話與 LINE:紀錄是另一個會被人看到的地方
+  Logger.log(sent ? "✉ 來賓報名通知已寄到 " + to + "：" + shortName_(a.name)
+                  : "✗ 來賓報名通知寄不出去：" + shortName_(a.name) + "(這筆資料仍在試算表裡)");
+}
+
+/* 裝上「表單送出」觸發器(先清掉同名舊的,不會累積),然後印狀態、寄測試信。 */
+function setupVisitorNotify() {
+  var editUrl = PropertiesService.getScriptProperties().getProperty("VISITOR_FORM_EDIT_URL");
+  if (!editUrl) throw new Error("指令碼屬性沒有 VISITOR_FORM_EDIT_URL —— 請先跑 createVisitorForm,或到「專案設定 → 指令碼屬性」補上表單的編輯網址(結尾是 /edit)");
+  var all = ScriptApp.getProjectTriggers(), removed = 0;
+  for (var i = 0; i < all.length; i++) {
+    if (all[i].getHandlerFunction() === VISITOR_TRIGGER) { ScriptApp.deleteTrigger(all[i]); removed++; }
+  }
+  var form = FormApp.openByUrl(editUrl);
+  ScriptApp.newTrigger(VISITOR_TRIGGER).forForm(form).onFormSubmit().create();
+  Logger.log("✅ 來賓報名觸發器已裝好(清掉舊的 " + removed + " 個):" + form.getTitle());
+  visitorNotifyStatus_(true);
+}
+
+/* 不改任何東西:印出觸發器、收件人、授權狀態,並寄一封測試信。 */
+function checkVisitorNotify() { visitorNotifyStatus_(true); }
+
+function visitorNotifyStatus_(sendTest) {
+  var n = 0, all = ScriptApp.getProjectTriggers();
+  for (var i = 0; i < all.length; i++) if (all[i].getHandlerFunction() === VISITOR_TRIGGER) n++;
+  Logger.log("來賓報名觸發器 :" + (n ? "✅ " + n + " 個" : "✗ 沒有 —— 請跑 setupVisitorNotify"));
+  var own = String(PropertiesService.getScriptProperties().getProperty("VISITOR_NOTIFY_EMAIL") || "").trim();
+  var to = visitorNotifyEmail_();
+  Logger.log("VISITOR_NOTIFY_EMAIL:" + (own || "(沒設 → 依序退回 NOTIFY_EMAIL / ALERT_EMAIL / 腳本擁有者)"));
+  Logger.log("實際收件人      :" + (to || "✗ 取不到 —— 請跑 setVisitorNotifyEmail(\"分會信箱\")"));
+  if (needsReauth_()) {
+    Logger.log("授權狀態        :🔴 需要重新授權 —— 授權完成前觸發器不會跑,報名不會寄信");
+    Logger.log("   👉 用瀏覽器打開這個網址完成授權(複製整行):" +
+      (reauthUrl_() || "(取不到授權網址 —— 到左側「觸發條件」頁,點觸發器的「⋮」→ 執行一次)"));
+    return;
+  }
+  Logger.log("授權狀態        :✅ 不需要重新授權");
+  if (!sendTest || !to) return;
+  var ok = sendMail_(to, "【來賓報名】通知設定測試",
+    "看到這封信代表來賓報名通知寄得出去。\n之後每一筆報名都會寄一封到這個信箱。" + MAIL_FOOTER_);
+  Logger.log(ok ? "測試信          :✅ 已寄到 " + to : "測試信          :✗ 寄不出去(見上方錯誤)");
 }
 
 function objKeys_(o) { var a = []; for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) a.push(k); return a; }
@@ -549,6 +691,8 @@ function checkNotifySetup() {
   Logger.log("ALERT_EMAIL   :" + (alertTo || "(沒設 → 用腳本擁有者)"));
   Logger.log("實際收件人    :" + (effective || "✗ 取不到 —— 失敗通知會寄不出去,請設 ALERT_EMAIL"));
   Logger.log("NOTIFY_EMAIL  :" + (notifyTo || "(沒設 → 不寄「有新申請」的通知)"));
+  var visitorTo = String(props.getProperty("VISITOR_NOTIFY_EMAIL") || "").trim();
+  Logger.log("VISITOR_NOTIFY_EMAIL:" + (visitorTo || "(沒設 → 來賓報名通知依序退回 NOTIFY_EMAIL / ALERT_EMAIL / 擁有者)"));
   try { Logger.log("今日可寄額度  :" + MailApp.getRemainingDailyQuota() + " 封"); }
   catch (err) { Logger.log("今日可寄額度  :取不到(通常就是還沒授權)"); }
 
