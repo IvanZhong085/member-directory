@@ -156,11 +156,16 @@
 
 <div class="toolbar">
   <span class="tip">標題與日期<b>點一下就能改字</b>;各組「招募席位」紅字項目在後台的分組欄位編輯。確認後按「列印/存 PDF」。</span>
-  <a class="tbtn" href="admin.html">← 回後台</a>
-  <a class="tbtn" href="./">回名錄</a>
+  <!-- 首頁現在有大按鈕直通這一頁,來賓也會進來:「回後台」只給從後台開過來的人看,
+       用 referrer 判斷;其餘人看到的是「← 回名錄」。 -->
+  <a class="tbtn" id="tbtn-admin" href="admin.html" style="display:none">← 回後台</a>
+  <a class="tbtn" href="./">← 回名錄</a>
   <button class="tbtn" id="btn-jpg" type="button">🖼 存成 JPG</button>
   <button class="tbtn tbtn-primary" onclick="window.print()" type="button">🖨 列印/存 PDF</button>
 </div>
+<script>
+  if(/\/admin\.html(\?|#|$)/.test(document.referrer)) document.getElementById("tbtn-admin").style.display = "";
+</script>
 
 <div class="sheet">
   <img class="sheet-bg" src="group-sheet-bg.svg?v=1" alt="" aria-hidden="true">

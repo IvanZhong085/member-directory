@@ -241,7 +241,19 @@
         <div class="hero-eyebrow anim" style="--i:0">${esc(SITE.BRAND_SUB)}</div>
         <h1 class="anim" style="--i:1">${esc(SITE.ORG_NAME)}<span class="accent">會員名錄</span></h1>
         <p class="hero-sub anim" style="--i:2">依專業分組瀏覽每一位成員的照片、專業項目與引薦資訊，點進個人頁面查看完整介紹。</p>
-        <div class="hero-stats anim" style="--i:3">
+        <!-- 產業小組總圖:一頁式總表(groups.html),來賓最常要的「一眼看完 12 組」;
+             做成首頁最大的按鈕,手機上撐滿一行。 -->
+        <div class="hero-cta anim" style="--i:3">
+          <a class="hero-btn" href="groups.html">
+            ${I.grid}
+            <span class="hero-btn-text">
+              <span class="hero-btn-title">產業小組總圖</span>
+              <span class="hero-btn-sub">一頁看完 ${GROUPS.length} 組的成員與招募中席次</span>
+            </span>
+            ${I.chevR}
+          </a>
+        </div>
+        <div class="hero-stats anim" style="--i:4">
           <div class="stat"><div class="stat-num">${GROUPS.length}</div><div class="stat-label">專業分組</div></div>
           <div class="stat"><div class="stat-num">${TOTAL_MEMBERS}</div><div class="stat-label">位成員</div></div>
           ${siteViews === "failed" ? "" : `<div class="stat" id="stat-views"><div class="stat-num">${typeof siteViews === "number" ? fmtNum(siteViews) : "…"}</div><div class="stat-label">累計瀏覽</div></div>`}
