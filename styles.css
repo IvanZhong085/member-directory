@@ -199,6 +199,27 @@ main{min-width:0; outline:none;}
   padding:2px 8px; font-variant-numeric:tabular-nums;
 }
 .dir-item.active .dir-count{background:#fff; color:var(--red); border-color:var(--red-100);}
+/* 來賓參訪入口:用分隔線與分組隔開,圓角只留下方 —— hover 底色才不會在分隔線上方露出一截圓角 */
+.dir-item-visitor{margin-top:8px; border-top:1px solid var(--border); padding-top:12px; border-radius:0 0 var(--radius-sm) var(--radius-sm);}
+.dir-item-visitor .dir-code{background:var(--red-50); color:var(--red-dark); border-color:var(--red-200);}
+.dir-item-visitor .dir-name{color:var(--red-dark);}
+.dir-item-visitor:hover .dir-code{background:var(--red); color:#fff; border-color:var(--red);}
+
+/* 矮螢幕(1366×768、1280×720 的筆電)側欄放不下 12 組 + 來賓參訪,最後一項會被推到要捲才看得到;
+   把每一項壓扁一點,13 項就剛好塞得進 max-height。 */
+@media (max-height:800px){
+  .dir-nav{gap:1px;}
+  .dir-item{min-height:40px; padding:5px 9px;}
+  .dir-code{height:28px; min-width:32px;}
+  .dir-item-visitor{margin-top:6px; padding-top:9px;}
+}
+/* 720 高的螢幕再矮 30px:分組項目再壓到 38px、去掉間距,13 項才不用捲 */
+@media (max-height:740px){
+  .dir-nav{gap:0; padding:6px 8px;}
+  .dir-item{min-height:36px; padding:3px 9px;}
+  .dir-code{height:26px;}
+  .dir-item-visitor{margin-top:4px; padding-top:7px;}
+}
 
 /* ---- Collapsed (desktop icon-strip) ---- */
 body.dir-collapsed .layout{grid-template-columns:66px minmax(0,1fr);}
@@ -208,6 +229,7 @@ body.dir-collapsed .dir-collapse{transform:rotate(180deg);}
 body.dir-collapsed .dir-nav{padding:8px 6px;}
 body.dir-collapsed .dir-item{justify-content:center; padding:7px 0; gap:0;}
 body.dir-collapsed .dir-label, body.dir-collapsed .dir-count{display:none;}
+body.dir-collapsed .dir-item-visitor{padding-top:12px;}
 
 /* ---- Mobile drawer backdrop ---- */
 .dir-backdrop{position:fixed; inset:0; z-index:55; background:rgba(27,28,34,.42);}
@@ -226,6 +248,26 @@ body.dir-collapsed .dir-label, body.dir-collapsed .dir-count{display:none;}
 .hero-sub{margin:14px 0 0; font-size:15.5px; color:var(--muted); max-width:520px;}
 .hero-deco{position:absolute; right:-40px; top:10px; width:300px; height:300px; pointer-events:none; opacity:.9;}
 @media (max-width:860px){ .hero-deco{display:none;} }
+
+/* 首頁大按鈕:產業小組總圖(groups.html 一頁式總表)。
+   要比統計卡更搶眼,所以用實心紅、字級 20px;手機撐滿一行。 */
+.hero-cta{margin-top:26px;}
+.hero-btn{
+  display:inline-flex; align-items:center; gap:14px; max-width:100%;
+  background:var(--red); color:#fff; text-decoration:none;
+  border-radius:999px; padding:16px 24px 16px 22px;
+  box-shadow:var(--shadow-lg);
+  transition:background .2s, transform .2s var(--ease), box-shadow .2s;
+}
+.hero-btn > svg{width:26px; height:26px; flex:none;}
+.hero-btn > svg:last-child{width:18px; height:18px; opacity:.85; margin-left:2px;}
+.hero-btn-text{display:flex; flex-direction:column; line-height:1.2; min-width:0;}
+.hero-btn-title{font-size:20px; font-weight:900; letter-spacing:.02em;}
+.hero-btn-sub{font-size:12.5px; font-weight:600; opacity:.9; margin-top:3px;}
+.hero-btn:hover{background:var(--red-dark); transform:translateY(-2px); box-shadow:0 22px 44px -14px rgba(124,10,29,.38);}
+.hero-btn:active{transform:scale(.98);}
+.hero-btn:focus-visible{outline-offset:4px; border-radius:999px;}
+@media (max-width:600px){ .hero-btn{width:100%; justify-content:flex-start;} .hero-btn-title{font-size:19px;} }
 
 .hero-stats{
   display:flex; gap:0; margin-top:32px;
@@ -273,9 +315,15 @@ body.dir-collapsed .dir-label, body.dir-collapsed .dir-count{display:none;}
 .group-arrow svg{width:17px; height:17px;}
 .group-card:hover .group-arrow{color:var(--red); background:var(--red-50); transform:translateX(3px);}
 .group-name{font-size:17.5px; font-weight:800; line-height:1.35;}
-.group-meta{display:flex; align-items:center; justify-content:space-between; font-size:12.5px; color:var(--muted);}
+.group-meta{display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px 10px; font-size:12.5px; color:var(--muted);}
 .group-leader{display:flex; align-items:center; gap:6px;}
 .group-leader svg{width:13px; height:13px; color:var(--faint);}
+/* 招募中席次:純文字小標(組卡是 <a>,裡面不能再放連結);auto margin 讓頭像堆維持靠右 */
+.group-recruit{
+  font-size:12px; font-weight:800; color:var(--red); white-space:nowrap;
+  background:var(--red-50); border:1px solid var(--red-100); border-radius:999px; padding:2px 9px;
+  margin-right:auto;
+}
 .avatar-stack{display:flex; align-items:center;}
 .avatar-stack img, .avatar-more{
   width:30px; height:30px; border-radius:50%; border:2px solid #fff;
@@ -303,6 +351,53 @@ body.dir-collapsed .dir-label, body.dir-collapsed .dir-count{display:none;}
 .group-hero-meta{display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:6px; font-size:13.5px; color:var(--muted);}
 .meta-chip{display:inline-flex; align-items:center; gap:6px; font-weight:600;}
 .meta-chip svg{width:14px; height:14px; color:var(--red);}
+/* 組長 chip 是連結時給 hover 回饋:同一排還有「N 位成員」純文字,得讓人看得出哪個能點 */
+.meta-link{text-decoration:underline; text-decoration-color:currentColor; text-underline-offset:3px; transition:color .15s, text-decoration-color .15s;}
+.meta-link:hover{color:var(--red); text-decoration-color:var(--red);}
+.visit-link{
+  display:inline-flex; align-items:center; gap:8px; margin-top:16px;
+  font-size:14px; font-weight:700; color:var(--red-dark);
+  background:var(--red-50); border:1px solid var(--red-100); border-radius:999px; padding:9px 18px;
+  transition:background .15s, color .15s, border-color .15s;
+}
+.visit-link svg{width:16px; height:16px; flex:none;}
+.visit-link:hover{background:var(--red); color:#fff; border-color:var(--red);}
+
+/* ============ 招募席次橫幅(群組頁) ============ */
+.recruit-banner{
+  margin-top:18px; padding:18px 20px;
+  background:var(--red-50); border:1px solid var(--red-100); border-radius:var(--radius);
+}
+.recruit-head{display:flex; align-items:baseline; justify-content:space-between; gap:6px 12px; flex-wrap:wrap;}
+.recruit-head h2{margin:0; font-size:16.5px; font-weight:800; color:var(--ink);}
+.recruit-count{font-size:13px; font-weight:800; color:var(--red-dark); white-space:nowrap;}
+.recruit-chips{list-style:none; margin:12px 0 0; padding:0; display:flex; flex-wrap:wrap; gap:8px;}
+.recruit-chip{
+  display:inline-flex; align-items:center; background:#fff; color:var(--red-dark);
+  border:1px solid var(--red-200); border-radius:999px; padding:6px 13px; font-size:13.5px; font-weight:700;
+  overflow-wrap:anywhere; /* 席次是後台自由文字,沒有空白的長英文／網址也得折行,不然會被 html 的 overflow-x:clip 裁掉 */
+}
+/* 超過 6 席的先藏起來;展開狀態掛在橫幅上,單一 class 就能開關整批 */
+.recruit-chip.more{display:none;}
+.recruit-banner.recruit-open .recruit-chip.more{display:inline-flex;}
+.recruit-chip-more{display:inline-flex;}
+.recruit-more{
+  display:inline-flex; align-items:center; font:inherit; font-size:13.5px; font-weight:700; color:var(--red-dark);
+  background:transparent; border:1px dashed var(--red-200); border-radius:999px; padding:6px 13px; cursor:pointer;
+  transition:background .15s, border-color .15s;
+}
+.recruit-more:hover{background:#fff; border-color:var(--red);}
+.recruit-cta{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px; margin-top:14px;
+  background:var(--red); color:#fff; font-size:14px; font-weight:800; letter-spacing:.04em;
+  border-radius:999px; padding:10px 20px; box-shadow:0 8px 18px -8px rgba(200,16,46,.55);
+  transition:background .15s, transform .15s;
+}
+.recruit-cta svg{width:16px; height:16px; flex:none;}
+.recruit-cta:hover{background:var(--red-dark); transform:translateY(-1px);}
+@media (max-width:640px){ .recruit-cta{width:100%;} }
+/* 列印時席次全露、不印展開鈕 */
+@media print{ .recruit-chip.more{display:inline-flex !important;} .recruit-chip-more{display:none !important;} }
 
 /* ============ Member cards ============ */
 .grid-members{display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:18px;}
@@ -325,6 +420,14 @@ body.dir-collapsed .dir-label, body.dir-collapsed .dir-count{display:none;}
 }
 .member-info{padding:14px 16px 16px; display:flex; flex-direction:column; gap:3px;}
 .member-name{font-size:16px; font-weight:800;}
+/* 組長小標:金色系跟成員頁的組長徽章同一套,卡片一眼就能認出誰是這組的接待窗口;
+   用 inline-flex 而不是把 .member-name 改成 flex,長名字換行時標籤才會跟著字尾走 */
+.leader-tag{
+  display:inline-flex; align-items:center; gap:3px; vertical-align:middle; margin-left:6px; position:relative; top:-1px;
+  font-size:11px; font-weight:800; line-height:1.4; letter-spacing:.02em; white-space:nowrap;
+  color:var(--warn-ink); background:var(--warn-bg); border:1px solid var(--warn-border); border-radius:999px; padding:1px 7px;
+}
+.leader-tag svg{width:11px; height:11px;}
 .member-title{font-size:14px; color:var(--muted); line-height:1.5; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;}
 
 /* ============ Member detail ============ */
@@ -343,6 +446,8 @@ body.dir-collapsed .dir-label, body.dir-collapsed .dir-count{display:none;}
 .badge svg{width:12.5px; height:12.5px;}
 .badge-group{background:var(--red-50); color:var(--red-dark); border:1px solid var(--red-100);}
 .badge-num{background:var(--bg-soft); color:var(--muted); border:1px solid var(--border); font-variant-numeric:tabular-nums;}
+/* 組長徽章走金色系(跟 .issue-banner 同一組 token),不跟紅色的分組徽章搶眼 */
+.badge-leader{background:var(--warn-bg); color:var(--warn-ink); border:1px solid var(--warn-border);}
 .detail-name{font-size:clamp(28px,4vw,36px); font-weight:900; line-height:1.2;}
 .detail-title{font-size:16px; color:var(--red); font-weight:800; margin-top:6px; display:flex; align-items:center; gap:8px;}
 .detail-tagline{
@@ -362,15 +467,11 @@ body.dir-collapsed .dir-label, body.dir-collapsed .dir-count{display:none;}
 .detail-body{padding:24px; display:grid; grid-template-columns:1fr 1fr; gap:16px;}
 @media (max-width:700px){ .detail-body{grid-template-columns:1fr;} }
 .info-card{border:1px solid var(--border); border-radius:var(--radius); padding:18px 20px; background:#fff;}
-.info-card.placeholder{border-style:dashed; border-color:var(--border-2); background:var(--bg-soft);}
 .info-head{display:flex; align-items:center; gap:10px; margin-bottom:10px;}
 .info-icon{width:32px; height:32px; border-radius:9px; flex:none; background:var(--red-50); color:var(--red); display:flex; align-items:center; justify-content:center;}
-.info-card.placeholder .info-icon{background:var(--border); color:var(--muted);}
 .info-icon svg{width:16px; height:16px;}
 .info-label{font-size:13.5px; font-weight:800; letter-spacing:.02em;}
-.pending-chip{margin-left:auto; font-size:10.5px; font-weight:700; color:var(--muted); border:1px solid var(--border-2); border-radius:999px; padding:2px 9px; background:#fff;}
 .info-text{font-size:14px; white-space:pre-line; color:var(--ink); line-height:1.75;}
-.info-card.placeholder .info-text{color:var(--muted); font-style:italic;}
 
 /* 本頁瀏覽計數 / 資料最後更新時間 */
 .detail-views, .detail-updated{display:flex; align-items:center; justify-content:center; gap:7px; padding:2px 24px 22px; font-size:12.5px; color:var(--muted); font-weight:600;}
@@ -399,13 +500,39 @@ body.dir-collapsed .dir-label, body.dir-collapsed .dir-count{display:none;}
 
 /* ============ Search results / empty ============ */
 .result-head{margin:30px 0 20px;}
-.result-title{font-size:21px; font-weight:800;}
+.result-title{margin:0; font-size:21px; font-weight:800;}
 .result-title .q{color:var(--red);}
 .result-sub{font-size:13px; color:var(--muted); margin-top:4px;}
 .empty-state{text-align:center; padding:70px 20px; color:var(--muted);}
 .empty-state svg{width:52px; height:52px; color:var(--border-2); margin-bottom:14px;}
 .empty-state p{margin:0; font-size:15px; font-weight:600;}
 .empty-state .hint{font-size:13px; color:var(--muted); margin-top:6px; font-weight:400;}
+/* 空結果的三條出口:沿用 .back-btn,手機直排撐滿才好按 */
+.empty-actions{display:flex; flex-wrap:wrap; justify-content:center; gap:10px; margin-top:22px;}
+/* .empty-state svg 是給上方那顆大放大鏡用的,別讓它把按鈕裡的小圖示也撐到 52px */
+.empty-actions .back-btn svg{width:15px; height:15px; margin-bottom:0; color:currentColor;}
+@media (max-width:640px){ .empty-actions{flex-direction:column; align-items:stretch;} .empty-actions .back-btn{justify-content:center;} }
+
+/* ============ 搜尋:招募中的席次 ============ */
+.seat-results{margin-top:36px;}
+.seat-results h2{margin:0 0 14px; font-size:18px; font-weight:800; display:flex; align-items:baseline; gap:10px; flex-wrap:wrap;}
+.seat-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:14px;}
+.seat-card{
+  display:flex; flex-direction:column; gap:6px; padding:16px 18px;
+  background:#fff; border:1px solid var(--red-100); border-radius:var(--radius); box-shadow:var(--shadow-sm);
+}
+.seat-name{font-size:17px; font-weight:800; color:var(--red-dark); overflow-wrap:anywhere;}
+.seat-group{font-size:13px; color:var(--muted);}
+.seat-cta{
+  align-self:flex-start; margin-top:8px;
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  font-size:13.5px; font-weight:700; color:var(--red-dark);
+  background:var(--red-50); border:1px solid var(--red-100); border-radius:999px; padding:8px 16px;
+  transition:background .15s, color .15s, border-color .15s;
+}
+.seat-cta svg{width:15px; height:15px; flex:none;}
+.seat-cta:hover{background:var(--red); color:#fff; border-color:var(--red);}
+@media (max-width:640px){ .seat-grid{grid-template-columns:1fr;} .seat-cta{align-self:stretch;} }
 
 /* ============ Footer ============ */
 .footer{border-top:1px solid var(--border); background:var(--bg-soft);}
@@ -563,7 +690,29 @@ body.dir-collapsed .dir-label, body.dir-collapsed .dir-count{display:none;}
 .sp-card-box canvas{max-width:100%; height:auto; border-radius:10px; box-shadow:var(--shadow-md);}
 @media (max-width:1100px){ .sp-wrap{grid-template-columns:1fr 1fr;} .sp-pane-pick{grid-column:1/-1;} }
 @media (max-width:720px){ .sp-wrap{grid-template-columns:1fr; padding:20px 16px 56px;} }
-@media print{ .share-bar{display:none !important;} }
+@media print{ .share-bar, .visit-nudge{display:none !important;} }
+
+/* ============ 參訪邀請(成員內頁) ============ */
+.visit-nudge{
+  margin:0 24px 22px; display:flex; align-items:center; gap:14px; padding:16px 18px;
+  background:var(--red-50); border:1px solid var(--red-100); border-radius:var(--radius);
+}
+.visit-nudge > svg{width:28px; height:28px; flex:none; color:var(--red);}
+.visit-nudge-text{flex:1; min-width:0; display:flex; flex-direction:column; gap:2px;}
+.visit-nudge-text b{font-size:15px; font-weight:800;}
+/* 淡紅底上 --muted 的對比只有 4.4:1,這行說明字用 --ink 才過 WCAG 的 4.5:1 */
+.visit-nudge-text span{font-size:13.5px; color:var(--ink);}
+.visit-nudge-btn{
+  flex:none; display:inline-flex; align-items:center; justify-content:center;
+  background:var(--red); color:#fff; font-size:14px; font-weight:800; letter-spacing:.04em;
+  border-radius:999px; padding:10px 20px; box-shadow:0 8px 18px -8px rgba(200,16,46,.55);
+  transition:background .15s, transform .15s;
+}
+.visit-nudge-btn:hover{background:var(--red-dark); transform:translateY(-1px);}
+@media (max-width:640px){
+  .visit-nudge{flex-direction:column; align-items:center; text-align:center;}
+  .visit-nudge-btn{width:100%;}
+}
 
 /* ============ 名片與商品照片(成員內頁) ============ */
 .detail-extra{padding:0 24px 8px; display:flex; flex-direction:column; gap:16px;}
