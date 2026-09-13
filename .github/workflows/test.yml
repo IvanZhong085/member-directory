@@ -44,5 +44,8 @@ jobs:
       - name: 前端純邏輯測試
         run: node tests/logic.test.mjs
 
+      - name: Apps Script 來賓報名通知測試
+        run: node tests/google-form.test.mjs
+
       - name: 死程式碼掃描
         run: node tools/check-dead-code.mjs
