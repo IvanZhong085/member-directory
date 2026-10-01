@@ -2706,7 +2706,7 @@ const GROUPS = [
       },
       {
         "id": "g1_m_ms8d1a021g8f",
-        "number": "221",
+        "number": "225",
         "name": "李聖漳",
         "title": "淨水設備整合規劃",
         "services": [],
@@ -2726,7 +2726,7 @@ const GROUPS = [
         "business_items": "",
         "website": "",
         "dataIssue": false,
-        "updatedAt": "2026-07-31T03:11:21.303Z"
+        "updatedAt": "2026-10-01T15:01:41.205Z"
       }
     ],
     "id": "g1",
