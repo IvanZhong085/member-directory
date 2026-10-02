@@ -385,6 +385,15 @@ hr("⑩ 預填連結(updatePrefillUrl)");
       ![...nt.searchParams.values()].some(x => x === vals.token) && nt.searchParams.get("entry.1004") === vals.services);
   chk("只放 entries 與 values 都有的鍵", eq([...new URL(L.updatePrefillUrl(FORM, { member:"entry.1001", company:"entry.1003" },
       { member:"A1・曾俊凱", title:"x" }).url).searchParams.keys()], ["usp","entry.1001"]));
+  /* 有內容的格子沒有 entry → 那一格帶不進表單、送出時是空的;代碼若照帶,Worker 會判成「本人清空了」 */
+  const noTitle = Object.assign({}, ENT); delete noTitle.title;
+  const ntu = new URL(L.updatePrefillUrl(FORM, noTitle, vals).url);
+  chk("★ 有內容的格子(職稱)沒有 entry → 不帶連結代碼,其他照帶",
+      !ntu.searchParams.has("entry.1011") && ![...ntu.searchParams.values()].some(x => x === vals.token) &&
+      ntu.searchParams.get("entry.1004") === vals.services && ntu.searchParams.get("entry.1001") === "A1・曾俊凱");
+  const noWeb = Object.assign({}, ENT); delete noWeb.website;
+  chk("沒有 entry 的格子本來就是空的(網站)→ 代碼照帶(兩邊都記成空白,對得上)",
+      new URL(L.updatePrefillUrl(FORM, noWeb, vals).url).searchParams.get("entry.1011") === vals.token);
 
   // 太長 → 退回只帶名字,而且不帶代碼(格子沒帶入卻帶代碼,Worker 會以為本人清空了每一格)
   const big = Object.assign(MEMBER(), { business_items: "營".repeat(3000) });
@@ -696,6 +705,47 @@ hr("⑱ 草稿會蓋掉已套用的夥伴更新(overwrittenMemberUpdates)");
   chk("★ draft 的 lastUpdateFrom 是另一個 uid → 回傳", eq(L.overwrittenMemberUpdates(live, draft2), ["王大明"]));
   chk("兩邊都沒有 lastUpdateFrom → 不回", eq(L.overwrittenMemberUpdates({ members:[{ id:"x", name:"甲" }] }, { members:[{ id:"x", name:"甲" }] }), []));
   chk("群組是 null → 空陣列", eq(L.overwrittenMemberUpdates(null, draft), []) && eq(L.overwrittenMemberUpdates(live, null), []));
+}
+
+/* ══ 後台 ↔ Worker 的錯誤碼 ══
+   審核區的訊息是照規格的錯誤表寫的,Worker 是照規格的步驟寫的;兩邊各自補了規格沒寫到的碼時
+   (例如 Worker 在查看、不採用也回 group_renamed),後台只會顯示「沒有成功（group_renamed）」。
+   這裡從 Worker 原始碼抓出每支審核端點會回的 409/403 錯誤碼 —— 那些都是「人要照著做」的情況
+   (被別人處理掉、正在處理、沒有權限、代號被改) —— 確認後台對應的函式都有專屬訊息。 */
+hr("⑲ 後台 ↔ Worker:審核端點會回的 409/403 錯誤碼,後台都有專屬訊息");
+{
+  const wsrc = fs.readFileSync(path.join(ROOT, "worker/publish-relay.js"), "utf8");
+  const asrc = fs.readFileSync(path.join(ROOT, "admin.js"), "utf8");
+  const fnSrc = (s, name) => {
+    const m = new RegExp("^([ \\t]*)(?:async )?function " + name + "\\([\\s\\S]*?\\n\\1\\}", "m").exec(s);
+    return m ? m[0] : "";
+  };
+  const humanCodes = names => {
+    const out = new Set();
+    for(const n of names){
+      for(const m of fnSrc(wsrc, n).matchAll(/error:\s*"([a-z_]+)"[^;]*?\},\s*(40[39])\)/g)) out.add(m[1]);
+    }
+    out.delete("read_only");                 // 唯讀帳號整塊看不到,一個請求都不會送
+    return [...out];
+  };
+  // 查看、套用、不採用的組長檢查都走這兩支
+  const LEADER = ["memberUpdateAuth", "leaderGroupDenied"];
+  const PAIRS = [
+    ["/member-updates",           ["handleMemberUpdates", "memberUpdateAuth"],         ["loadMemberUpdatesOnce", "renderMemberUpdates"]],
+    ["/member-update-get",        ["handleMemberUpdateGet", ...LEADER],       ["mupdToggle"]],
+    ["/member-update-apply",      ["handleMemberUpdateApply", ...LEADER],     ["mupdApply"]],
+    ["/member-update-drop",       ["handleMemberUpdateDrop", ...LEADER],      ["mupdDrop"]],
+    ["/member-update-drop-batch", ["handleMemberUpdateDropBatch"],            ["mupdBatchDrop"]],
+  ];
+  for(const [ep, wfns, afns] of PAIRS){
+    const codes = humanCodes(wfns);
+    const abody = afns.map(n => fnSrc(asrc, n)).join("\n");
+    const missing = codes.filter(c => abody.indexOf('"' + c + '"') < 0);
+    chk("★ " + ep + ":" + (codes.join("、") || "(沒有)") + " 都有專屬訊息",
+        abody.length > 200 && codes.length > 0 && !missing.length, missing.length ? "缺 " + missing.join("、") : "");
+  }
+  chk("★ 查看與不採用:Worker 的組長檢查會回 group_renamed(與清單、發布同一個碼)",
+      humanCodes(["leaderGroupDenied"]).indexOf("group_renamed") >= 0);
 }
 
 console.log(`\n${fail===0 ? "✅ 全數通過" : "❌ 有失敗"}:${pass} 通過 / ${fail} 失敗\n`);

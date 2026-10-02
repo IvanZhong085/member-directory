@@ -19,6 +19,7 @@
      leave-to-site guard      離開前提醒未發布變更
      small utils              esc/clone/byId 等
      分會總覽儀表板           即時統計+工具捷徑
+     夥伴資料更新(待審核)   更新表單送來的修改:逐欄確認後由 Worker 寫進網站
      boot                     事件接線與初始化
    ══════════════════════════════════════════════════════════════ */
 (function(){
@@ -81,6 +82,11 @@
   /* 「草稿的來源版本」與「線上現況」對不起來的路徑。這些路徑在使用者明確表態之前
      不會被送出去 —— 見 tryLoadDraft() 的三方比較與 publish() 的閘門。 */
   const conflictPaths = new Set();
+  /* 衝突路徑 → 線上版本裡「夥伴自己送來、已經套用」的成員姓名(見 tryLoadDraft)。
+     套用夥伴更新是伺服器端直接寫進組檔,而那筆待審核在套用當下就刪掉了 —— 另一台裝置
+     上的舊草稿一旦蓋回去,更新就找不回來。發布前的衝突確認要把這些人點名出來。
+     跟著 conflictPaths 一起增減:那邊刪掉一個路徑,這邊也要刪。 */
+  const conflictMupd = new Map();
 
   const dataPathOf = code => "data/" + String(code).trim().toLowerCase() + ".json";
   /* 分組代號只能是英數字:它同時是檔名(data/<代號>.json)與權限的判定依據。
@@ -201,6 +207,10 @@
       loadedBody[PENDING_PATH] = null;
     }
     fixSelected();
+    /* 夥伴資料更新的待審核清單跟著每一次載入重抓:登入、認領、套用、捨棄變更都會經過這裡。
+       審核畫面的「目前（網站上）」是拿 DATA 比的,DATA 換了清單就該跟著換。
+       不 await —— 清單讀不到不該擋住整個後台載入。 */
+    refreshMemberUpdates();
   }
   let selected = DATA.length ? DATA[0].id : null;
   let saveTimer = null;
@@ -355,6 +365,7 @@
        需要拿它跟「上次送出去的內容」比對,才認得出「其實已經發布成功了」。 */
     const liveHashes = Object.assign({}, baseHashes);
     const liveBody = Object.assign({}, loadedBody);
+    const liveData = DATA;      // 線上那一份分組,算「草稿會蓋掉哪些已套用的夥伴更新」用
     DATA = parsed.data;
     // 舊版草稿沒有 pending 欄位,那時就沿用剛從伺服器載到的清單
     if(Array.isArray(parsed.pending)) PENDING = parsed.pending;
@@ -371,9 +382,21 @@
        草稿的內容照樣還原給使用者看;只有「草稿的來源版本 ≠ 線上現況」的那幾個路徑被
        標成衝突並鎖住,發布前一定會問過人。既不會無聲覆蓋,也不會丟掉任何編輯。 */
     conflictPaths.clear();
+    conflictMupd.clear();
     const draftBase = (parsed.baseHashes && typeof parsed.baseHashes === "object") ? parsed.baseHashes : null;
     // 純邏輯抽在 admin-logic.js,才有辦法寫自動測試(見 tests/logic.test.mjs)
     AdminLogic.computeConflicts(draftBase, liveHashes).forEach(p => conflictPaths.add(p));
+    /* 衝突的分組檔裡,有沒有「夥伴自己送來、已經套用」的更新會被這份草稿蓋回舊內容。
+       原本的衝突確認只寫「A1 組被其他人發布過」,草稿主人看不出被蓋掉的是夥伴的更新,
+       而那筆待審核早就刪了,蓋掉之後找不回來(乙 4)。判斷規則在 overwrittenMemberUpdates。 */
+    for(const p of conflictPaths){
+      if(p === "data/_index.json" || p === PENDING_PATH) continue;
+      const live = liveData.find(g => dataPathOf(g.code) === p);
+      const draft = DATA.find(g => g && dataPathOf(g.code) === p);
+      if(!live || !draft) continue;
+      const names = AdminLogic.overwrittenMemberUpdates(live, draft);
+      if(names.length) conflictMupd.set(p, names);
+    }
     if(parsed.sentBody && typeof parsed.sentBody === "object"){
       for(const k of Object.keys(sentBody)) delete sentBody[k];
       Object.assign(sentBody, parsed.sentBody);
@@ -400,6 +423,7 @@
       /* 線上的內容就是我上次送出去的內容 → 那次其實成功了,這不是別人造成的衝突。
          把它從衝突清單拿掉,免得叫使用者去確認一件他自己做過的事。 */
       conflictPaths.delete(path);
+      conflictMupd.delete(path);
       fixed.push(path);
     }
     return fixed;
@@ -715,11 +739,12 @@
       byId("empty-add").onclick = () => addMember(g);
       return;
     }
-    wrap.innerHTML = g.members.map((m, i) => memberCardHTML(m, i, g.members.length)).join("");
+    const linkOk = updateLinkEnabled() && canEditGroup(g);
+    wrap.innerHTML = g.members.map((m, i) => memberCardHTML(m, i, g.members.length, linkOk)).join("");
     g.members.forEach((m, i) => bindMember(g, m, i));
   }
 
-  function memberCardHTML(m, i, total){
+  function memberCardHTML(m, i, total, linkOk){
     const photo = m.image
       ? `<img class="mem-photo" src="${esc(imgSrc(m.image))}" alt="">`
       : `<div class="mem-photo-none">${ICON.cam}<span>無照片</span></div>`;
@@ -778,6 +803,10 @@
               ${(m.products||[]).length < 5 ? `<button class="btn btn-sm" data-act="prodbtn" type="button">＋ 加商品照</button><input type="file" accept="image/*" multiple data-act="prodfile" hidden>` : ""}
             </div>
           </div>
+          ${linkOk ? `<div class="mem-updlink">
+            <button class="btn btn-sm" data-act="updlink" type="button">🔗 複製已帶好名字的更新連結</button>
+            <span class="hint">私訊給本人，他就能自己更新文字資料（送出後要你審核才會上線）</span>
+          </div>` : ""}
         </div>
       </div>`;
   }
@@ -865,6 +894,48 @@
         pushUndo(); m.products.splice(idx, 1); touch(m); renderMembers(g); saveDraft();
       };
     });
+    const updBtn = card.querySelector('[data-act="updlink"]');
+    if(updBtn) updBtn.onclick = () => copyMemberUpdateLink(g, m);
+  }
+
+  /* ---------- 夥伴資料更新表單的連結 ----------
+     兩種連結:
+       已帶好名字的(成員卡上的按鈕)  預選名字 + 預填目前的文字資料 + 「連結代碼」
+       只預選名字的(催收、不採用訊息)  不帶資料、不帶代碼
+     為什麼催收用的不帶資料:那種訊息是貼在 LINE 群裡的,帶了資料就等於把每個人的內容
+     攤在群組;而且群組訊息會一直留著,帶代碼的舊連結過一陣子再被點開,代碼記的內容早就
+     過期了。預填的「已帶好名字的連結」只私訊給本人。 */
+  function updateFormEntries(){
+    const e = SITE.UPDATE_FORM_ENTRIES;
+    return e && typeof e === "object" ? e : {};
+  }
+  function updateLinkEnabled(){
+    const e = updateFormEntries();
+    return !!(SITE.UPDATE_FORM_URL && typeof e.member === "string" && e.member.trim());
+  }
+  /* 只預選名字的連結。沒設 member 的 entry、或沒有名字時退回通用連結;沒設表單網址回 "" */
+  function nameOnlyUpdateLink(code, name){
+    const hasName = String(name == null ? "" : name).trim() && String(code == null ? "" : code).trim();
+    const r = AdminLogic.updatePrefillUrl(SITE.UPDATE_FORM_URL || "",
+      hasName ? { member: updateFormEntries().member } : {},
+      hasName ? { member: AdminLogic.memberUpdateLabel(code, name) } : {});
+    return r ? r.url : "";
+  }
+  async function copyMemberUpdateLink(g, m){
+    if(!updateLinkEnabled() || !canEditGroup(g)) return;
+    const r = AdminLogic.updatePrefillUrl(SITE.UPDATE_FORM_URL, updateFormEntries(),
+                                          AdminLogic.memberPrefillValues(g.code, m));
+    if(!r){ toast("site-config.js 裡的夥伴資料更新表單網址格式不對，請聯繫總管理員。", { warn:true, duration:8000 }); return; }
+    const ok = await copyPlain(r.url);
+    if(!ok){ toast("複製失敗，請再按一次", { warn:true }); return; }
+    /* 「不是密碼」要講:預填的連結把這位夥伴目前的資料都帶在網址裡,而且任何人拿到都能
+       用他的名字送出。只私訊給本人,不要貼到群組。 */
+    let msg = (r.trimmed ? "已複製（內容太長，只帶入名字）。" : "已複製（已帶入名字和他目前的資料）。") +
+              "這條連結不是密碼，任何人拿到都能填；請只私訊給本人。";
+    /* 連結帶入的是畫面上的內容,連結代碼記的也是這一份 —— 本人沒動的格子會被略過,不會被當成修改;
+       但組長要知道他發出去的不是網站上的版本。 */
+    if(hasUnpublishedChanges()) msg += "連結帶入的是你畫面上還沒發布的內容。";
+    toast(msg, { duration:9000 });
   }
 
   /* 等比例縮圖(不裁切):名片、商品照用 */
@@ -1005,33 +1076,33 @@
       ta.remove(); return ok;
     });
   }
+  /* 催收訊息超過這個長度就退回「只附一條通用連結」的版本。LINE 單則上限 5,000 字,
+     留一點餘裕;一組 5–10 人逐人附連結約 2,000 字,正常碰不到。 */
+  const MISSING_NOTICE_MAX = 4800;
+  /* 缺項檢查的文字欄位,順序就是訊息裡列出來的順序 */
+  const MISSING_TEXT_FIELDS = ["company", "business_items", "services", "targets", "have", "want", "tagline"];
   function missingReport(){
     const items = [];
     const fieldCount = {};
     const bump = k => { fieldCount[k] = (fieldCount[k] || 0) + 1; };
     const scope = visibleGroups();          // 組長只看自己那組的缺項
+    /* 缺項名稱一律和表單題目同名(AdminLogic.FIELD_LABELS):組長請夥伴補「主要營業項目」,
+       夥伴在更新表單上找得到同一個字。照片類不在表單上,用 LINE 傳給組長。 */
+    const FL = AdminLogic.FIELD_LABELS;
     scope.forEach(g => g.members.forEach(m => {
       const miss = [];
       if(!m.image) miss.push("形象照");
-      if(!(m.card || "").trim()) miss.push("名片圖檔");
+      if(!(m.card || "").trim()) miss.push("名片照片");
       if(!(m.products || []).length) miss.push("商品照片");
-      if(!(m.company || "").trim()) miss.push("所屬公司");
-      if(!(m.business_items || "").trim()) miss.push("主要營業項目");
-      if(!(m.services || []).filter(s => String(s).trim()).length) miss.push("服務項目");
-      if(!(m.targets || []).filter(s => String(s).trim()).length) miss.push("適合引薦對象");
-      if(!(m.have || []).filter(s => String(s).trim()).length) miss.push("我有");
-      if(!(m.want || []).filter(s => String(s).trim()).length) miss.push("我要");
-      if(!(m.tagline || []).filter(s => String(s).trim()).length) miss.push("宣傳標語");
+      for(const f of MISSING_TEXT_FIELDS){
+        const v = m[f];
+        const empty = Array.isArray(v) ? !v.filter(s => String(s).trim()).length : !String(v || "").trim();
+        if(empty) miss.push(FL[f]);
+      }
       if(miss.length){ items.push({ g, m, miss }); miss.forEach(bump); }
     }));
     const total = scope.reduce((n, g) => n + g.members.length, 0);
-    const lines = items.map(it => "・" + it.m.name + "(" + (it.g.code || "?") + "):缺 " + it.miss.join("、"));
-    const notice = [
-      "【會員名錄・資料補齊通知】",
-      "以下夥伴的名錄資料還有缺項,麻煩抽空補上,讓你的頁面更有引薦力 💪",
-      "請直接把缺的內容回覆給網管,由網管統一更新。",
-      "",
-    ].concat(lines).join("\n");
+    const notice = missingNoticeText(items);
     const statHtml = Object.entries(fieldCount).sort((a, b) => b[1] - a[1])
       .map(([k, v]) => "<tr><td>" + esc(k) + "</td><td>" + v + " 位</td></tr>").join("");
     const html =
@@ -1040,7 +1111,7 @@
       '<div class="batch-sec"><h4>催收訊息(按下方「複製」直接貼到 LINE 群)</h4>' +
       '<textarea readonly rows="12" style="width:100%; font:inherit; font-size:12.5px; line-height:1.8; border:1.5px solid var(--border-2); border-radius:10px; padding:10px 12px; background:var(--bg-soft);">' +
       esc(notice) + "</textarea></div>" +
-      '<div class="batch-note">「商品照片」與「名片」屬選填,催收語氣自行斟酌;統計即時反映目前草稿內容。</div>';
+      '<div class="batch-note">商品照片與名片屬選填，催收語氣自行斟酌；照片類請夥伴用 LINE 傳給組長，由組長在成員卡上傳。</div>';
     openBatchModal(
       "缺資料清單",
       items.length ? html : "<p>🎉 全員資料齊全,沒有缺項。</p>",
@@ -1051,6 +1122,41 @@
         toast(ok ? "催收訊息已複製,貼到 LINE 群即可" : "複製失敗,請開啟清單手動複製", ok ? {} : { warn: true });
       } : null
     );
+  }
+  /* 催收訊息本文。三種版本:
+       沒設更新表單        維持原文:請夥伴把缺的內容回覆給網管
+       總管理員(全分會)   附一條通用連結,夥伴自己選名字
+       組長(只看一組)     每一位後面附「只預選名字」的連結,夥伴點了不用在 90 人的選單裡找自己
+     文字資料走表單、照片走 LINE 分成兩句:表單不收照片(收照片就得強制登入,
+     從 LINE 點進來的長輩會卡在登入畫面)。 */
+  function missingNoticeText(items){
+    const formUrl = SITE.UPDATE_FORM_URL || "";
+    if(!formUrl){
+      const lines = items.map(it => "・" + it.m.name + "(" + (it.g.code || "?") + "):缺 " + it.miss.join("、"));
+      return [
+        "【會員名錄・資料補齊通知】",
+        "以下夥伴的名錄資料還有缺項,麻煩抽空補上,讓你的頁面更有引薦力 💪",
+        "請直接把缺的內容回覆給網管,由網管統一更新。",
+        "",
+      ].concat(lines).join("\n");
+    }
+    const head = ["【會員名錄・資料補齊通知】", "以下夥伴的名錄資料還有缺項，麻煩抽空補上，讓你的頁面更有引薦力 💪", ""];
+    const photo = ["", "📷 形象照、名片、商品照：請直接用 LINE 傳給你的組長。", ""];
+    const general = head.concat([
+      "📝 文字資料（公司、主要營業項目、我有／我要…）：",
+      "點下面的連結 → 選自己的名字 → 只填缺的那幾格，其他空著就好（不會被清掉）。送出後組長確認就會上線。",
+      formUrl,
+    ], photo, items.map(it => "・" + it.m.name + "（" + (it.g.code || "?") + "）：缺 " + it.miss.join("、"))).join("\n");
+    if(!isLeader() || !updateLinkEnabled()) return general;
+    const personal = head.concat([
+      "📝 文字資料（公司、主要營業項目、我有／我要…）：",
+      "點自己名字後面的連結（名字已經幫你選好） → 只填缺的那幾格，其他空著就好（不會被清掉）。送出後組長確認就會上線。",
+    ], photo, items.map(it => {
+      const link = nameOnlyUpdateLink(it.g.code, it.m.name);
+      return "・" + it.m.name + "：缺 " + it.miss.join("、") + (link ? " 👉 " + link : "");
+    })).join("\n");
+    // 太長貼不進 LINE 一則訊息 → 退回只附一條通用連結的版本
+    return personal.length > MISSING_NOTICE_MAX ? general : personal;
   }
 
   /* ---------- 批次預覽視窗（CSV 與照片共用） ---------- */
@@ -1262,6 +1368,10 @@
        不該還握著看得見的內容 —— 而 blob URL 只要沒 revoke 就一直能開。 */
     revokePendPhotos(null);
     closePendingPhotos();
+    /* 夥伴送來的更新(含私人備註)也是還沒公開的內容,登出就從畫面上拿掉;
+       草稿衝突的姓名清單屬於這次登入的草稿,一併清空。 */
+    resetMemberUpdates();
+    conflictMupd.clear();
     showLock();
     toast("已登出");
   }
@@ -1289,6 +1399,15 @@
       msgs.push("發布服務還沒接上「待認領照片」的儲存空間（Cloudflare R2）。" +
                 "在完成設定之前，新夥伴自填表單送出的申請會全部被退回、不會進待認領區。" +
                 "請總管理員建立 private R2 bucket 並綁定為 PENDING_IMAGES，再重新 Deploy Worker（見 worker/README.md）。");
+    }
+    /* ★ 夥伴資料更新表單已經貼進 site-config.js,Worker 卻還不支援(舊版,或沒綁 R2):
+       夥伴在 LINE 點連結送出的更新會全部被退回,而後台的審核區只會是一片空白,
+       看起來就像「最近沒人送」。只有總管理員能處理,所以只對總管理員講。
+       ★ /ping 本身失敗(capsOk 為 false)時不講 —— 那是暫時連不上,不是 Worker 太舊。 */
+    const capsOk = await ensureCaps();
+    if(capsOk && SITE.UPDATE_FORM_URL && workerCaps.memberUpdate !== true && !isLeader() && !isViewer()){
+      msgs.push("夥伴資料更新表單已經公開，但發布服務還沒升級或還沒接上 R2（PENDING_IMAGES），" +
+                "夥伴送出的更新會全部被退回。請總管理員更新 Worker（見 README「八、夥伴資料更新表單」）。");
     }
     showPermBanner(msgs);
   }
@@ -1511,13 +1630,22 @@
         const names = hit.map(p => p === "data/_index.json" ? "分會結構"
                                 : p === PENDING_PATH ? "待認領區"
                                 : p.replace(/^data\/|\.json$/g, "").toUpperCase() + " 組");
-        const okOverride = confirm(
+        /* 會被蓋掉的「已套用的夥伴更新」要放在最前面講:那幾筆待審核已經刪掉了,
+           一按確定就找不回來,而草稿主人光看「A1 組被其他人發布過」不會知道這件事。 */
+        const mupdNames = [];
+        hit.forEach(p => (conflictMupd.get(p) || []).forEach(n => { if(mupdNames.indexOf(n) < 0) mupdNames.push(n); }));
+        const mupdWarn = mupdNames.length
+          ? "⚠ 線上版本含有夥伴自己送來、已經套用的資料更新：" + mupdNames.join("、") + "。\n" +
+            "按「確定」會把他們的資料改回你草稿裡的舊內容，而且那幾筆更新已經從待審核清單刪除，找不回來。\n" +
+            "建議按「取消」→「下載備份」→「捨棄變更」，再重做你自己的修改。\n\n"
+          : "";
+        const okOverride = confirm(mupdWarn +
           "以下項目在你離開之後被其他人發布過：\n\n  " + names.join("、") +
           "\n\n你手上的草稿是根據更早的版本編輯的。要繼續發布嗎？\n" +
           "（繼續 = 用你的版本覆蓋對方的修改；取消 = 先按「捨棄變更」取得最新資料，" +
           "或用「下載備份」把你的內容留一份再處理）");
         if(!okOverride) return false;
-        hit.forEach(p => conflictPaths.delete(p));   // 已經問過了,不再重複打擾
+        hit.forEach(p => { conflictPaths.delete(p); conflictMupd.delete(p); });   // 已經問過了,不再重複打擾
       }
       /* ★ 一次發布 = 一個請求 = 一個 commit。**不再自動分批。**
          原本超過 20 檔會先送幾批純 images/、最後才送資料檔。那樣做有兩個後果:
@@ -1569,6 +1697,9 @@
         // 已經開著名錄的分頁不會自己更新——講清楚,免得以為發布失敗又發一次
         toast("已發布！約 1～2 分鐘後公開網站就會更新 ✔（已經開著名錄的分頁要重新整理才看得到）",
               {duration:8000});
+        /* 發布不經過 loadData(),但審核區的「目前（網站上）」是拿 DATA 比的 —— 剛發布的內容
+           可能正好是某筆待審核要改的欄位,清單要跟著重畫,預設勾選才會對。 */
+        refreshMemberUpdates();
       } else if(res.error === "read_only"){
         // 唯讀帳號。前端本來就擋著,會走到這裡代表 session 是別的分頁登的、或有人繞過介面
         toast("這是唯讀帳號，伺服器拒絕了這次發布。要修改請用有編輯權限的帳號登入。",
@@ -1760,6 +1891,8 @@
       if(SITE.VISITOR_FORM_URL) h += '<a class="dtool" href="' + esc(SITE.VISITOR_FORM_URL) + '" target="_blank" rel="noopener">📝 來賓報名表單</a>';
       // 新夥伴自填表單:把網址發給新夥伴,他填完就會出現在上方待認領區
       if(SITE.MEMBER_FORM_URL) h += '<a class="dtool" href="' + esc(SITE.MEMBER_FORM_URL) + '" target="_blank" rel="noopener">🙋 新夥伴填寫表單</a>';
+      // 夥伴資料更新表單:已上架的夥伴自己更新文字資料,送出後進下方「夥伴資料更新(待審核)」
+      if(SITE.UPDATE_FORM_URL) h += '<a class="dtool" href="' + esc(SITE.UPDATE_FORM_URL) + '" target="_blank" rel="noopener">✏️ 夥伴資料更新表單</a>';
       if(SHEET_URL) h += '<a class="dtool" href="' + esc(SHEET_URL) + '" target="_blank" rel="noopener">📊 名冊試算表</a>';
       tools.innerHTML = h;
     }
@@ -2176,6 +2309,846 @@
           { warn:true, duration:8000 });
   }
 
+  /* ---------- 夥伴資料更新(待審核) ----------
+     已上架的夥伴從「夥伴資料更新表單」送來的修改。送出後先進私有 R2 的待審核區 ——
+     不進公開 repo:沒審過的內容(包括冒名送件與私人備註)一旦進了 git 歷史就刪不掉。
+     由那一組的組長或總管理員在這裡逐欄確認;按「套用」是 Worker 端的交易,直接寫進
+     data/<組>.json,不必再按發布。唯讀帳號整塊看不到(伺服器也會回 403)。
+
+     為什麼要逐欄確認、而且好幾種情況預設不勾:表單不必登入,只靠「選自己的名字」辨識身分,
+     任何拿到網址的人都能選別人的名字。預設勾選與警示的規則都在
+     AdminLogic.memberUpdateRows / memberUpdateHeader(有測試),這裡只負責畫出來、
+     收集勾選、呼叫 Worker、把錯誤碼翻成看得懂的話。 */
+
+  /* 一次批次不採用的上限,與 Worker 的 MAX_DROP_BATCH 一致(真正擋下的是伺服器) */
+  const MUPD_BATCH_MAX = 100;
+  /* 清單欄位最多幾項,與 Worker 的 INTAKE_LIST_MAX 一致(「加在原本後面」的預覽用) */
+  const MUPD_LIST_MAX = 12;
+  const MUPD_UNSUPPORTED = "發布服務尚未升級，暫時無法處理夥伴資料更新。請稍候再試，或請總管理員更新 Worker。";
+  const MUPD_REMIND = "⚠ 表單不會驗證是不是本人。公司、網站大改，或內容看起來不像本人寫的，請先 LINE 跟本人確認再套用。";
+  const MUPD_CONFIRM_ONLY = "本人確認資料正確，沒有要修改。";
+  const MUPD_OPT_LABEL = { replace:"整格換成新的", append:"加在原本後面", skip:"不套用" };
+  const MUPD_APPLY_OFF = "沒有要套用的欄位；已經手動處理好就按「已處理」，不要的就按「不採用」。";
+  /* Worker 的清單、查看、套用、不採用遇到「組長登入時的代號已經不在分會結構裡」都回 group_renamed */
+  const MUPD_GROUP_RENAMED = "你這一組的代號已被總管理員改過，請重新整理頁面後再試。";
+
+  /* 清單的重抓用合流器包起來:loadData() 之後、發布之後、按「重新整理」都會要求重抓,
+     同一時間只發一個請求。合流期間又有人要求的話(例如剛套用完、資料已經變了),
+     結束後再抓一次 —— 否則會拿到「套用之前」的那份清單,已處理的那筆又冒出來。 */
+  const mupdFlight = AdminLogic.makeSingleFlight();
+  let mupdLast = Promise.resolve();
+  let mupdWanted = 0;
+  let mupdEpoch = 0;               // 登出就 +1:路上還沒回來的結果一律作廢
+  let mupdList = null;             // 最近一次成功的 /member-updates 回應
+  let mupdError = "";              // 最近一次讀取失敗的錯誤碼;成功後清空
+  let mupdCards = [];              // 最近一次畫出來的卡片(groupMemberUpdates 的結果)
+  const mupdReqs = new Map();      // uid → 完整請求(/member-update-get)
+  const mupdOpen = new Set();      // 展開中的請求 uid
+  const mupdView = new Map();      // uid → 展開時算好的差異表與「當時看到的成員」
+  const mupdChecked = new Set();   // 總管理員批次勾選的卡片
+  let mupdNudged = "";             // 已經跳過 toast 的那一批(uid 串接)
+  let mupdNudgedRank = -1;         // 上一次提醒的級距(info 0 / warn 1 / danger 2),升級時再催一次
+  let mupdActing = false;          // 有套用/不採用在路上時,其他按鈕先停用
+  let mupdAfter = null;            // 套用後常駐的備註提醒 { memberId, name, note, cleared }
+
+  function mupdSupported(){ return workerCaps.memberUpdate === true; }
+  /* 每個動作之前都再問一次:/ping 可能剛好失敗過(ensureCaps 會重問),
+     Worker 也可能在這段時間被換成舊版。 */
+  async function mupdReady(){
+    await ensureCaps();
+    if(mupdSupported()) return true;
+    toast(MUPD_UNSUPPORTED, { warn:true, duration:8000 });
+    return false;
+  }
+  function mupdSession(){
+    const s = loadSession();
+    if(!s){ showLock(); toast("請先輸入管理密碼", { warn:true }); }
+    return s;
+  }
+  function mupdSessionExpired(res){
+    if(res.error !== "session_expired" && res.httpStatus !== 401) return false;
+    clearSession(); showLock();
+    toast("登入逾時，請重新輸入密碼後再試一次。", { warn:true, duration:6000 });
+    return true;
+  }
+  const mupdCode = res => String((res && res.error) || (res && res.httpStatus ? "HTTP " + res.httpStatus : "unknown"));
+  const mupdKey = c => c.memberId ? "m:" + c.memberId : "u:" + c.items[0].uid;
+  const mupdCardBusy = c => c.items.some(it => it.busy === true);
+  const mupdLabel = f => Object.prototype.hasOwnProperty.call(AdminLogic.FIELD_LABELS, f) ? AdminLogic.FIELD_LABELS[f] : String(f);
+  function findMemberById(id){
+    if(!id) return null;
+    for(const g of DATA){
+      const m = (g.members || []).find(x => x && x.id === id);
+      if(m) return { g, m };
+    }
+    return null;
+  }
+  /* 原始值(不正規化)。expect 要送「審核者畫面上那一欄的目前值」,Worker 會拿它跟
+     線上的成員逐欄比對 —— 送正規化過的值也比得過,但原樣送最不會出意外。 */
+  function mupdRawValue(m, f){
+    const v = m ? m[f] : undefined;
+    if(v == null) return AdminLogic.LIST_FIELDS.indexOf(f) >= 0 ? [] : "";
+    return v;
+  }
+
+  /* toast 只有一個元素,後來的會蓋掉前面的。審核區的提醒(登入時的催促、套用後的
+     「清單清除失敗」)要排在目前這則之後,而且彼此也要排隊。 */
+  const mupdToastQueue = [];
+  let mupdToastTimer = null;
+  function mupdToastLater(msg, opts){
+    mupdToastQueue.push({ msg, opts: opts || {} });
+    if(!mupdToastTimer) mupdToastTimer = setTimeout(pumpMupdToast, Math.max(400, toastUntil - Date.now() + 200));
+  }
+  function pumpMupdToast(){
+    mupdToastTimer = null;
+    const wait = toastUntil - Date.now();
+    if(wait > 0){ mupdToastTimer = setTimeout(pumpMupdToast, wait + 200); return; }
+    const next = mupdToastQueue.shift();
+    if(!next) return;
+    toast(next.msg, next.opts);
+    if(mupdToastQueue.length) mupdToastTimer = setTimeout(pumpMupdToast, (next.opts.duration || 2600) + 200);
+  }
+
+  function copyWithToast(text){
+    copyPlain(text).then(ok => toast(ok ? "已複製，可以直接貼到 LINE 私訊給本人。" : "複製失敗，請再按一次",
+                                     ok ? { duration:5000 } : { warn:true }));
+  }
+
+  /* ---- 讀清單 ---- */
+  function refreshMemberUpdates(){
+    mupdWanted++;
+    const epoch = mupdEpoch;
+    mupdLast = mupdFlight.run("list", async () => {
+      let seen;
+      do{
+        seen = mupdWanted;
+        await loadMemberUpdatesOnce(epoch);
+      }while(seen !== mupdWanted && epoch === mupdEpoch);
+    });
+    return mupdLast;
+  }
+  async function loadMemberUpdatesOnce(epoch){
+    const session = loadSession();
+    if(!session || isViewer() || !mupdSupported()){
+      // 唯讀帳號、沒登入、Worker 不支援:一個 /member-update* 都不打,整塊藏起來
+      mupdList = null; mupdError = "";
+      renderMemberUpdates();
+      return;
+    }
+    const res = await workerFetch("/member-updates", { session });
+    if(epoch !== mupdEpoch) return;           // 這段時間裡登出了
+    if(res.ok && Array.isArray(res.items)){
+      mupdList = res; mupdError = "";
+    } else if(mupdSessionExpired(res)){
+      return;
+    } else {
+      /* ★ 讀不到不可以當成 0 筆而把整塊藏起來 —— 那等於告訴組長「沒有人送更新」,
+         夥伴卻一直等不到回音。上一次成功的清單留著,上面加一行錯誤。 */
+      mupdError = mupdCode(res);
+    }
+    renderMemberUpdates();
+  }
+  /* 「重新整理」:手上沒有未發布的修改時,連網站資料一起重讀 —— 差異表的「目前（網站上）」
+     是拿 DATA 比的,只重抓清單的話,別人剛發布的內容看不到,「看起來已經套用過了」也判斷不出來。
+     有未發布的修改就只抓清單:重讀資料會把畫面換成線上版,下一次自動存檔就蓋掉草稿。 */
+  async function mupdReloadAll(){
+    if(!hasUnpublishedChanges()){
+      try{
+        await loadData();          // 成功的話它自己會重抓清單
+        renderAll();
+        await mupdLast;
+        return;
+      }catch(e){
+        toast("重新載入網站資料失敗，請重新整理頁面。", { warn:true, duration:7000 });
+      }
+    }
+    await refreshMemberUpdates();
+  }
+
+  /* ---- 畫清單 ---- */
+  function renderMemberUpdates(){
+    const wrap = byId("mupd-wrap"), list = byId("mupd-list");
+    if(!wrap || !list) return;
+    const sub = byId("mupd-sub"), notice = byId("mupd-notice"), errEl = byId("mupd-error"), batch = byId("mupd-batch");
+    if(!loadSession() || isViewer() || !mupdSupported()){
+      wrap.hidden = true; list.innerHTML = ""; mupdCards = []; mupdView.clear();
+      return;
+    }
+    const items = mupdList && Array.isArray(mupdList.items) ? mupdList.items : [];
+    const cards = AdminLogic.groupMemberUpdates(items);
+    mupdCards = cards;
+    const note = AdminLogic.memberUpdateNotice({
+      count: items.length,
+      openAll: mupdList && mupdList.openAll != null ? mupdList.openAll : items.length,
+      max: mupdList && mupdList.max,
+      oldestAt: cards.length ? cards[0].oldestAt : "",
+      oldestName: cards.length ? cards[0].name : "",
+    }, Date.now());
+    const truncated = !!(mupdList && mupdList.truncated);
+    const unknown = mupdList ? Number(mupdList.unknown) || 0 : 0;
+
+    // 已經不在清單上的請求,快取與勾選一起清掉
+    const live = new Set(items.map(it => it.uid));
+    for(const u of [...mupdReqs.keys()]) if(!live.has(u)) mupdReqs.delete(u);
+    for(const u of [...mupdOpen]) if(!live.has(u)) mupdOpen.delete(u);
+    const keys = new Set(cards.map(mupdKey));
+    for(const k of [...mupdChecked]) if(!keys.has(k)) mupdChecked.delete(k);
+    mupdView.clear();
+
+    const show = cards.length > 0 || !!note || !!mupdError || truncated || unknown > 0 || !!mupdAfter;
+    if(!show){
+      wrap.hidden = true; list.innerHTML = "";
+      mupdNudged = ""; mupdNudgedRank = -1;
+      return;
+    }
+    wrap.hidden = false;
+    if(sub) sub.textContent = cards.length ? cards.length + " 位夥伴・" + items.length + " 筆待審核" : "目前沒有待審核的更新";
+
+    if(notice){
+      if(note){
+        notice.className = "pend-notice " + note.level;
+        notice.textContent = (note.level === "info" ? "✏️ " : "⚠ ") + note.text;
+        notice.hidden = false;
+      } else notice.hidden = true;
+    }
+    if(errEl){
+      /* group_renamed:組長的代號被總管理員改了,登入時拿到的代號已經對不上 —— 按這裡的「重新整理」
+         沒有用,要重新整理整個頁面(和發布、認領同一句話) */
+      errEl.textContent = !mupdError ? ""
+        : mupdError === "group_renamed" ? MUPD_GROUP_RENAMED
+        : "待審核更新讀取失敗（" + mupdError + "），請按「重新整理」再試。";
+      errEl.hidden = !mupdError;
+    }
+    /* 審核區在頁面下方,進來就直接編輯自己那組的人可能整場都不會捲到這裡。
+       比照待認領區:同一批只跳一次,排在目前的 toast 之後。
+       「同一批」= 沒有新進來的請求、提醒也沒有升級。處理掉幾筆之後剩下的那些不再催 ——
+       否則每按一次「套用」,成功訊息後面就會再跳一次「有 N 筆等待審核」。 */
+    const RANK = { info:0, warn:1, danger:2 };
+    const seen = new Set(mupdNudged ? mupdNudged.split(",") : []);
+    const fresh = items.some(it => !seen.has(it.uid));
+    if(note && (fresh || RANK[note.level] > mupdNudgedRank)){
+      mupdToastLater(note.text, { warn: note.level !== "info", duration: 9000 });
+    }
+    mupdNudged = items.map(it => it.uid).join(",");
+    mupdNudgedRank = note ? RANK[note.level] : -1;
+    renderMupdAfter();
+
+    const admin = !isLeader() && !isViewer();
+    if(batch) batch.hidden = !(admin && cards.some(c => !mupdCardBusy(c)));
+
+    let top = "";
+    if(truncated){
+      top += '<div class="mupd-flag">⚠ 清單不完整（待審核太多），請先處理幾筆再按重新整理；仍然如此請聯繫總管理員。' +
+             (unknown > 0 ? "有 " + unknown + " 筆格式不對，已略過。" : "") + '</div>';
+    } else if(unknown > 0){
+      top += '<div class="mupd-flag info">有 ' + unknown + ' 筆格式不對，已略過。</div>';
+    }
+    list.innerHTML = top + cards.map(c => mupdCardHTML(c, admin)).join("");
+    list.querySelectorAll(".mupd-card").forEach(el => {
+      const card = cards.find(c => c.items[0].uid === el.dataset.mupdUid);
+      if(card) bindMupdCard(el, card);
+    });
+    updateMupdBatchUI();
+  }
+
+  /* 只重畫一張卡(展開/收起)。整份重畫會把其他已展開卡片上的勾選洗回預設值。 */
+  function rerenderMupdCard(uid){
+    const card = mupdCards.find(c => c.items[0].uid === uid);
+    const el = byId("mupd-list") && byId("mupd-list").querySelector('.mupd-card[data-mupd-uid="' + cssq(uid) + '"]');
+    if(!card || !el){ renderMemberUpdates(); return; }
+    mupdView.delete(uid);
+    const admin = !isLeader() && !isViewer();
+    const tmp = document.createElement("div");
+    tmp.innerHTML = mupdCardHTML(card, admin);
+    const fresh = tmp.firstElementChild;
+    el.replaceWith(fresh);
+    bindMupdCard(fresh, card);
+    updateMupdBatchUI();
+  }
+
+  function mupdCardHTML(card, admin){
+    const first = card.items[0];
+    const uid = first.uid;
+    const n = card.items.length;
+    const now = Date.now();
+    const found = findMemberById(card.memberId);
+    const title = (card.code || "?") + "・" + (card.name || "(未填姓名)") +
+                  (card.groupMissing ? "（分組已不存在）" : "") + (found ? "" : "（名錄上找不到）");
+    const when = AdminLogic.updateMonthDay(card.oldestAt) || "?";
+    const days = AdminLogic.updateWaitDays(card.oldestAt, now);
+    const sub = card.items.every(it => it.confirm === true)
+      ? "本人確認資料正確・" + when + " 填寫（已等 " + days + " 天）"
+      : n + " 筆・最早 " + when + " 填寫（已等 " + days + " 天）";
+    const fields = (Array.isArray(first.fields) ? first.fields : []).map(mupdLabel);
+    const fieldLine = (fields.length ? "要改：" + fields.join("、") : "") +
+                      (first.hasNote ? (fields.length ? "・" : "") + "有給組長的備註" : "");
+    const busy = first.busy === true;
+    const open = mupdOpen.has(uid) && mupdReqs.has(uid);
+    const pick = admin && !mupdCardBusy(card)
+      ? '<label class="mupd-pick" title="勾選＝這位夥伴的所有待審核"><input type="checkbox" data-mupd-pick' +
+        (mupdChecked.has(mupdKey(card)) ? " checked" : "") + ' aria-label="勾選 ' + esc(title) + '"></label>'
+      : "";
+    const btn = busy
+      ? '<button class="btn btn-sm" type="button" disabled>處理中' + (first.lockBy ? "（" + esc(String(first.lockBy)) + "）" : "") + '</button>'
+      : '<button class="btn btn-sm' + (open ? "" : " btn-primary") + '" type="button" data-mupd-view>' + (open ? "收起" : "查看") + '</button>';
+    return '<div class="mupd-card' + (open ? " open" : "") + '" data-mupd-uid="' + esc(uid) + '">' +
+      '<div class="mupd-card-head">' + pick +
+        '<div class="mupd-card-main">' +
+          '<div class="mupd-card-title">' + esc(title) + '</div>' +
+          '<div class="mupd-card-sub">' + esc(sub) + '</div>' +
+          (fieldLine ? '<div class="mupd-card-fields">' + esc(fieldLine) + '</div>' : "") +
+          (n > 1 ? '<div class="mupd-card-newer">後面還有 ' + (n - 1) + ' 筆較新的，處理完這筆才會顯示</div>' : "") +
+        '</div>' + btn +
+      '</div>' +
+      (open ? mupdDetailHTML(card, mupdReqs.get(uid)) : "") +
+    '</div>';
+  }
+
+  /* 展開後的內容。順序照規格:標頭 → 標頭警示 → 固定提醒 → 備註 → 系統註記 → 差異表
+     → 資料需確認 → 不採用原因 → 按鈕。 */
+  function mupdDetailHTML(card, req){
+    const hit = findMemberById(req.memberId);
+    if(!hit) return mupdOrphanHTML(card, req);
+    const { g, m } = hit;
+    const now = Date.now();
+    const head = AdminLogic.memberUpdateHeader(req, m, g.code, now);
+    // 同一位後面較新的那幾筆也改了的欄位:這筆先不套用,免得舊內容蓋掉新的
+    const newer = new Set();
+    card.items.slice(1).forEach(it => (Array.isArray(it.fields) ? it.fields : []).forEach(f => newer.add(f)));
+    const confirmOnly = req.confirmOnly === true;
+    const rows = confirmOnly ? [] : AdminLogic.memberUpdateRows(m, req, newer, head.allSkip);
+    const extras = AdminLogic.memberUpdateExtras(req, m);
+    const allSame = !confirmOnly && rows.length > 0 && rows.every(r => r.identical);
+    mupdView.set(req.uid, { req, rows, member: m, group: g, allSame, confirmOnly });
+
+    const satIso = req.sat || req.at;
+    const meta = "填寫：" + (AdminLogic.updateTimeText(satIso) || "?") + "（已等 " + head.days + " 天）" +
+                 (head.late ? "・收到：" + (AdminLogic.updateTimeText(req.at) || "?") : "") +
+                 "・這位夥伴的頁面最後更新：" + (AdminLogic.updateTimeText(m.updatedAt) || "（沒有紀錄）");
+    let h = '<div class="mupd-detail">';
+    h += '<div class="mupd-meta">' + esc(meta) + '</div>';
+    head.warnings.forEach(w => { h += '<div class="mupd-warn">' + esc(w) + '</div>'; });
+    // 「本人確認資料正確」在差異表的位置會再講一次,標頭就不重複
+    head.info.filter(t => !(confirmOnly && t === MUPD_CONFIRM_ONLY)).forEach(t => { h += '<div class="mupd-info">' + esc(t) + '</div>'; });
+    h += '<div class="mupd-remind">' + esc(MUPD_REMIND) + '</div>';
+    const note = String(req.note == null ? "" : req.note).trim();
+    if(note){
+      h += '<div class="mupd-notebox">📝 給組長的備註：' + esc(note) +
+           '<small>備註裡的要求（刪欄、改名、換組）要你手動到成員卡處理。</small></div>';
+    }
+    h += mupdExtrasHTML(extras, req);
+
+    if(confirmOnly){
+      h += '<div class="mupd-line">' + esc(MUPD_CONFIRM_ONLY) + '</div>';
+    } else if(allSame){
+      h += '<div class="mupd-line">這筆的內容和網站上目前一樣，看起來已經套用過了。</div>';
+    } else if(!rows.length){
+      h += '<div class="mupd-line">這筆沒有可以直接套用的欄位，請看上面的備註與系統註記。</div>';
+    } else {
+      h += '<table class="mupd-diff"><thead><tr><th>欄位</th><th>目前（網站上）</th><th>更新後</th><th>怎麼套用</th></tr></thead><tbody>' +
+           rows.map(r => mupdRowHTML(req.uid, r)).join("") + '</tbody></table>';
+    }
+
+    if(!allSame && m.dataIssue === true){
+      // 預設不勾:表單不驗證是不是本人,不能讓一筆未驗證的送件預設解除「資料需確認」(甲 7)
+      h += '<label class="mupd-di"><input type="checkbox" data-mupd-di> <span>我已經跟本人確認過（同時取消前台的「資料需確認」提示）</span></label>';
+    }
+    if(!allSame){
+      h += '<textarea class="mupd-reason" data-mupd-reason rows="2" maxlength="300" placeholder="原因（選填，只放進給本人的訊息，不會存檔）"></textarea>';
+    }
+    h += '<div class="mupd-actions">' +
+      (allSame ? "" : '<button class="btn btn-primary btn-sm" type="button" data-mupd-act="apply">✅ 套用勾選的更新</button>') +
+      '<button class="btn btn-sm" type="button" data-mupd-act="handled">✔ 已處理（我已手動改好）</button>' +
+      (allSame ? "" : '<button class="btn btn-sm btn-danger" type="button" data-mupd-act="reject">✖ 不採用</button>') +
+    '</div>';
+    return h + '</div>';
+  }
+
+  function mupdExtrasHTML(x, req){
+    const li = [];
+    x.ignored.forEach(e => li.push(["", "系統：「" + e.label + "」填了「" + e.value + "」，沒有當成修改。"]));
+    x.invalid.forEach(e => li.push(["", "系統：「" + e.label + "」填的「" + e.value + "」不是網址，沒有收進來。"]));
+    if(x.untouched.length) li.push(["", "系統：" + x.untouched.join("、") + " 是連結帶入的內容，本人沒有改，已略過。"]);
+    x.cleared.forEach(e => li.push(["w", "⚠ 本人把「" + e.label + "」清空了（網站上目前是：" + e.current + "）。" +
+                                         "要刪掉的話，請手動到成員卡刪除，再按「已處理」或照常套用其他欄位。"]));
+    const rid = String(req.responseId || "").trim() || "不明";
+    x.truncated.forEach(e => li.push(["w", "⚠「" + e.label + "」夥伴寫了 " + e.total + " " + e.unit + "，只收進前 " +
+                                           e.kept + " " + e.unit + "；完整內容在回應試算表（回應 ID " + rid + "）。"]));
+    if(!li.length) return "";
+    return '<ul class="mupd-sys">' + li.map(([cls, t]) => '<li' + (cls ? ' class="' + cls + '"' : "") + '>' + esc(t) + '</li>').join("") + '</ul>';
+  }
+
+  const mupdEmpty = '<span class="mupd-empty">（空白）</span>';
+  function mupdItemsHTML(list, cls){
+    if(!list.length) return mupdEmpty;
+    return '<ul class="mupd-items">' + list.map(t => '<li' + (cls ? ' class="' + cls + '"' : "") + '>' + esc(t) + '</li>').join("") + '</ul>';
+  }
+  /* 清單欄位「更新後」那一格的預覽,跟著三選一即時改寫。
+     不套用時照樣列出夥伴寫的內容(淡色)—— 預設不勾的那幾種情況,組長正是要看著它決定
+     要不要改選「加在原本後面」。 */
+  function mupdListPreview(r, choice){
+    if(choice === "append"){
+      const before = new Set(r.before);
+      const full = AdminLogic.mergeList(r.before, r.after, 100000).items;
+      const keep = full.slice(0, MUPD_LIST_MAX), drop = full.slice(MUPD_LIST_MAX);
+      const html = '<ul class="mupd-items">' +
+        keep.map(t => '<li class="' + (before.has(t) ? "kept" : "added") + '">' + (before.has(t) ? "" : "＋ ") + esc(t) + '</li>').join("") +
+        drop.map(t => '<li class="dropped">' + esc(t) + '</li>').join("") + '</ul>';
+      return { html, count: "套用後共 " + keep.length + " 項" +
+               (drop.length ? "　⚠ 超過 " + MUPD_LIST_MAX + " 項，最後 " + drop.length + " 項不會放進去" : "") };
+    }
+    const html = '<ul class="mupd-items">' + r.items.map(it =>
+      '<li class="' + it.state + '" title="' + (it.state === "removed" ? "會刪掉" : it.state === "added" ? "新增" : "保留") + '">' +
+      (it.state === "added" ? "＋ " : "") + esc(it.text) + '</li>').join("") + '</ul>';
+    if(choice === "replace") return { html, count: "套用後共 " + r.after.length + " 項" };
+    return { html, count: "不套用（維持原本 " + r.before.length + " 項）" };
+  }
+  function mupdRowHTML(uid, r){
+    const f = esc(r.field);
+    const dis = r.identical ? " disabled" : "";      // 和目前一樣:沒有東西可套用
+    let before, after, how;
+    if(r.kind === "list"){
+      before = mupdItemsHTML(r.before, "");
+      const pv = mupdListPreview(r, r.defaultChoice);
+      after = '<div data-mupd-preview="' + f + '">' + pv.html + '</div>';
+      how = r.options.map(o =>
+        '<label class="mupd-opt"><input type="radio" name="' + esc("mupd-" + uid + "-" + r.field) + '" value="' + o + '" data-mupd-choice="' + f + '"' +
+        (o === r.defaultChoice ? " checked" : "") + dis + '><span>' + MUPD_OPT_LABEL[o] + '</span></label>').join("") +
+        '<div class="mupd-count" data-mupd-count="' + f + '">' + esc(pv.count) + '</div>';
+    } else {
+      // 網站一律純文字(esc 過),不做成可點的連結
+      before = r.before ? esc(r.before) : mupdEmpty;
+      after = r.after ? esc(r.after) : mupdEmpty;
+      how = '<label class="mupd-opt"><input type="checkbox" data-mupd-choice="' + f + '"' +
+            (r.defaultChoice === "replace" ? " checked" : "") + dis + '><span>套用</span></label>';
+    }
+    const warn = r.warnings.length
+      ? '<tr class="mupd-wrow"><td colspan="4">' + r.warnings.map(w =>
+          '<div class="' + (w.charAt(0) === "⚠" ? "mupd-w" : "mupd-wi") + '">' + esc(w) + '</div>').join("") + '</td></tr>'
+      : "";
+    return '<tr class="mupd-row' + (warn ? "" : " solo") + (r.defaultChoice === "skip" ? " off" : "") + '" data-mupd-row="' + f + '">' +
+      '<td class="mupd-f" data-th="欄位">' + esc(r.label) + '</td>' +
+      '<td data-th="目前（網站上）">' + before + '</td>' +
+      '<td class="mupd-new" data-th="更新後">' + after + '</td>' +
+      '<td data-th="怎麼套用">' + how + '</td></tr>' + warn;
+  }
+
+  /* 名錄上找不到這位夥伴(被刪除、換組,或不在可見範圍):沒有「目前」可以比,差異表畫不出來。
+     改成唯讀列出他送來的內容,可以一鍵複製,轉抄到他現在的成員卡(乙 12)。 */
+  function mupdOrphanHTML(card, req){
+    mupdView.set(req.uid, { req, rows: [], member: null, group: null, orphan: true });
+    const changes = req.changes && typeof req.changes === "object" ? req.changes : {};
+    const satIso = req.sat || req.at;
+    const late = AdminLogic.memberUpdateHeader(req, {}, card.code, Date.now()).late;
+    let h = '<div class="mupd-detail">';
+    h += '<div class="mupd-meta">' + esc("填寫：" + (AdminLogic.updateTimeText(satIso) || "?") +
+         "（已等 " + AdminLogic.updateWaitDays(satIso, Date.now()) + " 天）" +
+         (late ? "・收到：" + (AdminLogic.updateTimeText(req.at) || "?") : "")) + '</div>';
+    const rows = AdminLogic.UPDATE_FIELD_ORDER.filter(f => Object.prototype.hasOwnProperty.call(changes, f)).map(f => {
+      const c = AdminLogic.canonUpdateValue(f, changes[f]);
+      const v = Array.isArray(c) ? mupdItemsHTML(c, "") : (c ? esc(c) : mupdEmpty);
+      return '<div class="mupd-ro-row"><div class="mupd-ro-f">' + esc(mupdLabel(f)) + '</div><div>' + v + '</div></div>';
+    });
+    if(req.confirmOnly === true) rows.push('<div class="mupd-line">' + esc(MUPD_CONFIRM_ONLY) + '</div>');
+    if(rows.length) h += '<div class="mupd-ro">' + rows.join("") + '</div>';
+    const note = String(req.note == null ? "" : req.note).trim();
+    if(note) h += '<div class="mupd-notebox">📝 給組長的備註：' + esc(note) + '</div>';
+    h += '<div class="mupd-actions"><button class="btn btn-sm" type="button" data-mupd-act="copy">📋 複製內容</button></div>';
+    const same = AdminLogic.findMembersByName(DATA, req.name);
+    if(same.length){
+      same.forEach(s => {
+        const hit = findMemberById(s.memberId);
+        h += '<div class="mupd-same mupd-info"><span>' + esc("名錄上有「" + s.code + "・" + s.name +
+             "」，如果是換組，請到他的成員卡貼上這些內容，發布後按「已處理」。") + '</span>' +
+             (hit && canEditGroup(hit.g) ? '<button class="mupd-linkbtn" type="button" data-mupd-open="' + esc(s.memberId) + '">開啟成員卡</button>' : "") +
+             '</div>';
+      });
+    } else {
+      h += '<div class="mupd-info">這位夥伴已經不在名錄上。需要的話先複製內容，再按「已處理」或「不採用」。</div>';
+    }
+    h += '<textarea class="mupd-reason" data-mupd-reason rows="2" maxlength="300" placeholder="原因（選填，只放進給本人的訊息，不會存檔）"></textarea>';
+    h += '<div class="mupd-actions">' +
+      '<button class="btn btn-sm" type="button" data-mupd-act="handled">✔ 已處理（我已手動改好）</button>' +
+      '<button class="btn btn-sm btn-danger" type="button" data-mupd-act="reject">✖ 不採用</button>' +
+    '</div>';
+    return h + '</div>';
+  }
+
+  function bindMupdCard(el, card){
+    const uid = card.items[0].uid;
+    const viewBtn = el.querySelector("[data-mupd-view]");
+    if(viewBtn) viewBtn.onclick = () => mupdToggle(uid, viewBtn);
+    const pick = el.querySelector("[data-mupd-pick]");
+    if(pick) pick.onchange = () => {
+      const k = mupdKey(card);
+      if(pick.checked) mupdChecked.add(k); else mupdChecked.delete(k);
+      updateMupdBatchUI();
+    };
+    const view = mupdView.get(uid);
+    if(!view || !el.querySelector(".mupd-detail")) return;
+    el.querySelectorAll("[data-mupd-choice]").forEach(inp => {
+      inp.onchange = () => { mupdSyncRow(el, view, inp.dataset.mupdChoice); mupdSyncApply(el, view); };
+    });
+    const di = el.querySelector("[data-mupd-di]");
+    if(di) di.onchange = () => mupdSyncApply(el, view);
+    el.querySelectorAll("[data-mupd-open]").forEach(b => { b.onclick = () => openMemberCard(b.dataset.mupdOpen); });
+    el.querySelectorAll("[data-mupd-act]").forEach(b => {
+      const act = b.dataset.mupdAct;
+      b.onclick = () => {
+        if(act === "copy"){ copyPlain(AdminLogic.memberUpdateCopyText(view.req)).then(ok =>
+          toast(ok ? "已複製這筆更新的內容，可以貼到他現在的成員卡。" : "複製失敗，請再按一次", ok ? {} : { warn:true })); return; }
+        const reasonEl = el.querySelector("[data-mupd-reason]");
+        const reason = reasonEl ? reasonEl.value : "";
+        mupdRun(() => act === "apply" ? mupdApply(el, view) : mupdDrop(view, card, act, reason));
+      };
+    });
+    mupdSyncApply(el, view);
+  }
+
+  function mupdReadChoices(el, view){
+    const out = {};
+    for(const r of view.rows){
+      const sel = '[data-mupd-choice="' + cssq(r.field) + '"]';
+      if(r.kind === "list"){
+        const c = el.querySelector('input' + sel + ':checked');
+        out[r.field] = c && r.options.indexOf(c.value) >= 0 ? c.value : "skip";
+      } else {
+        const c = el.querySelector('input' + sel);
+        out[r.field] = c && c.checked ? "replace" : "skip";
+      }
+    }
+    return out;
+  }
+  function mupdSyncRow(el, view, field){
+    const r = view.rows.find(x => x.field === field);
+    if(!r) return;
+    const choice = mupdReadChoices(el, view)[field];
+    const tr = el.querySelector('tr[data-mupd-row="' + cssq(field) + '"]');
+    if(tr) tr.classList.toggle("off", choice === "skip");
+    if(r.kind !== "list") return;
+    const pv = mupdListPreview(r, choice);
+    const box = el.querySelector('[data-mupd-preview="' + cssq(field) + '"]');
+    const cnt = el.querySelector('[data-mupd-count="' + cssq(field) + '"]');
+    if(box) box.innerHTML = pv.html;
+    if(cnt) cnt.textContent = pv.count;
+  }
+  /* 「套用」只有在至少一欄要套用、或勾了「已經跟本人確認過」時才按得下去 */
+  function mupdSyncApply(el, view){
+    const btn = el.querySelector('[data-mupd-act="apply"]');
+    if(!btn || mupdActing) return;
+    const ch = mupdReadChoices(el, view);
+    const di = el.querySelector("[data-mupd-di]");
+    const ok = Object.keys(ch).some(f => ch[f] !== "skip") || !!(di && di.checked);
+    btn.disabled = !ok;
+    btn.title = ok ? "" : MUPD_APPLY_OFF;
+  }
+
+  function updateMupdBatchUI(){
+    const btn = byId("mupd-batch-drop"), all = byId("mupd-batch-all");
+    if(!btn || !all) return;
+    const eligible = mupdCards.filter(c => !mupdCardBusy(c));
+    const picked = eligible.filter(c => mupdChecked.has(mupdKey(c)));
+    const total = picked.reduce((n, c) => n + c.items.length, 0);
+    btn.textContent = picked.length ? "不採用勾選的 " + picked.length + " 位（共 " + total + " 筆）" : "不採用勾選的更新";
+    btn.disabled = mupdActing || !picked.length || total > MUPD_BATCH_MAX;
+    btn.title = total > MUPD_BATCH_MAX ? "一次最多 " + MUPD_BATCH_MAX + " 筆" : "";
+    all.checked = eligible.length > 0 && picked.length === eligible.length;
+    all.indeterminate = picked.length > 0 && picked.length < eligible.length;
+  }
+
+  /* 一次只做一個會改東西的動作。按下去到伺服器回來之間,審核區的按鈕全部停用 ——
+     手機上連點兩下「套用」,第二下會撞上自己上的鎖,得到一則莫名其妙的「處理中」。 */
+  async function mupdRun(fn){
+    if(isViewer()) return;           // 唯讀帳號看不到審核區;函式本體也擋一道,不只靠隱藏
+    if(mupdActing){ toast("上一個動作還在處理中，請稍候。"); return; }
+    mupdActing = true;
+    mupdLockButtons(true);
+    try{ await fn(); }
+    finally{
+      mupdActing = false;
+      mupdLockButtons(false);
+      const list = byId("mupd-list");
+      if(list) list.querySelectorAll(".mupd-card").forEach(el => {
+        const v = mupdView.get(el.dataset.mupdUid);
+        if(v && !v.orphan) mupdSyncApply(el, v);
+      });
+      updateMupdBatchUI();
+    }
+  }
+  function mupdLockButtons(on){
+    const wrap = byId("mupd-wrap");
+    if(!wrap) return;
+    if(on){
+      wrap.querySelectorAll("button").forEach(b => { if(!b.disabled){ b.disabled = true; b.dataset.mupdLocked = "1"; } });
+    } else {
+      wrap.querySelectorAll("button[data-mupd-locked]").forEach(b => { b.disabled = false; delete b.dataset.mupdLocked; });
+    }
+  }
+
+  /* ---- 查看(展開)---- */
+  async function mupdToggle(uid, btn){
+    if(mupdOpen.has(uid)){ mupdOpen.delete(uid); rerenderMupdCard(uid); return; }
+    if(mupdReqs.has(uid)){ mupdOpen.add(uid); rerenderMupdCard(uid); return; }
+    if(!(await mupdReady())) return;
+    const session = mupdSession();
+    if(!session) return;
+    const epoch = mupdEpoch;
+    if(btn){ btn.disabled = true; btn.textContent = "載入中…"; }
+    const res = await workerFetch("/member-update-get", { session, uid });
+    if(epoch !== mupdEpoch) return;
+    if(res.ok && res.request && typeof res.request === "object" && res.request.uid === uid){
+      mupdReqs.set(uid, res.request);
+      mupdOpen.add(uid);
+      rerenderMupdCard(uid);
+      return;
+    }
+    if(btn && btn.isConnected){ btn.disabled = false; btn.textContent = "查看"; }
+    if(mupdSessionExpired(res)) return;
+    if(res.error === "update_gone"){
+      toast("這筆更新已經被別人處理掉了，清單已更新。", { warn:true, duration:8000 });
+      refreshMemberUpdates();
+      return;
+    }
+    if(res.error === "forbidden_group"){ toast("你沒有修改這一組的權限。", { warn:true, duration:7000 }); return; }
+    if(res.error === "group_renamed"){ toast(MUPD_GROUP_RENAMED, { warn:true, duration:8000 }); return; }
+    toast("讀取這筆更新失敗（" + mupdCode(res) + "），請稍後再試。", { warn:true, duration:7000 });
+  }
+
+  /* ---- 套用 ---- */
+  async function mupdApply(el, view){
+    const req = view.req, m = view.member;
+    if(!m || view.orphan) return;
+    if(!(await mupdReady())) return;
+    const session = mupdSession();
+    if(!session) return;
+    /* 套用會直接寫進網站,而本機草稿不會跟著送出去 —— 兩者混在一起,下一次發布的版本基準
+       就對不上。和認領一樣用 hasUnpublishedChanges(),不是 dirty(見 claimPending 的說明)。 */
+    if(hasUnpublishedChanges()){
+      toast("你還有尚未發布的修改。請先按「發布到網站」（或捨棄變更），再套用夥伴的更新。", { warn:true, duration:9000 });
+      return;
+    }
+    const choices = mupdReadChoices(el, view);
+    const di = el.querySelector("[data-mupd-di]");
+    const clearDataIssue = !!(di && di.checked);
+    const applied = view.rows.filter(r => choices[r.field] !== "skip");
+    if(!applied.length && !clearDataIssue){ toast(MUPD_APPLY_OFF, { warn:true, duration:7000 }); return; }
+    const name = m.name || req.name || "這位夥伴";
+    const lines = ["要把「" + name + "」的更新寫進網站嗎？", ""];
+    if(applied.length) lines.push("會更新：" + applied.map(r => r.label + (choices[r.field] === "append" ? "（加在原本後面）" : "")).join("、"));
+    const skipped = view.rows.filter(r => choices[r.field] === "skip").map(r => r.label);
+    if(skipped.length) lines.push("不套用：" + skipped.join("、"));
+    if(clearDataIssue) lines.push("同時取消「資料需確認」（你已經跟本人確認過）");
+    lines.push("", "按「確定」後會直接寫進網站（不必再按發布）。");
+    if(!confirm(lines.join("\n"))) return;
+
+    /* expect = 審核者畫面上那一欄的「目前」原始值(展開當時的成員)。Worker 會拿它跟線上
+       逐欄比對,對不上就回 member_changed —— 你看著 A 決定要換成 B,線上卻已經是 C 的話,
+       不該悄悄把 C 蓋掉。 */
+    const expect = {};
+    applied.forEach(r => { expect[r.field] = mupdRawValue(m, r.field); });
+    toast("套用中…");
+    const res = await workerFetch("/member-update-apply", { session, uid: req.uid, choices, expect, clearDataIssue });
+    const code = (view.group && view.group.code) || req.code || "?";
+
+    if(res.ok){
+      mupdOpen.delete(req.uid); mupdReqs.delete(req.uid);
+      let reloaded = true;
+      try{ await loadData(); }catch(e){ reloaded = false; }
+      const hit = findMemberById(req.memberId);
+      if(hit) selected = hit.g.id;
+      fixSelected(); renderAll();
+      // 備註與「本人清空」套用功能做不到,要組長手動改:掛在審核區上方,直到按「知道了」
+      const note = String(req.note == null ? "" : req.note).trim();
+      const cleared = AdminLogic.memberUpdateExtras(req, {}).cleared.map(c => c.label);
+      if(note || cleared.length){
+        mupdAfter = { memberId: req.memberId, name, note, cleared };
+        renderMupdAfter();
+      }
+      const extra = (Array.isArray(res.warnings) ? res.warnings : [])
+        .filter(w => w && w.reason === "list_truncated")
+        .map(w => "「" + mupdLabel(w.field) + "」超過 12 項，最後 " + (Number(w.dropped) || 0) + " 項沒有放進去。").join("");
+      const thanks = name + " 你好，你在 " + (AdminLogic.updateMonthDay(req.sat || req.at) || "?") +
+                     " 送出的名錄資料已經更新上線了，謝謝你！\n" +
+                     SITE.SITE_BASE + "m/" + encodeURIComponent(req.memberId) + ".html";
+      toast("已更新「" + name + "」並寫進網站（不必再按發布），幾分鐘後前台就會看到。" + extra,
+            { duration:12000, actionLabel:"複製給本人的訊息", onAction: () => copyWithToast(thanks) });
+      if(res.cleanupFailed){
+        mupdToastLater("已更新，但清單清除失敗，這筆可能還會出現；看到時請按「已處理」移除。", { warn:true, duration:9000 });
+      }
+      if(!reloaded){
+        mupdToastLater("已經寫進網站，但這邊重新載入資料失敗，請重新整理頁面再繼續編輯。", { warn:true, duration:9000 });
+        refreshMemberUpdates();
+      }
+      return;
+    }
+    if(mupdSessionExpired(res)) return;
+    const err = res.error;
+    const W = (msg, ms) => toast(msg, { warn:true, duration: ms || 9000 });
+    if(err === "update_gone"){ W("這筆更新已經被別人處理掉了，清單已更新。"); refreshMemberUpdates(); return; }
+    if(err === "update_busy"){
+      W("另一位組長或總管理員正在處理這筆" + (res.lockBy ? "（" + res.lockBy + "）" : "") + "，請稍後再看。");
+      refreshMemberUpdates(); return;
+    }
+    if(err === "member_changed"){
+      const fields = (Array.isArray(res.fields) ? res.fields : []).map(mupdLabel).join("、") || "部分欄位";
+      await mupdReloadData();
+      W("「" + fields + "」在你打開這筆之後被別人改過，已重新載入最新資料，請再確認一次。", 11000);
+      return;
+    }
+    if(err === "update_already_applied"){ W("這筆之前已經套用過了，已從清單移除。"); refreshMemberUpdates(); return; }
+    if(err === "no_effective_change"){ W("勾選的欄位和網站上目前一樣，沒有要改的。已經處理好的話請按「已處理」。"); return; }
+    if(err === "member_missing" || err === "group_missing"){
+      await mupdReloadData();
+      W(err === "member_missing"
+        ? "這位夥伴已經不在「" + code + "」組裡，可能被刪除或換組了。請先看這筆的內容，需要的話手動補到他現在的成員卡，再按「已處理」。"
+        : "這筆更新所屬的分組已經不存在。請先看這筆的內容，需要的話手動補到他現在的成員卡，再按「已處理」。", 12000);
+      return;
+    }
+    if(err === "group_renamed"){ W(MUPD_GROUP_RENAMED); return; }
+    if(err === "forbidden_group" || err === "forbidden_path"){ W("你沒有修改這一組的權限。"); return; }
+    if(err === "bad_data_file"){
+      W("這一組的資料檔有格式問題（" + String(res.reason || "") + "），為了不讓整個網站停止更新，這次沒有寫入。請聯繫總管理員。", 11000);
+      return;
+    }
+    if(err === "stale_base" || err === "busy_retry_later"){ W("剛好有人同時在發布，這次沒有寫入。請等幾秒再按一次。"); return; }
+    if(err === "bad_choice" || err === "nothing_selected"){ W("套用的設定不正確（" + err + "），請重新整理後再試。"); return; }
+    if(err === "pending_image_store_unavailable"){ W("發布服務還沒接上暫存空間（R2），暫時無法處理更新。請聯繫總管理員。"); return; }
+    /* apply_uncertain、5xx、網路錯誤、沒列到的錯誤碼:不能說「沒有寫入」——
+       ref 更新逾時的時候,GitHub 那邊可能其實已經寫進去了。教他怎麼判斷,
+       並且保證再按一次不會重複寫入(Worker 用 lastUpdateFrom 擋)。 */
+    W("不確定有沒有寫進網站（" + mupdCode(res) + "）。請按「重新整理」：這筆如果不見了，或顯示「看起來已經套用過了」，" +
+      "就是已經寫入；還在的話再按一次「套用」（系統會自動判斷有沒有寫過，不會重複寫入）。如果顯示「處理中」，等 10 分鐘再試。", 16000);
+    mupdReloadAll();
+  }
+  /* member_changed / member_missing 之後:重讀網站資料再重畫,展開中的卡會用新的「目前」重算 */
+  async function mupdReloadData(){
+    try{ await loadData(); renderAll(); await mupdLast; }
+    catch(e){ toast("重新載入網站資料失敗，請重新整理頁面。", { warn:true, duration:7000 }); }
+  }
+
+  /* ---- 已處理 / 不採用 ----
+     兩顆都只刪 R2 上的請求,不碰網站資料,所以不需要先發布手上的修改。
+     「不採用」的原因只放進剪貼簿給本人,不送給 Worker、也不存檔。 */
+  async function mupdDrop(view, card, kind, reason){
+    const req = view.req;
+    if(!(await mupdReady())) return;
+    const session = mupdSession();
+    if(!session) return;
+    const hit = findMemberById(req.memberId);
+    const name = (hit && hit.m.name) || req.name || "這位夥伴";
+    const md = AdminLogic.updateMonthDay(req.sat || req.at) || "?";
+    const ok = kind === "handled"
+      ? confirm("把這筆標記為已處理並從清單移除？（網站上的資料不會改變）")
+      : confirm("不採用「" + name + "」" + md + " 填寫的這筆更新？\n\n這筆會直接刪掉，網站上的資料不會有任何改變，之後找不回來。");
+    if(!ok) return;
+    const res = await workerFetch("/member-update-drop", { session, uid: req.uid });
+    if(res.ok){
+      mupdOpen.delete(req.uid); mupdReqs.delete(req.uid);
+      if(kind === "handled"){
+        toast("已從清單移除。");
+      } else {
+        const why = String(reason || "").trim();
+        const link = nameOnlyUpdateLink(hit ? hit.g.code : card.code, hit ? hit.m.name : req.name);
+        const msg = name + " 你好，你在 " + md + " 送出的名錄資料更新這次沒有採用" + (why ? "，原因：" + why : "") + "。\n" +
+                    (link ? "需要修改可以再填一次：" + link : "需要修改的話，請直接跟組長說。");
+        toast("已不採用這筆更新。", { duration:12000, actionLabel:"複製給本人的訊息", onAction: () => copyWithToast(msg) });
+      }
+      refreshMemberUpdates();
+      return;
+    }
+    if(mupdSessionExpired(res)) return;
+    if(res.error === "update_gone"){
+      toast("這筆更新已經被別人處理掉了，清單已更新。", { warn:true, duration:9000 });
+      refreshMemberUpdates(); return;
+    }
+    if(res.error === "update_busy"){
+      toast("另一位組長或總管理員正在處理這筆" + (res.lockBy ? "（" + res.lockBy + "）" : "") + "，請稍後再看。",
+            { warn:true, duration:9000 });
+      refreshMemberUpdates(); return;
+    }
+    if(res.error === "group_renamed"){ toast(MUPD_GROUP_RENAMED, { warn:true, duration:8000 }); return; }
+    if(res.error === "forbidden_group"){ toast("你沒有修改這一組的權限。", { warn:true, duration:7000 }); return; }
+    toast("沒有成功（" + mupdCode(res) + "），請稍後再試。", { warn:true, duration:8000 });
+  }
+
+  /* ---- 總管理員:批次不採用(被灌單時用)---- */
+  async function mupdBatchDrop(){
+    if(isLeader() || isViewer()) return;
+    const picked = mupdCards.filter(c => !mupdCardBusy(c) && mupdChecked.has(mupdKey(c)));
+    const uids = [];
+    picked.forEach(c => c.items.forEach(it => uids.push(it.uid)));
+    if(!uids.length || uids.length > MUPD_BATCH_MAX) return;
+    if(!(await mupdReady())) return;
+    const session = mupdSession();
+    if(!session) return;
+    if(!confirm("不採用勾選的 " + uids.length + " 筆更新？\n\n這些會直接刪掉，網站上的資料不會有任何改變，之後找不回來，" +
+                "也不會產生給本人的訊息。\n（正在處理中的會自動略過）")) return;
+    const res = await workerFetch("/member-update-drop-batch", { session, uids });
+    if(res.ok){
+      const skipped = Array.isArray(res.skipped) ? res.skipped.length : 0;
+      mupdChecked.clear();
+      uids.forEach(u => { mupdOpen.delete(u); mupdReqs.delete(u); });
+      toast("已不採用 " + (Number(res.dropped) || 0) + " 筆。" + (skipped ? skipped + " 筆正在處理或已經不在，沒有動。" : ""),
+            { duration:8000 });
+      refreshMemberUpdates();
+      return;
+    }
+    if(mupdSessionExpired(res)) return;
+    if(res.error === "admin_only"){ toast("只有總管理員可以一次不採用多筆。", { warn:true, duration:7000 }); return; }
+    toast("沒有成功（" + mupdCode(res) + "），請稍後再試。", { warn:true, duration:8000 });
+  }
+
+  /* ---- 套用後常駐的備註提醒 ---- */
+  function renderMupdAfter(){
+    const el = byId("mupd-after");
+    if(!el) return;
+    if(!mupdAfter){ el.hidden = true; el.innerHTML = ""; return; }
+    const a = mupdAfter;
+    let h = "";
+    if(a.note) h += '<div>📝 ' + esc(a.name) + ' 的備註還沒處理：' + esc(a.note) + '（備註裡的要求要手動到成員卡改，改完再按發布）</div>';
+    if(a.cleared.length) h += '<div>' + esc(a.name) + ' 本人清空了：' + esc(a.cleared.join("、")) + '</div>';
+    h += '<div class="mupd-note-btns">' +
+         '<button class="btn btn-sm" type="button" data-mupd-after="open">開啟成員卡</button>' +
+         '<button class="btn btn-sm" type="button" data-mupd-after="close">知道了</button></div>';
+    el.innerHTML = h;
+    el.hidden = false;
+    el.querySelector('[data-mupd-after="open"]').onclick = () => openMemberCard(a.memberId);
+    el.querySelector('[data-mupd-after="close"]').onclick = () => { mupdAfter = null; renderMemberUpdates(); };
+  }
+
+  /* 切到這位夥伴所在的組,捲到他的成員卡並閃一下 */
+  function openMemberCard(memberId){
+    const hit = findMemberById(memberId);
+    if(!hit){ toast("名錄上找不到這位夥伴，可能已經被刪除或換組。", { warn:true, duration:7000 }); return; }
+    if(!canEditGroup(hit.g)){ toast("你沒有修改這一組的權限", { warn:true }); return; }
+    selected = hit.g.id;
+    renderAll();
+    closeDrawerIfMobile();
+    const el = main.querySelector('.mem-card[data-mid="' + cssq(memberId) + '"]');
+    if(el){
+      el.scrollIntoView({ behavior:"smooth", block:"center" });
+      el.classList.add("mem-flash");
+      setTimeout(() => el.classList.remove("mem-flash"), 2400);
+    }
+  }
+
+  /* 登出:清單、展開的內容(含私人備註)、批次勾選、提醒全部清掉 */
+  function resetMemberUpdates(){
+    mupdEpoch++;
+    mupdFlight.clear();
+    mupdList = null; mupdError = ""; mupdCards = [];
+    mupdReqs.clear(); mupdOpen.clear(); mupdView.clear(); mupdChecked.clear();
+    mupdNudged = ""; mupdNudgedRank = -1; mupdAfter = null;
+    mupdToastQueue.length = 0;
+    clearTimeout(mupdToastTimer); mupdToastTimer = null;
+    const wrap = byId("mupd-wrap"), list = byId("mupd-list");
+    if(list) list.innerHTML = "";
+    if(wrap) wrap.hidden = true;
+    renderMupdAfter();
+    const all = byId("mupd-batch-all");
+    if(all){ all.checked = false; all.indeterminate = false; }
+  }
+
   /* ---------- boot ---------- */
   // 清掉舊版（權杖存本機加密）留下的機密，遷移到新架構後這些不該再存在
   try{
@@ -2274,6 +3247,22 @@
     if(ok) leaveToSite();   // 發布失敗就留在編輯頁，publish() 已用 toast 說明原因
   };
   byId("leave-modal").addEventListener("click", e => { if(e.target.id === "leave-modal") closeLeaveModal(); });
+
+  // 夥伴資料更新(待審核):重新整理、總管理員的全選與批次不採用
+  byId("mupd-reload").onclick = async () => {
+    const b = byId("mupd-reload");
+    if(b.disabled) return;
+    b.disabled = true; b.textContent = "整理中…";
+    try{ await mupdReloadAll(); }
+    finally{ b.disabled = false; b.textContent = "重新整理"; }
+  };
+  byId("mupd-batch-all").onchange = () => {
+    const on = byId("mupd-batch-all").checked;
+    mupdCards.filter(c => !mupdCardBusy(c)).forEach(c => { if(on) mupdChecked.add(mupdKey(c)); else mupdChecked.delete(mupdKey(c)); });
+    byId("mupd-list").querySelectorAll("[data-mupd-pick]").forEach(cb => { cb.checked = on; });
+    updateMupdBatchUI();
+  };
+  byId("mupd-batch-drop").onclick = () => mupdRun(mupdBatchDrop);
 
   byId("pv-close").onclick = closePendingPhotos;
   // 點背景關閉：燈箱只是看照片，關掉的門檻要低

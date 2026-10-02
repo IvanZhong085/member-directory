@@ -315,6 +315,106 @@
   #crop-canvas:active{cursor:grabbing;}
   .crop-zoom-row{display:flex; align-items:center; gap:12px; font-size:13px; font-weight:600; color:var(--muted); margin-top:4px;}
   .crop-zoom-row input[type=range]{flex:1; accent-color:var(--red);}
+
+  /* ===== 夥伴資料更新(待審核)=====
+     外框沿用待認領區的 .pending-* 與 .pend-notice,這裡只補審核區自己的部分。
+     ★ 組長多半用手機審核(390px 寬),而會員資料裡有長網址、沒有空白的長字串:
+       所有文字格一律 overflow-wrap:anywhere,差異表在窄螢幕改成一欄一欄往下排,
+       否則整頁會出現水平捲動,按鈕被推到畫面外。 */
+  #mupd-wrap{margin:12px max(20px, calc((100% - 1200px) / 2)) 0;}
+  #mupd-wrap .pending-head{flex-wrap:wrap;}
+  .mupd-reload{margin-left:auto; flex:none; font:inherit; font-size:12px; font-weight:700; color:var(--ink); background:#fff;
+               border:1.5px solid var(--border-2); border-radius:8px; padding:5px 10px; cursor:pointer;}
+  .mupd-reload:hover{border-color:var(--red-200); color:var(--red);}
+  .mupd-reload:disabled{opacity:.5; cursor:not-allowed;}
+  /* 套用之後還沒處理的備註:一直掛著,直到按「知道了」—— 備註裡的要求(刪欄、改名、換組)
+     套用功能做不到,只能靠組長手動改,一閃而過的 toast 很容易被忘掉 */
+  .mupd-note{margin:12px 16px 0; font-size:13px; font-weight:700; line-height:1.7; color:#5b3d00;
+             background:#fff6e0; border:1.5px solid #e0b84a; border-radius:8px; padding:10px 12px; overflow-wrap:anywhere;}
+  .mupd-note-btns{display:flex; flex-wrap:wrap; gap:8px; margin-top:8px;}
+  .mupd-batch{display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:12px 16px 0; font-size:13px; font-weight:700;}
+  .mupd-batch label{display:inline-flex; align-items:center; gap:6px; cursor:pointer;}
+  .mupd-batch input{width:16px; height:16px; accent-color:var(--red);}
+  .mupd-batch button{font:inherit; font-size:12.5px; font-weight:700; color:var(--red); background:#fff;
+                     border:1.5px solid var(--red-100); border-radius:8px; padding:6px 11px; cursor:pointer;}
+  .mupd-batch button:disabled{opacity:.45; cursor:not-allowed;}
+  .mupd-flag{font-size:12.5px; font-weight:700; line-height:1.6; border-radius:8px; padding:8px 10px;
+             color:#8a5a00; background:#fff6e0; border:1px solid #f0d089;}
+  .mupd-flag.info{color:#0b4f6c; background:#e8f4fa; border-color:#a9d3e6;}
+
+  .mupd-card{border:1px solid var(--border); border-radius:10px; padding:12px; min-width:0;}
+  .mupd-card.open{border-color:var(--red-200); box-shadow:var(--shadow-sm);}
+  .mupd-card-head{display:flex; align-items:flex-start; gap:10px;}
+  .mupd-pick{flex:none; padding-top:2px; cursor:pointer;}
+  .mupd-pick input{width:18px; height:18px; accent-color:var(--red);}
+  .mupd-card-main{flex:1; min-width:0; display:flex; flex-direction:column; gap:3px;}
+  .mupd-card-title{font-weight:800; font-size:15px; overflow-wrap:anywhere;}
+  .mupd-card-sub{font-size:12px; color:var(--muted); font-weight:600;}
+  .mupd-card-fields{font-size:12px; color:var(--ink); overflow-wrap:anywhere;}
+  .mupd-card-newer{font-size:11.5px; color:#8a5a00; font-weight:700;}
+  .mupd-card-head .btn{flex:none;}
+
+  .mupd-detail{margin-top:12px; padding-top:12px; border-top:1px dashed var(--border-2); display:flex; flex-direction:column;
+               gap:10px; font-size:13px; line-height:1.65; min-width:0; overflow-wrap:anywhere;}
+  .mupd-meta{font-size:12px; color:var(--muted); font-weight:600;}
+  .mupd-warn{color:#8a1f1f; background:#fdecec; border:1px solid #f0a9a9; border-radius:8px; padding:8px 10px; font-weight:700;}
+  .mupd-info{color:#0b4f6c; background:#e8f4fa; border:1px solid #a9d3e6; border-radius:8px; padding:8px 10px; font-weight:600;}
+  .mupd-remind{color:var(--warn-ink); background:var(--warn-bg); border:1px solid var(--warn-border); border-radius:8px; padding:8px 10px; font-weight:700;}
+  .mupd-notebox{background:#fff6e0; border:2px solid #e0b84a; border-radius:8px; padding:10px 12px; font-weight:800; color:#5b3d00; white-space:pre-line;}
+  .mupd-notebox small{display:block; font-size:11.5px; font-weight:600; color:#8a5a00; margin-top:4px; white-space:normal;}
+  .mupd-sys{margin:0; padding-left:18px; font-size:12.5px; color:var(--muted);}
+  .mupd-sys li.w{color:#8a5a00; font-weight:700;}
+  .mupd-line{font-weight:700;}
+
+  .mupd-diff{width:100%; border-collapse:collapse; table-layout:fixed; font-size:12.5px;}
+  .mupd-diff th, .mupd-diff td{border:1px solid var(--border); padding:7px 9px; text-align:left; vertical-align:top;
+                               overflow-wrap:anywhere; word-break:break-word;}
+  .mupd-diff th{background:var(--bg-soft); font-weight:800; font-size:12px;}
+  .mupd-diff th:nth-child(1){width:108px;}
+  .mupd-diff th:nth-child(4){width:178px;}
+  .mupd-diff td.mupd-f{font-weight:800;}
+  .mupd-diff tr.off td.mupd-new{opacity:.5;}
+  .mupd-diff tr.mupd-wrow td{background:#fffaf0;}
+  .mupd-w{color:#8a5a00; font-weight:700;}
+  .mupd-wi{color:var(--muted); font-weight:600;}
+  .mupd-items{margin:0; padding-left:16px;}
+  .mupd-items li{margin:1px 0;}
+  .mupd-items li.removed{text-decoration:line-through; color:#b42318;}
+  .mupd-items li.added{background:#e7f6ec; color:#14532d; border-radius:4px; padding:0 4px;}
+  .mupd-items li.dropped{text-decoration:line-through; color:var(--muted);}
+  .mupd-empty{color:var(--muted);}
+  .mupd-opt{display:flex; align-items:center; gap:6px; font-weight:700; cursor:pointer; padding:2px 0;}
+  .mupd-opt input{width:16px; height:16px; accent-color:var(--red); flex:none;}
+  .mupd-opt input:disabled + span{opacity:.5;}
+  .mupd-count{font-size:11.5px; color:var(--muted); font-weight:700; margin-top:4px;}
+  .mupd-di{display:flex; align-items:flex-start; gap:8px; font-weight:700; cursor:pointer;}
+  .mupd-di input{width:16px; height:16px; margin-top:3px; accent-color:var(--red); flex:none;}
+  .mupd-reason{font:inherit; font-size:13px; width:100%; border:1.5px solid var(--border-2); border-radius:9px; padding:8px 10px; min-height:44px; resize:vertical;}
+  .mupd-actions{display:flex; flex-wrap:wrap; gap:8px;}
+  .mupd-ro{display:flex; flex-direction:column; gap:6px;}
+  .mupd-ro-row{display:grid; grid-template-columns:108px minmax(0,1fr); gap:8px; border-bottom:1px solid var(--border); padding-bottom:6px;}
+  .mupd-ro-f{font-weight:800;}
+  .mupd-same{display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px;}
+  .mupd-linkbtn{font:inherit; font-size:12.5px; font-weight:700; color:var(--red); background:none; border:none; padding:0; text-decoration:underline; cursor:pointer;}
+  /* 從審核區按「開啟成員卡」跳過去時閃一下,手機上才找得到是哪一張 */
+  .mem-card.mem-flash{box-shadow:0 0 0 3px var(--red-200);}
+  .mem-updlink{display:flex; flex-wrap:wrap; align-items:center; gap:8px;}
+  .mem-updlink .hint{font-size:11px; color:var(--muted); font-weight:500;}
+  @media (max-width:640px){
+    .mupd-diff, .mupd-diff tbody, .mupd-diff tr, .mupd-diff td{display:block; width:100%;}
+    .mupd-diff thead{display:none;}
+    .mupd-diff tr.mupd-row{border:1px solid var(--border); border-radius:8px 8px 0 0; margin-top:10px;}
+    .mupd-diff tr.mupd-row.solo{border-radius:8px;}
+    .mupd-diff tr.mupd-wrow{border:1px solid var(--border); border-top:none; border-radius:0 0 8px 8px;}
+    .mupd-diff td{border:none; padding:5px 10px;}
+    .mupd-diff tr.mupd-wrow td{border-radius:0 0 8px 8px;}
+    .mupd-diff td[data-th]::before{content:attr(data-th); display:block; font-size:11px; font-weight:800; color:var(--muted);}
+    .mupd-diff td.mupd-f{background:var(--bg-soft); border-radius:8px 8px 0 0;}
+    .mupd-ro-row{grid-template-columns:minmax(0,1fr);}
+    .mupd-card-head{flex-wrap:wrap;}
+    .mupd-card-head .btn{margin-left:auto;}
+    .mupd-actions .btn{flex:1 1 auto; justify-content:center;}
+  }
 </style>
 </head>
 <body>
@@ -430,6 +530,23 @@
   <div class="pending-list" id="pending-list"></div>
 </div>
 
+<!-- 夥伴資料更新:已上架的夥伴從更新表單送來的修改,組長確認後套用。沒有待審核時整塊隱藏 -->
+<div class="pending-wrap" id="mupd-wrap" hidden>
+  <div class="pending-head">
+    <span class="pending-title">✏️ 夥伴資料更新（待審核）</span>
+    <span class="pending-sub" id="mupd-sub"></span>
+    <button type="button" class="mupd-reload" id="mupd-reload">重新整理</button>
+  </div>
+  <div class="pend-notice" id="mupd-notice" hidden></div>
+  <div class="pend-notice danger" id="mupd-error" hidden></div>
+  <div class="mupd-note" id="mupd-after" hidden></div>
+  <div class="mupd-batch" id="mupd-batch" hidden>   <!-- 只有總管理員看得到 -->
+    <label><input type="checkbox" id="mupd-batch-all"> 全選</label>
+    <button type="button" id="mupd-batch-drop" disabled>不採用勾選的更新</button>
+  </div>
+  <div class="pending-list" id="mupd-list"></div>
+</div>
+
 <!-- 待認領照片的燈箱。照片存在私有空間，這裡顯示的是登入後即時抓回來的內容 -->
 <div class="pv-overlay" id="pv-overlay" hidden>
   <div class="pv-bar">
@@ -534,9 +651,9 @@
 
 <div class="toast" id="toast"></div>
 
-<script src="site-config.js?v=1"></script>
+<script src="site-config.js?v=2"></script>
 <script src="csv-schema.js?v=2"></script>
-<script src="admin-logic.js?v=1"></script>
-<script src="admin.js?v=10"></script>
+<script src="admin-logic.js?v=2"></script>
+<script src="admin.js?v=11"></script>
 </body>
 </html>

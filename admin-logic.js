@@ -259,7 +259,11 @@ var AdminLogic = (function(){
       }
       return u.toString();
     };
-    const full = build(PREFILL_KEYS);
+    /* 連結代碼記的是「每一格帶入了什麼」。有內容的格子卻沒有 entry(題目被改了標題、site-config
+       少貼一個)時,那一格帶不進表單,夥伴送出時是空的 —— 代碼卻說它原本有內容,Worker 會判成
+       「本人把這一格清空了」,審核畫面就多一則假的警示。這時寧可不帶代碼(少一層保護)。 */
+    const tokenSafe = UPDATE_FIELD_ORDER.every(f => !valueOf(f) || entryOf(f));
+    const full = build(tokenSafe ? PREFILL_KEYS : PREFILL_KEYS.filter(k => k !== "token"));
     if(full === null) return null;
     const cap = Number(maxLen) > 0 ? Number(maxLen) : 6000;
     if(full.length <= cap) return { url: full, nameless: false, trimmed: false };
