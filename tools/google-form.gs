@@ -2609,10 +2609,18 @@ function checkMemberUpdateForm() {
   line("編輯回覆      ", !edits, !edits ? "✅ 關閉" : "✗ 開著 —— 夥伴每編輯一次就多一筆待審核,請到「設定 → 回覆」關掉「允許編輯回覆」");
   var summary = form.isPublishingSummary();
   line("結果摘要      ", !summary, !summary ? "✅ 不公開" : "✗ 填答者看得到所有人的回覆(包括備註)—— 到「設定 → 回覆」關掉「查看結果摘要」");
+  /* 上傳題、收集電子郵件、「限制只能回覆 1 次」三種都會強制登入(建表時已關掉,這裡防網管事後打開;
+     被灌單後很容易想用「限制只能回覆 1 次」擋重複送件)。原因分開列,網管才知道要關哪一個。
+     讀不到「限制只能回覆 1 次」(舊環境沒有這個方法或讀取出錯)時視同沒開,不誤報。 */
   var uploads = form.getItems(FormApp.ItemType.FILE_UPLOAD).length, emails = form.collectsEmail();
-  line("登入要求      ", !uploads && !emails, !uploads && !emails ? "✅ 不需要登入"
-    : "✗ 表單有上傳題或開了「收集電子郵件」—— 會要求登入,從 LINE 點進來的夥伴多半會卡住;" +
-      "請刪掉上傳題、關掉收集電子郵件,照片請夥伴用 LINE 傳給組長");
+  var limitOne = false;
+  try { limitOne = typeof form.hasLimitOneResponsePerUser === "function" && !!form.hasLimitOneResponsePerUser(); } catch (err) { limitOne = false; }
+  var loginWhy = [];
+  if (uploads) loginWhy.push("刪掉上傳題(照片請夥伴用 LINE 傳給組長)");
+  if (emails) loginWhy.push("到「設定 → 回覆」關掉「收集電子郵件」");
+  if (limitOne) loginWhy.push("到「設定 → 回覆」關掉「限制只能回覆 1 次」(擋灌單請看 README「八」的「被灌單怎麼辦」)");
+  line("登入要求      ", !loginWhy.length, !loginWhy.length ? "✅ 不需要登入"
+    : "✗ 會要求登入,從 LINE 點進來的夥伴多半會卡住;請" + loginWhy.join("、"));
 
   // 名字選單
   var nameItem = updateNameItemById_(form);

@@ -280,7 +280,7 @@ class FakeForm {
   getPublishedUrl() { return "https://docs.google.com/forms/d/e/1FAIpQLSe" + this.no + "/viewform"; }
   setCollectEmail(b) { this.f.collectEmail = !!b; return this; } collectsEmail() { return this.f.collectEmail; }
   setAllowResponseEdits(b) { this.f.allowEdits = !!b; return this; } canEditResponse() { return this.f.allowEdits; }
-  setLimitOneResponsePerUser(b) { this.f.limitOne = !!b; return this; }
+  setLimitOneResponsePerUser(b) { this.f.limitOne = !!b; return this; } hasLimitOneResponsePerUser() { return this.f.limitOne; }
   setPublishingSummary(b) { this.f.summary = !!b; return this; } isPublishingSummary() { return this.f.summary; }
   setPublished(b) { this.f.published = !!b; return this; } isPublished() { return this.f.published; }
   setAcceptingResponses(b) { this.f.accepting = !!b; return this; } isAcceptingResponses() { return this.f.accepting; }
@@ -1156,6 +1156,7 @@ const checkCases = [
   ["★ 結果摘要公開", "結果摘要", (env, form) => { form.f.summary = true; }],
   ["有上傳題", "登入要求", (env, form) => { form.add(ITEM.FILE_UPLOAD).setTitle("形象照"); }],
   ["收集電子郵件", "登入要求", (env, form) => { form.f.collectEmail = true; }],
+  ["★ 限制只能回覆 1 次", "登入要求", (env, form) => { form.f.limitOne = true; }],
   ["停止收件", "接受回應", (env, form) => { form.f.accepting = false; }],
   ["少了每小時同步觸發器", "觸發器", env => { env.__st.triggers = env.__st.triggers.filter(t => t.getHandlerFunction() !== "syncMemberUpdateNames"); }],
   ["送出觸發器重複", "觸發器", env => { env.__st.triggers.push({ getHandlerFunction: () => "onMemberUpdateSubmit" }); }],
@@ -1180,6 +1181,31 @@ for (const [why, label, tweak] of checkCases) {
   const { r, lineOf, text } = runCheck(env);
   const ln = lineOf(label);
   ok(why + " → 「" + label + "」印 ✗", /✗|🔴|—/.test(ln) && !ln.includes("✅ ") && r.bad >= 1 && text.includes("⚠ 還有"), ln);
+}
+{
+  // 「登入要求」要分開列原因,網管才知道該關哪一個設定
+  const reasons = tweak => {
+    const { env, form } = goodCheckEnv();
+    tweak(env, form);
+    return runCheck(env).lineOf("登入要求");
+  };
+  const lo = reasons((env, form) => { form.f.limitOne = true; });
+  ok("★ 限制只能回覆 1 次 → 文案叫網管關掉它,不誤指上傳題或收集電子郵件",
+     lo.includes("關掉「限制只能回覆 1 次」") && !lo.includes("收集電子郵件") && !lo.includes("上傳題"), lo);
+  const em = reasons((env, form) => { form.f.collectEmail = true; });
+  ok("收集電子郵件 → 文案只叫網管關掉收集電子郵件", em.includes("關掉「收集電子郵件」") && !em.includes("限制只能回覆"), em);
+  const all3 = reasons((env, form) => { form.add(ITEM.FILE_UPLOAD).setTitle("形象照"); form.f.collectEmail = true; form.f.limitOne = true; });
+  ok("三種同時開著 → 三個原因都列出來", all3.includes("上傳題") && all3.includes("收集電子郵件") && all3.includes("限制只能回覆 1 次"), all3);
+  // 讀不到(舊環境沒有這個方法、或讀取丟例外)視同沒開,不能讓正常的表單誤報 ✗
+  for (const [why, tweak] of [
+    ["沒有 hasLimitOneResponsePerUser", (env, form) => { form.hasLimitOneResponsePerUser = undefined; }],
+    ["hasLimitOneResponsePerUser 丟例外", (env, form) => { form.hasLimitOneResponsePerUser = () => { throw new Error("boom"); }; }],
+  ]) {
+    const { env, form } = goodCheckEnv();
+    tweak(env, form);
+    const { r, lineOf } = runCheck(env);
+    ok(why + " → 視同沒開,「登入要求」仍是 ✅", lineOf("登入要求").includes("✅ 不需要登入") && r.bad === 0, lineOf("登入要求"));
+  }
 }
 {
   const { env } = goodCheckEnv();
