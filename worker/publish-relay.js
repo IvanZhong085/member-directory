@@ -2089,7 +2089,10 @@ function isPlaceholder(field, v){
 function normalizeWebsite(v){
   const s = canonText(v);
   if(/^https?:\/\//i.test(s)){
-    return /^https?:\/\/[^\s]{1,300}$/.test(s) ? { url:s } : { invalid: str(v, 300) };
+    /* 協定統一轉小寫:手機輸入法會把第一個字母自動大寫成「Https://」。
+       套用時的檢查與前台顯示網站按鈕(app.js)都只認小寫協定,所以要在這裡轉,不能只放寬判斷。 */
+    const u = s.replace(/^https?/i, x => x.toLowerCase());
+    return /^https?:\/\/[^\s]{1,300}$/.test(u) ? { url:u } : { invalid: str(v, 300) };
   }
   if(s.length <= 292 && /^(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)+(\/\S*)?$/i.test(s)) return { url: "https://" + s };
   return { invalid: str(v, 300) };
@@ -2308,7 +2311,11 @@ async function handleMemberUpdate(request, env){
   }
 
   let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
-  const good = timingSafeEqual(String(body && body.secret == null ? "" : body.secret), secret);
+  /* 只信任「物件裡的字串」。JSON 的 null、陣列,或 {"toString":null} 這種物件,直接 String()
+     會丟例外變成 500,也跳過補延遲與失敗計數;規格只有「解析失敗」才回 400,
+     其他畸形的請求一律當成沒帶密碼,照常補延遲、記一次失敗、回 401。 */
+  const b = (body && typeof body === "object" && !Array.isArray(body)) ? body : {};
+  const good = timingSafeEqual(typeof b.secret === "string" ? b.secret : "", secret);
   const elapsed = Date.now() - startedAt;
   if(elapsed < MIN_LOGIN_MS) await sleep(MIN_LOGIN_MS - elapsed);
   if(!good){
@@ -2321,25 +2328,27 @@ async function handleMemberUpdate(request, env){
   if(!env.PENDING_IMAGES) return json(env, { ok:false, error:"pending_image_store_unavailable" }, 503);
 
   /* 基本驗證。update:{} 會停在這裡,這也是 checkMemberUpdateForm 探測用的固定回應。 */
-  const u = body && body.update;
+  const u = b.update;
   if(!u || typeof u !== "object" || Array.isArray(u)) return json(env, { ok:false, error:"bad_update" }, 400);
-  const name = str(u.name, 80);
-  const group = str(u.group, 16);
+  /* 收件欄位只收字串,其他型別當成空的。不改共用的 str():/intake 等既有路徑還靠它把數字轉成字串。 */
+  const strIn = (v, max) => str(typeof v === "string" ? v : "", max);
+  const name = strIn(u.name, 80);
+  const group = strIn(u.group, 16);
   if(!name || !GROUPCODE_RE.test(group)) return json(env, { ok:false, error:"bad_update" }, 400);
 
   const now = Date.now();
   const at = new Date(now).toISOString();
-  const token = parseLinkToken(str(u.linkToken, 200));
+  const token = parseLinkToken(strIn(u.linkToken, 200));
   /* sat = 夥伴按送出的時間。排序、「只開放最舊一筆」都用它,不用收件時間 ——
      否則失敗後補送的舊內容會變成「最新的一筆」,蓋過本人後來的更正。
      範圍外(超過 180 天、未來 5 分鐘以上、亂碼)就退回收件時間。 */
-  const satMs = Date.parse(String(u.submittedAt == null ? "" : u.submittedAt));
+  const satMs = Date.parse(typeof u.submittedAt === "string" ? u.submittedAt : "");
   const sat = (Number.isFinite(satMs) && satMs >= now - UPDATE_SAT_MAX_AGE_MS && satMs <= now + 5 * 60 * 1000)
     ? new Date(Math.min(satMs, now)).toISOString() : at;
-  let pickedLabel = str(u.pickedLabel, 100);
+  let pickedLabel = strIn(u.pickedLabel, 100);
   if(!/^[A-Za-z0-9]{1,8}・\S/.test(pickedLabel)) pickedLabel = "";
-  const note = str(u.note, UPDATE_NOTE_MAX);
-  const responseId = str(u.responseId, 128);
+  const note = strIn(u.note, UPDATE_NOTE_MAX);
+  const responseId = strIn(u.responseId, 128);
 
   /* 逐欄處理。只看 UPDATE_FIELDS,一律用 hasOwnProperty 判斷 ——
      "constructor"、"__proto__" 這類鍵查得到 Object.prototype 上的東西,不能用 in 或 []。 */
@@ -2446,7 +2455,7 @@ async function handleMemberUpdate(request, env){
   const req = {
     v:1, uid, at, sat, state:"open", lockBy:"", lockAt:"",
     memberId: m.id, name: str(m.name, 80), gid, code,
-    label: str(u.label, 100) || (code + "・" + str(m.name, 80)),
+    label: strIn(u.label, 100) || (code + "・" + str(m.name, 80)),
     pickedLabel, nameMismatch, tokenUsed: !!token,
     changes, base, untouched, stalePrefill, cleared, truncated, ignored, invalid,
     confirmOnly, note, responseId, h,
@@ -2527,7 +2536,7 @@ async function handleMemberUpdateGet(request, env){
   const a = await memberUpdateAuth(request, env);
   if(a.resp) return a.resp;
   const { body, sess } = a;
-  const uid = String(body.uid == null ? "" : body.uid);
+  const uid = typeof body.uid === "string" ? body.uid : "";   // 只收字串:怪物件直接 String() 會丟例外變 500
   if(!UPDATE_UID_RE.test(uid)) return json(env, { ok:false, error:"bad_request" }, 400);
   const rd = await readUpdate(env, uid);
   if(rd.gone) return json(env, { ok:false, error:"update_gone" }, 409);
@@ -2555,7 +2564,7 @@ async function handleMemberUpdateApply(request, env){
   const a = await memberUpdateAuth(request, env);
   if(a.resp) return a.resp;
   const { body, sess } = a;
-  const uid = String(body.uid == null ? "" : body.uid);
+  const uid = typeof body.uid === "string" ? body.uid : "";   // 只收字串:怪物件直接 String() 會丟例外變 500
   const choicesIn = body.choices;
   if(!UPDATE_UID_RE.test(uid) || !choicesIn || typeof choicesIn !== "object" || Array.isArray(choicesIn)){
     return json(env, { ok:false, error:"bad_request" }, 400);
@@ -2738,7 +2747,7 @@ async function handleMemberUpdateDrop(request, env){
   const a = await memberUpdateAuth(request, env);
   if(a.resp) return a.resp;
   const { body, sess } = a;
-  const uid = String(body.uid == null ? "" : body.uid);
+  const uid = typeof body.uid === "string" ? body.uid : "";   // 只收字串:怪物件直接 String() 會丟例外變 500
   if(!UPDATE_UID_RE.test(uid)) return json(env, { ok:false, error:"bad_request" }, 400);
   const rd = await readUpdate(env, uid);
   if(rd.gone) return json(env, { ok:false, error:"update_gone" }, 409);

@@ -221,6 +221,22 @@ hr("② secret 錯誤:401;同一 IP 錯 5 次後 429;正確的送件不寫 KV");
   await submit(w2, { changes:{ company:"新公司 2" } });
   await call(w2, "/member-update", { secret:"s3cret", update:{} });
   chk("★ secret 正確的送件,KV put 次數是 0", w2.kv.n.put === 0, "put " + w2.kv.n.put + " 次");
+  /* 畸形的 body:JSON null、陣列、純字串、數字,secret 是 {"toString":null} 或陣列。
+     以前會在比對密碼前丟 TypeError → 500,跳過補延遲與失敗計數。現在一律當成沒帶密碼。
+     陣列 ["s3cret"] 以前會被 String() 轉成正確密碼,也一起擋掉。 */
+  const w3 = world();
+  const weird = ["null", "[]", '"x"', "5",
+    JSON.stringify({ secret:{ toString:null }, update: upd() }),
+    JSON.stringify({ secret:["s3cret"], update: upd() })];
+  const t0 = Date.now();
+  const ws = await Promise.all(weird.map((b, i) => call(w3, "/member-update", b, { ip:"6.6.6." + i, track:false })));
+  const took = Date.now() - t0;
+  chk("★ 畸形 body / secret 型別不對 → 401 bad_secret(不是 500)", ws.every(r => r._status === 401 && r.error === "bad_secret"),
+      ws.map(r => r._status + " " + r.error).join(","));
+  chk("★ 每一筆都記一次密碼錯誤", weird.every((b, i) => w3.kv.store.has("mupd-fail:6.6.6." + i)) && w3.kv.n.put === weird.length,
+      "put " + w3.kv.n.put + " 次");
+  chk("★ 照常補延遲(≥ 300ms)", took >= 290, took + "ms");
+  chk("R2 沒有寫入", reqKeys(w3).length === 0);
 }
 
 /* ══ 3 ══ 同一 IP 大量正確送件 */
@@ -251,6 +267,19 @@ hr("④ 沒綁 R2 / 沒設 INTAKE_SECRET / update:{}");
   const w5 = world({ env:{ RATE_LIMIT: undefined } });
   const r5 = await submit(w5, { changes:{ company:"x" } });
   chk("沒綁 KV → 500 rate_limit_unavailable", r5._status === 500 && r5.error === "rate_limit_unavailable", brief(r5));
+  /* 收件欄位型別不對(密碼正確):name 是 toString 為 null 的物件 → 400 bad_update,不是 500;
+     其他欄位(備註、回應 ID、代碼…)型別不對就當成空的,照常收件。 */
+  const w6 = world();
+  const BAD = { toString:null };
+  const r6 = await submit(w6, { name:BAD, changes:{ company:"x" } });
+  chk("★ name 是怪物件 → 400 bad_update", r6._status === 400 && r6.error === "bad_update", brief(r6));
+  const r7 = await submit(w6, { group:BAD, changes:{ company:"x" } });
+  chk("★ group 是怪物件 → 400 bad_update", r7._status === 400 && r7.error === "bad_update", brief(r7));
+  const r8 = await submit(w6, { label:BAD, note:BAD, responseId:BAD, submittedAt:BAD, linkToken:BAD, pickedLabel:BAD,
+    changes:{ company:"型別不對的其他欄位" } });
+  const q8 = r8.ok ? reqOf(w6, r8.uid) : {};
+  chk("★ 其他欄位是怪物件 → 當成空的,照常收件", r8.ok === true && q8.note === "" && q8.responseId === "" &&
+      q8.pickedLabel === "" && q8.tokenUsed === false && q8.label === "A1・曾俊凱" && q8.sat === q8.at, brief(r8));
 }
 
 /* ══ 5 ══ 找組、找人 */
@@ -300,6 +329,14 @@ hr("⑦ 網站:www 開頭自動補 https://;不是網址的進 invalid");
       eq(b.invalid, [{ field:"website", value:"我的官網" }]), brief(b));
   const c = await submit(w, { changes:{ website:"javascript:alert(1)" }, note:"" });
   chk("javascript: 不會被當成網址", c.ok && !("website" in reqOf(w, c.uid).changes), brief(c));
+  /* 手機輸入法會把第一個字母自動大寫。協定要轉成小寫存:套用時與前台(app.js)都只認小寫的 http(s)://。 */
+  const d = await submit(w, { label:"A1・王大銘", name:"王大銘", changes:{ website:"Https://www.abc.com.tw/Path?Q=1" } });
+  const qd = d.ok ? reqOf(w, d.uid) : {};
+  chk("★ Https://… → 協定轉小寫收下,路徑大小寫不動", d.ok && qd.changes.website === "https://www.abc.com.tw/Path?Q=1" &&
+      !qd.invalid.length, brief(d));
+  const e = await submit(w, { label:"A1・林小美", name:"林小美", changes:{ website:"HTTP://abc.tw" } });
+  const qe = e.ok ? reqOf(w, e.uid) : {};
+  chk("★ HTTP://abc.tw → http://abc.tw,不進 invalid", e.ok && qe.changes.website === "http://abc.tw" && !qe.invalid.length, brief(e));
 }
 
 /* ══ 8 ══ 原型鍵 */
@@ -409,6 +446,8 @@ hr("⑬ /member-update-get");
   chk("不存在 → 409 update_gone", d._status === 409 && d.error === "update_gone", brief(d));
   const e = await call(w, "/member-update-get", { session:sViewer, uid:a.uid });
   chk("viewer → 403", e._status === 403);
+  const f = await call(w, "/member-update-get", { session:sOwner, uid:{ toString:null } });
+  chk("★ uid 是怪物件 → 400 bad_request(不是 500)", f._status === 400 && f.error === "bad_request", brief(f));
   chk("子請求 ≤ 3", r._cost <= 3 && b._cost <= 3 && d._cost <= 3, [r._cost, b._cost, d._cost].join("/"));
 }
 
@@ -637,6 +676,8 @@ hr("㉑ 權限與參數");
   chk("全部 skip → 400 nothing_selected", d._status === 400 && d.error === "nothing_selected", brief(d));
   const e = await apply(w, sOwner, a.uid, [], ex);
   chk("choices 不是物件 → 400 bad_request", e._status === 400 && e.error === "bad_request", brief(e));
+  const f = await apply(w, sOwner, { toString:null }, { company:"replace" }, ex);
+  chk("★ uid 是怪物件 → 400 bad_request(不是 500)", f._status === 400 && f.error === "bad_request", brief(f));
   chk("以上都沒有上鎖", reqOf(w, a.uid).state === "open");
 }
 
@@ -698,6 +739,8 @@ hr("㉕ /member-update-drop");
   chk("組長刪別組 → 403", rc._status === 403 && rc.error === "forbidden_group" && reqOf(w, c.uid) !== null, brief(rc));
   const rv = await call(w, "/member-update-drop", { session:sViewer, uid:c.uid });
   chk("viewer → 403", rv._status === 403);
+  const rw = await call(w, "/member-update-drop", { session:sOwner, uid:{ toString:null } });
+  chk("★ uid 是怪物件 → 400 bad_request(不是 500)", rw._status === 400 && rw.error === "bad_request" && reqOf(w, c.uid) !== null, brief(rw));
 }
 
 /* ══ 26 ══ /ping */
