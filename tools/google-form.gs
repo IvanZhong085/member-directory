@@ -18,6 +18,19 @@
  *
  * ⚠ 重複執行 createVisitorForm 會被擋下(建立過就記在指令碼屬性裡)。
  *   要改題目請直接到表單編輯頁改;真的要重建請先跑 forgetForms_()。
+ *
+ * ── 夥伴資料更新表單(已上架的夥伴自己補公司等文字資料)──────────────
+ * 送出後不會直接上線:先進私有的「待審核」區,組長在後台逐欄確認才寫進名錄。
+ * 部署步驟、審核方式與常見問題(含「被灌單怎麼辦」)見 README「八、夥伴資料更新表單」。
+ *   createMemberUpdateForm()       建立更新表單 + 回應試算表 + 兩個觸發器(做一次)
+ *   checkMemberUpdateForm()        逐項檢查(只讀不改);全部 ✅ 才把網址發到 LINE
+ *   syncMemberUpdateNames()        名字選單照公開名錄更新(觸發器每小時自動跑,也可以手動跑)
+ *   printMemberUpdateLinkConfig()  重印要貼進 site-config.js 的兩行
+ *   resendFailedMemberUpdates()    補送所有「可自動補送」的失敗送件
+ *   resendMemberUpdate("回應 ID", "A1・正確姓名")   指定名字補送一筆(名字可省略)
+ *   dismissFailedMemberUpdate("回應 ID")           處理完的那筆移出補送清單
+ *   setupMemberUpdateTriggers()    觸發器不見或重複時重裝
+ *   forgetMemberUpdateForm()       要重建更新表單時先跑(會先關閉舊表單,不影響另外兩份表單)
  */
 
 /* 建立「來賓參訪報名」表單:回應進獨立試算表,當作來賓 CRM。
@@ -349,14 +362,16 @@ var NEWMEMBER_TRIGGER = "onNewMemberSubmit";
    真的要重建(例如換 Google 帳號、或表單被誤刪)時:先跑 forgetForms_(),
    或到「專案設定 → 指令碼屬性」把對應那筆刪掉。
    ⚠ 忘掉之後舊表單仍然存在於 Drive,只是這個腳本不再指向它 —— 記得自己去刪。 */
-function guardAlreadyCreated_(propKey, fnName, label) {
+/* forgetFn:要重建時該先跑哪一支。更新表單有自己的 forgetMemberUpdateForm() ——
+   forgetForms_() 刻意不碰它,免得重建更新表單時把新夥伴表單與來賓表單的綁定一起忘掉。 */
+function guardAlreadyCreated_(propKey, fnName, label, forgetFn) {
   var url = PropertiesService.getScriptProperties().getProperty(propKey);
   if (!url) return;
   throw new Error(
     "「" + label + "」表單已經建立過了,不要再跑一次 " + fnName + " ——\n" +
     "  現有的表單:" + url + "\n" +
     "  要改題目請直接開上面那個網址。\n" +
-    "  真的要重建(例如換 Google 帳號)請先執行 forgetForms_(),它會告訴你接下來該做什麼。");
+    "  真的要重建(例如換 Google 帳號)請先執行 " + (forgetFn || "forgetForms_()") + ",它會告訴你接下來該做什麼。");
 }
 
 /* 讓這個腳本「忘記」目前綁定的表單,之後才能重新建立。
@@ -663,8 +678,8 @@ function reauthUrl_() {
    屬性名稱打錯一個字就完全沒有效果,而且不會有任何提示。 */
 function setAlertEmail(email) { return setNotifyProp_("ALERT_EMAIL", email, "失敗通知"); }
 
-/* 設定「有新申請」的通知收件人(選用)。傳空字串就是關掉。 */
-function setNotifyEmail(email) { return setNotifyProp_("NOTIFY_EMAIL", email, "新申請通知"); }
+/* 設定「有新申請/有夥伴送來資料更新」的通知收件人(選用)。傳空字串就是關掉。 */
+function setNotifyEmail(email) { return setNotifyProp_("NOTIFY_EMAIL", email, "新申請與資料更新通知"); }
 
 function setNotifyProp_(key, email, label) {
   var v = String(email == null ? "" : email).trim();
@@ -690,7 +705,7 @@ function checkNotifySetup() {
   var effective = alertEmail_();
   Logger.log("ALERT_EMAIL   :" + (alertTo || "(沒設 → 用腳本擁有者)"));
   Logger.log("實際收件人    :" + (effective || "✗ 取不到 —— 失敗通知會寄不出去,請設 ALERT_EMAIL"));
-  Logger.log("NOTIFY_EMAIL  :" + (notifyTo || "(沒設 → 不寄「有新申請」的通知)"));
+  Logger.log("NOTIFY_EMAIL  :" + (notifyTo ? notifyTo + "(新申請與夥伴資料更新通知)" : "(沒設 → 不寄新申請與夥伴資料更新通知)"));
   var visitorTo = String(props.getProperty("VISITOR_NOTIFY_EMAIL") || "").trim();
   Logger.log("VISITOR_NOTIFY_EMAIL:" + (visitorTo || "(沒設 → 來賓報名通知依序退回 NOTIFY_EMAIL / ALERT_EMAIL / 擁有者)"));
   try { Logger.log("今日可寄額度  :" + MailApp.getRemainingDailyQuota() + " 封"); }
@@ -700,7 +715,7 @@ function checkNotifySetup() {
     var url = reauthUrl_();
     Logger.log("授權狀態      :🔴 需要重新授權");
     Logger.log("");
-    Logger.log("   ⚠ 在授權完成之前,送出表單的觸發器不會執行,新夥伴的申請會全部靜默失敗。");
+    Logger.log("   ⚠ 在授權完成之前,送出表單的觸發器不會執行,新夥伴申請與夥伴資料更新都會靜默失敗。");
     Logger.log("");
     /* 一定要把網址印出來:直接按「執行」不會跳出同意畫面(見 reauthUrl_ 的說明),
        只看到這段紅字卻找不到授權入口的話,人就卡在這裡了。 */
@@ -1266,6 +1281,14 @@ function cleanupArchivedPhotos() { photoCleanup_(false); }
 /* 比對姓名用:去掉所有空白、轉小寫。表單填的與名錄上的偶爾差一個空白。 */
 function normName_(s) { return String(s == null ? "" : s).replace(/\s+/g, "").toLowerCase(); }
 
+/* 夥伴資料更新表單「請選你的名字」的選項文字:「A1・曾俊凱」。
+   中間是 U+30FB「・」,和網站徽章「代號・組名」同一種寫法。
+   ★ 後台 admin-logic.js 有一支逐字相同的 memberUpdateLabel:組長複製的預填連結靠這串字
+     預選名字。兩邊只要差一個字(例如一邊用 U+00B7「·」),預填就選不到人,夥伴只會看到
+     空白的選單 —— 而且不會有任何錯誤。所以 tests/logic.test.mjs 會載入這個檔比對兩邊的輸出,
+     改這裡請一起改 admin-logic.js。 */
+function memberUpdateLabel_(code, name) { return String(code).trim() + "・" + String(name).trim(); }
+
 /* 抓公開網站上的檔案。加時間戳避開 GitHub Pages 的快取 —— 讀到舊版就可能誤判。 */
 function fetchSite_(path) {
   var url = SITE_BASE_URL + path + (path.indexOf("?") >= 0 ? "&" : "?") + "t=" + Date.now();
@@ -1273,18 +1296,40 @@ function fetchSite_(path) {
   return { code: res.getResponseCode(), text: res.getContentText() };
 }
 
+/* 公開名錄 data.js 的分組陣列。回 null 代表讀不到或看不懂 —— 呼叫端各自決定怎麼保守處理
+   (照片清理整批不刪、名字選單維持原樣、建表單直接停下)。
+   ★ 整段包在 try/catch 裡:fetchSite_ 用的 UrlFetchApp.fetch 遇到 DNS 失敗或逾時會直接丟例外,
+     muteHttpExceptions 只吞得掉 HTTP 錯誤碼。漏接的話,每小時同步會變成一封封 Google 的失敗信。
+   ★ data.js 是一段 JS(const GROUPS = [...];),只取第一個「[」到最後一個「]」交給 JSON.parse,
+     不把網站上抓來的內容當程式執行。 */
+function publishedGroups_() {
+  try {
+    var r = fetchSite_("data.js");
+    if (r.code !== 200) { Logger.log("✗ 讀不到名錄 data.js(HTTP " + r.code + ")"); return null; }
+    var a = r.text.indexOf("["), b = r.text.lastIndexOf("]");
+    if (a < 0 || b <= a) { Logger.log("✗ data.js 格式看不懂"); return null; }
+    var groups = JSON.parse(r.text.slice(a, b + 1));
+    // 空名錄或缺欄位一律當作異常:拿它去同步選單會把所有人都清掉,拿去清照片會判成「查無此人」
+    if (Object.prototype.toString.call(groups) !== "[object Array]" || !groups.length) {
+      Logger.log("✗ 名錄是空的 —— 不正常,當作讀不到"); return null;
+    }
+    for (var i = 0; i < groups.length; i++) {
+      var g = groups[i];
+      if (!g || typeof g.code !== "string" || Object.prototype.toString.call(g.members) !== "[object Array]") {
+        Logger.log("✗ data.js 第 " + (i + 1) + " 組缺 code 或 members —— 不正常,當作讀不到"); return null;
+      }
+    }
+    return groups;
+  } catch (err) {
+    Logger.log("✗ 讀不到名錄 data.js:" + errText_(err));
+    return null;
+  }
+}
+
 /* 名錄上「有實體照片」的成員姓名。回 null 代表讀不到或看不懂 —— 呼叫端會整批不刪。 */
 function publishedNamesWithPhoto_() {
-  var r = fetchSite_("data.js");
-  if (r.code !== 200) { Logger.log("✗ 讀不到名錄 data.js(HTTP " + r.code + ")"); return null; }
-  var a = r.text.indexOf("["), b = r.text.lastIndexOf("]");
-  if (a < 0 || b <= a) { Logger.log("✗ data.js 格式看不懂"); return null; }
-  var groups;
-  try { groups = JSON.parse(r.text.slice(a, b + 1)); }
-  catch (err) { Logger.log("✗ data.js 解析失敗:" + err); return null; }
-  if (Object.prototype.toString.call(groups) !== "[object Array]" || !groups.length) {
-    Logger.log("✗ 名錄是空的 —— 不正常,這次不刪"); return null;   // 空名錄會把所有人都判成「查無此人」,保留即可,但仍當作異常
-  }
+  var groups = publishedGroups_();
+  if (!groups) return null;
   var map = {}, n = 0;
   for (var i = 0; i < groups.length; i++) {
     var ms = groups[i].members || [];
@@ -1368,4 +1413,1344 @@ function createRosterSheet() {
   ]);
   Logger.log("✅ 名冊鏡像試算表建立完成:" + ss.getUrl());
   Logger.log("把上面網址貼進 site-config.js 的 ROSTER_SHEET_URL。");
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   夥伴資料更新表單(已上架的夥伴自己更新文字資料)
+   ══════════════════════════════════════════════════════════════════════════
+   夥伴在下拉選單選「A1・曾俊凱」,只填要改的格子(空著＝不改),送出後由
+   onMemberUpdateSubmit 轉給 Worker 的 /member-update,進私有 R2 的「待審核」區;
+   組長在後台逐欄確認後,Worker 才寫進 data/<組>.json。完整說明見 README「八」。
+
+   幾個刻意的決定(細節在各函式的註解):
+   ① 這裡只負責「讀表單、轉送」。佔位字、網址補 https、和名錄現值比對全部交給 Worker ——
+      規則集中在一處,測試也集中在一處。
+   ② 先記錄、後送出:送件一進來就把回應 ID 記進補送清單(UPDATE_FAILED_IDS),確定成功才移除。
+      中途任何例外、寄信失敗、執行逾時,都不會讓一筆送件無聲無息地消失。
+   ③ 熔斷:1 小時超過 60 筆就自動暫停收件。這個帳號的觸發器時間、UrlFetch 與寄信額度,
+      是新夥伴申請與來賓報名共用的,被灌單時要先保住它們。
+   ④ 通知信只放過濾後的「代號・姓名」、錯誤碼與回應 ID,不放填答內容與備註 ——
+      表單不必登入,任何拿到網址的人寫的字都不能原樣出現在信裡。
+   ⑤ 執行紀錄同樣不記欄位內容。紀錄是另一個會被人看到的地方。 */
+
+var UPDATE_TRIGGER      = "onMemberUpdateSubmit";
+var UPDATE_SYNC_TRIGGER = "syncMemberUpdateNames";
+var UPDATE_NOT_FOUND    = "找不到我的名字";
+var UPDATE_FORM_TITLE   = "雲榮鑽石分會・夥伴資料更新";
+var UPDATE_Q = {                       // 更新表單專用的題目(九個資料欄位沿用 NEWMEMBER_Q 的標題)
+  member: "請選你的名字",
+  page:   "要更新的內容",
+  secNew: "補上還沒有的資料",
+  secEdit:"修改名錄上已經有的內容",
+  note:   "給組長的備註",
+  token:  "連結代碼",
+  nfPage: "找不到自己的名字？",
+  nfName: "你的姓名",
+  nfWhat: "想更新什麼",
+};
+/* 九個資料欄位。順序 = admin-logic.js 的 UPDATE_FIELD_ORDER = Worker 的 UPDATE_TOKEN_ORDER,
+   tests/logic.test.mjs 會比對三份 —— 連結代碼的 9 段雜湊就是照這個順序排的。 */
+var UPDATE_FIELD_KEYS = ["company","business_items","website","have","want","title","services","targets","tagline"];
+/* site-config.js 的 UPDATE_FORM_ENTRIES 固定是這 11 個鍵(後台組預填連結用) */
+var UPDATE_ENTRY_KEYS = ["member","title","company","services","targets","have","want","tagline","business_items","website","token"];
+var UPDATE_MAIL_MIN_QUOTA      = 20;              // 剩餘額度低於這個數字時,只寄系統類失敗通知
+var UPDATE_SUCCESS_MAIL_GAP_MS = 6 * 3600 * 1000;
+var UPDATE_NF_MAIL_GAP_MS      = 6 * 3600 * 1000; // 「找不到名字」彙整信的間隔
+var UPDATE_FLOOD_PER_HOUR      = 60;              // 熔斷門檻(全分會才 90 人,正常不會到)
+var UPDATE_NAMEIDX_CACHE_S     = 600;             // 名錄索引快取 10 分鐘
+var UPDATE_DEDUPE_MAX_KEYS     = 50;
+var UPDATE_FAILED_MAX          = 100;
+var UPDATE_RESEND_BUDGET_MS    = 5 * 60 * 1000;   // 補送迴圈的時間上限(Apps Script 單次最多 6 分鐘)
+var UPDATE_MANUAL_CODES = ["member_not_found","member_ambiguous","update_too_large","bad_label","bad_update","flood_paused"];
+var UPDATE_NF_NAMES_MAX  = 10;                    // 彙整信最多列幾個姓名
+var UPDATE_PROP_MAX_BYTES = 8800;                 // 指令碼屬性單一值上限 9 KB,留一點餘裕
+/* 這些結果代表「這筆處理完了」,補送時算成功 */
+var UPDATE_DONE_CODES = ["ok","duplicate","unchanged","nothing_to_update","empty","name_not_found"];
+var UPDATE_FLOOD_CLOSED_MSG = "這份表單暫停收件中，請稍後再試，或直接 LINE 你的組長。";
+var UPDATE_RETIRED_MSG      = "這份夥伴資料更新表單已經停用，請跟你的產業小組組長要新的連結。";
+
+/* 錯誤碼 → 信件類別與處理方式。cls:"sys" 寄 ALERT、同一碼 1 小時一封;"sub" 寄 NOTIFY(沒設退回 ALERT)、
+   同一位同一碼每天一封。哪些會自動補送由 UPDATE_MANUAL_CODES 決定。
+   「原因」取 hint 第一個「。」之前那一句;{rid} 寄信時換成回應 ID。 */
+var UPDATE_SITE_HINT_ = "Worker 讀不到公開網站上的名錄（GitHub Pages）。請確認網站打得開；Worker 讀的網址可以在 checkMemberUpdateForm 的「Worker」那一行看到。修好後補送。";
+var UPDATE_RETRY_HINT_ = "Worker 或 Apps Script 暫時出錯，稍後補送即可。";
+var UPDATE_LABEL_HINT_ = "名字選項的格式不對（可能有人改了選項文字）。先執行 syncMemberUpdateNames；再到回應試算表看這筆選的是誰，執行 resendMemberUpdate(\"{rid}\", \"A1・正確姓名\")。";
+var UPDATE_ERRORS_ = {
+  config_missing:   { cls: "sys", hint: "Apps Script 少了 RELAY_URL 或 INTAKE_SECRET。請到「專案設定 → 指令碼屬性」補上，再跑 checkMemberUpdateForm。" },
+  bad_secret:       { cls: "sys", hint: "Apps Script 的 INTAKE_SECRET 和 Cloudflare 上的不一樣。請兩邊改成完全一樣，再跑 checkMemberUpdateForm。" },
+  intake_disabled:  { cls: "sys", hint: "Cloudflare 上還沒設 INTAKE_SECRET。設好之後跑 checkMemberUpdateForm，再補送。" },
+  too_many_submissions: { cls: "sys", hint: "密碼錯太多次，Worker 暫停收件 15 分鐘。請先確認兩邊的 INTAKE_SECRET 一致，15 分鐘後再補送。" },
+  rate_limit_unavailable: { cls: "sys", hint: "Worker 沒綁 RATE_LIMIT（KV），請總管理員檢查 Cloudflare 設定。" },
+  pending_image_store_unavailable: { cls: "sys", hint: "Worker 還沒綁 R2（PENDING_IMAGES），待審核的更新沒地方放。請先完成 worker/README.md 4-2。" },
+  not_found:        { cls: "sys", hint: "Worker 還沒更新到支援夥伴資料更新的版本。請總管理員重新部署 publish-relay.js。" },
+  update_store_failed: { cls: "sys", hint: "Worker 寫入暫存空間失敗（通常是暫時的），稍後補送即可。" },
+  site_unreachable: { cls: "sys", hint: UPDATE_SITE_HINT_ },
+  group_unreadable: { cls: "sys", hint: UPDATE_SITE_HINT_ },
+  server_error:     { cls: "sys", hint: UPDATE_RETRY_HINT_ },
+  script_error:     { cls: "sys", hint: UPDATE_RETRY_HINT_ },
+  bad_label:        { cls: "sys", hint: UPDATE_LABEL_HINT_ },
+  bad_update:       { cls: "sys", hint: UPDATE_LABEL_HINT_ },
+  flood_paused:     { cls: "sys", hint: "表單疑似被灌單、自動暫停收件那一刻進來的送件。確定是夥伴送的，執行 resendMemberUpdate(\"{rid}\")；其他的執行 dismissFailedMemberUpdate(\"{rid}\")。" },
+  group_not_found:  { cls: "sub", hint: "選單上的組代號已經不存在（可能剛改名）。系統每小時會更新選單，補送時會用新的代號重找。" },
+  member_not_found: { cls: "sub", hint: "名錄上找不到這位（可能剛改名、被刪除，或選錯人）。如果是改名或選錯人：請網管在 Apps Script 執行 resendMemberUpdate(\"{rid}\", \"A1・正確姓名\")；如果他已經不在名錄上：請組長 LINE 本人，處理完由網管執行 dismissFailedMemberUpdate(\"{rid}\")。" },
+  member_ambiguous: { cls: "sub", hint: "同一組有兩位同名的夥伴，系統無法判斷是誰。請組長直接跟本人確認後在後台手動修改，再由網管執行 dismissFailedMemberUpdate(\"{rid}\")。" },
+  update_too_large: { cls: "sub", hint: "內容太長。請組長 LINE 本人，請他縮短後重填；之後由網管執行 dismissFailedMemberUpdate(\"{rid}\")。" },
+  too_many_updates_for_member: { cls: "sub", hint: "這位夥伴已經有 3 筆更新在等審核。請組長先到後台處理他的待審更新（如果那幾筆不是本人送的，直接按「不採用」）。之後補送或請本人重填，擇一即可（內容相同的不會重複建立）。" },
+  updates_full:     { cls: "sub", hint: "待審核更新已經滿 100 筆。請組長盡快到後台處理（總管理員可以勾選後一次不採用），處理後再補送。" },
+};
+
+/* ── 小工具 ───────────────────────────────────────────────────────────── */
+
+/* 例外訊息壓成一行、截短。只用在執行紀錄,訊息本身不含 secret(secret 只放在 payload 裡)。 */
+function errText_(err) {
+  return oneLine_(err && err.message ? err.message : String(err), 200);
+}
+function isArr_(a) { return Object.prototype.toString.call(a) === "[object Array]"; }
+function hasOwn_(o, k) { return o != null && Object.prototype.hasOwnProperty.call(o, k); }
+
+/* 指令碼屬性單一值上限是 9 KB(以 UTF-8 計),所以要自己數位元組 */
+function utf8Len_(s) {
+  var n = 0;
+  for (var i = 0; i < s.length; i++) {
+    var c = s.charCodeAt(i);
+    if (c < 0x80) n += 1;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xD800 && c <= 0xDBFF) { n += 4; i++; }
+    else n += 3;
+  }
+  return n;
+}
+
+function scriptTz_() {
+  try { return Session.getScriptTimeZone() || "Asia/Taipei"; } catch (err) { return "Asia/Taipei"; }
+}
+function fmtTime_(d, fmt) {
+  try { return Utilities.formatDate(d, scriptTz_(), fmt); } catch (err) { return d.toISOString(); }
+}
+
+/* 屬性的讀改寫都包在這裡。觸發器可能同時跑好幾個(夥伴同時按送出、補送與送出交錯),
+   不加鎖的話後寫的會蓋掉先寫的,補送清單就少一筆。
+   10 秒拿不到鎖照樣執行:寧可多一點競態,也不要漏記。
+   UrlFetch、寄信、sleep 一律不要放進來 —— 那會讓別的送件排隊等一個網路請求。 */
+function withScriptLock_(fn) {
+  var lock = null, got = false;
+  try { lock = LockService.getScriptLock(); got = lock.tryLock(10000); }
+  catch (err) { got = false; }
+  if (!got) Logger.log("⚠ 拿不到鎖，照常寫入");
+  try { return fn(); }
+  finally {
+    if (got) { try { lock.releaseLock(); } catch (err2) { /* 執行結束時 Google 會自己放掉 */ } }
+  }
+}
+
+function readJsonProp_(key, fallback) {
+  var raw = PropertiesService.getScriptProperties().getProperty(key);
+  if (!raw) return fallback;
+  try { var v = JSON.parse(raw); return v == null ? fallback : v; }
+  catch (err) { return fallback; }
+}
+
+/* 「代號・姓名」拆開。代號要是 1–8 個英數字、姓名不能是空的,否則回 null。 */
+function splitUpdateLabel_(label) {
+  var s = String(label == null ? "" : label);
+  var at = s.indexOf("・");
+  if (at < 0) return null;
+  var code = s.slice(0, at).trim(), name = s.slice(at + 1).trim();
+  if (!/^[A-Za-z0-9]{1,8}$/.test(code) || !name) return null;
+  return { code: code, name: name };
+}
+
+/* 信件裡的姓名只留「文字」:字母、組合符號、「・·」與空白。
+   冒號、斜線、句點全部濾掉,就不可能組成網址;角括號濾掉,就不可能出現標籤。
+   表單不必登入,任何人都能在姓名欄寫一段釣魚文字,這是它進到信裡之前唯一的關卡。 */
+function safeNameText_(s, max) {
+  var v = String(s == null ? "" : s);
+  try { v = v.normalize("NFKC"); } catch (err) { /* 沒有 normalize 就照原樣過濾 */ }
+  var kept = (v.match(/[\p{L}\p{M}・· ]/gu) || []).join("").replace(/ {2,}/g, " ").trim();
+  return Array.from(kept).slice(0, max || 10).join("").trim();   // 以字(code point)計,不切壞罕用字
+}
+function safeName_(s, max) { return safeNameText_(s, max) || "(未留可辨識的姓名)"; }
+/* 選項文字「A1・曾俊凱」過濾後再放進信裡。bad_label 的信會把選項原文寄出去,所以一樣要濾。 */
+function safeLabel_(label) {
+  var s = String(label == null ? "" : label);
+  try { s = s.normalize("NFKC"); } catch (err) { /* 同上 */ }
+  var at = s.indexOf("・");
+  if (at < 0) return "(選項格式不對)";
+  var code = s.slice(0, at).replace(/[^A-Za-z0-9]/g, "").slice(0, 8);
+  return (code || "?") + "・" + safeName_(s.slice(at + 1), 20);
+}
+
+/* 欄位鍵清單(Worker 回的 ignored/invalid 是 {field, value},只取 field)。只給執行紀錄用。 */
+function updateFieldKeys_(arr) {
+  if (!isArr_(arr)) return [];
+  var out = [];
+  for (var i = 0; i < arr.length; i++) {
+    var k = typeof arr[i] === "string" ? arr[i] : (arr[i] && typeof arr[i].field === "string" ? arr[i].field : "");
+    if (/^[a-z_]{1,20}$/.test(k)) out.push(k);
+  }
+  return out;
+}
+function safeUid_(u) { return /^u_[a-z0-9]{6,40}$/.test(String(u)) ? String(u) : "?"; }
+
+/* ── 補送清單(UPDATE_FAILED_IDS)───────────────────────────────────────
+   [{rid, code, n, at}]:code 是最後一次的錯誤碼,n 是失敗次數,at 是第一次失敗的時間。
+   code 是 "pending" 代表「收到了、還沒確定送進去」—— 執行中途當掉的就會停在這裡。 */
+function failedRead_() {
+  var a = readJsonProp_("UPDATE_FAILED_IDS", []);
+  if (!isArr_(a)) return [];
+  return a.filter(function (x) { return x && typeof x.rid === "string" && x.rid; });
+}
+function failedWrite_(arr) {
+  var props = PropertiesService.getScriptProperties();
+  if (!arr.length) { props.deleteProperty("UPDATE_FAILED_IDS"); return; }
+  var dropped = [];
+  while (arr.length > UPDATE_FAILED_MAX) dropped.push(arr.shift().rid);
+  var s = JSON.stringify(arr);
+  // 回應 ID 很長,100 筆可能超過 9 KB;超過就從最舊的丟 —— 內容仍在回應試算表裡
+  while (utf8Len_(s) > UPDATE_PROP_MAX_BYTES && arr.length > 1) { dropped.push(arr.shift().rid); s = JSON.stringify(arr); }
+  if (dropped.length) {
+    Logger.log("⚠ 補送清單太長,丟掉最舊的 " + dropped.length + " 筆(回應 ID:" + dropped.join("、") + ";內容仍在回應試算表)");
+  }
+  props.setProperty("UPDATE_FAILED_IDS", s);
+}
+function failedPut_(rid, code) {
+  try {
+    withScriptLock_(function () {
+      var arr = failedRead_(), hit = null;
+      for (var i = 0; i < arr.length; i++) if (arr[i].rid === rid) { hit = arr[i]; break; }
+      if (hit) {
+        hit.code = code;
+        if (code !== "pending") hit.n = (Number(hit.n) || 0) + 1;   // pending 不是失敗,不計次
+      } else {
+        arr.push({ rid: rid, code: code, n: code === "pending" ? 0 : 1, at: new Date().toISOString() });
+      }
+      failedWrite_(arr);
+    });
+    return true;
+  } catch (err) {
+    Logger.log("✗ 補送清單寫不進去(回應 ID " + rid + "、" + code + "):" + errText_(err));
+    return false;
+  }
+}
+function failedRemove_(rid) {
+  var hit = null;
+  try {
+    withScriptLock_(function () {
+      var arr = failedRead_();
+      for (var i = 0; i < arr.length; i++) if (arr[i].rid === rid) { hit = arr.splice(i, 1)[0]; break; }
+      if (hit) failedWrite_(arr);
+    });
+  } catch (err) {
+    Logger.log("⚠ 補送清單移除失敗(回應 ID " + rid + "):" + errText_(err));
+  }
+  return hit;
+}
+/* auto:resendFailedMemberUpdates 會自動補送;manual:只列出來,等網管照建議處理 */
+function failedList_() {
+  var all = failedRead_(), out = { auto: [], manual: [] };
+  for (var i = 0; i < all.length; i++) {
+    (UPDATE_MANUAL_CODES.indexOf(all[i].code) >= 0 ? out.manual : out.auto).push(all[i]);
+  }
+  return out;
+}
+
+/* ── 寄信 ───────────────────────────────────────────────────────────────
+   一般 Gmail 帳號每天只能寄給 100 位收件人,而且和來賓報名通知共用。
+   所以每一類信都有節流,送件類與成功通知在額度快用完時直接略過,把額度留給系統類失敗通知。 */
+function lowMailQuota_() {
+  try { return MailApp.getRemainingDailyQuota() < UPDATE_MAIL_MIN_QUOTA; }
+  catch (err) { return false; }          // 取不到就照寄,sendMail_ 自己會吞掉失敗
+}
+function notifyOrAlert_() {
+  var v = String(PropertiesService.getScriptProperties().getProperty("NOTIFY_EMAIL") || "").trim();
+  return v || alertEmail_();
+}
+
+/* 同一個 key 在 ms 毫秒內只放行一次。回 true = 這次可以寄。
+   UPDATE_MAIL_DEDUPE 是 {"去重鍵": ms};寫入時順便刪掉超過 1 天的鍵,最多留 50 個(屬性單值上限 9 KB)。
+   讀寫丟例外時:系統類照常寄出(東西壞了一定要有人知道),送件類略過。 */
+function mailOnce_(key, ms) {
+  try {
+    return withScriptLock_(function () {
+      var now = Date.now();
+      var map = readJsonProp_("UPDATE_MAIL_DEDUPE", {});
+      if (!map || typeof map !== "object" || isArr_(map)) map = {};
+      var last = hasOwn_(map, key) ? Number(map[key]) || 0 : 0;
+      if (last && now - last < ms) return false;
+      var keys = [];
+      for (var k in map) {
+        if (!hasOwn_(map, k) || k === key) continue;
+        var t = Number(map[k]) || 0;
+        if (now - t <= 86400000) keys.push(k);
+      }
+      keys.sort(function (a, b) { return (Number(map[a]) || 0) - (Number(map[b]) || 0); });
+      while (keys.length > UPDATE_DEDUPE_MAX_KEYS - 1) keys.shift();   // 留一個位子給這次的鍵
+      var keep = {};
+      for (var i = 0; i < keys.length; i++) keep[keys[i]] = Number(map[keys[i]]);
+      keep[key] = now;
+      PropertiesService.getScriptProperties().setProperty("UPDATE_MAIL_DEDUPE", JSON.stringify(keep));
+      return true;
+    });
+  } catch (err) {
+    var sys = String(key).indexOf("sub:") !== 0;
+    Logger.log("⚠ 寄信去重紀錄讀寫失敗(" + (sys ? "系統類照常寄出" : "送件類這次略過") + "):" + errText_(err));
+    return sys;
+  }
+}
+
+function updateErrorInfo_(code) {
+  if (hasOwn_(UPDATE_ERRORS_, code)) return UPDATE_ERRORS_[code];
+  if (/^http_5\d\d$/.test(code)) return UPDATE_ERRORS_.server_error;
+  return { cls: "sys", hint: "Worker 回了這支程式不認得的錯誤。請把錯誤碼提供給總管理員；修好後補送。" };
+}
+function updateErrorHint_(code, rid) { return updateErrorInfo_(code).hint.split("{rid}").join(rid || "回應 ID"); }
+
+/* 送失敗的通知。o = {code, rid, label, name};label 與 name 可能沒有(還沒讀到選項就失敗)。 */
+function notifyUpdateFailure_(o) {
+  var code = String(o.code || "script_error"), rid = String(o.rid || "");
+  var info = updateErrorInfo_(code);
+  var hint = updateErrorHint_(code, rid);
+  var why = hint.split("。")[0];
+  var manual = UPDATE_MANUAL_CODES.indexOf(code) >= 0;
+  var who = o.label ? safeLabel_(o.label) : "";
+  var body =
+    (who ? who + " 從更新表單送出的資料沒有進到後台。" : "有一筆從更新表單送出的資料沒有進到後台。") + "\n" +
+    "原因：" + why + "（錯誤碼 " + code + "）\n" +
+    "處理方式：" + hint + "\n\n" +
+    "這筆的內容完整留在表單的回應試算表裡（回應 ID：" + rid + "）。\n" +
+    (manual ? "・這一類不會自動補送，請照上面的處理方式做；\n"
+            : "・修好之後，網管可以在 Apps Script 執行 resendFailedMemberUpdates() 一次補送所有可以自動補送的；\n") +
+    "・也可以請組長 LINE 本人，請他重新填一次（和補送擇一即可，內容相同的不會重複建立）。";
+
+  if (info.cls === "sys") {
+    if (!mailOnce_("sys:" + code, 3600 * 1000)) { Logger.log("   (同一個錯誤 1 小時內已經通知過,這次不另外寄信:" + code + ")"); return false; }
+    var to = alertEmail_();
+    var sent = sendMail_(to, "【會員名錄】夥伴資料更新表單出問題了：" + code,
+      body + "\n\n同一個錯誤 1 小時內只會寄一封；這段時間其他送件可能也失敗了，修好後執行 resendFailedMemberUpdates() 會一次補送。" +
+      MAIL_FOOTER_);
+    Logger.log(sent ? "   ✉ 已通知 " + to : "   ✉ 沒有寄出通知(沒設 ALERT_EMAIL,也取不到腳本擁有者信箱)");
+    return sent;
+  }
+  if (lowMailQuota_()) { Logger.log("   ⚠ 今天剩下的寄信額度不到 " + UPDATE_MAIL_MIN_QUOTA + " 封,這封送件類通知略過(額度留給系統類通知)"); return false; }
+  var key = code === "updates_full" ? "sub:updates_full" : "sub:" + code + ":" + normName_(o.name).slice(0, 20);
+  var gap = code === "updates_full" ? 6 * 3600 * 1000 : 24 * 3600 * 1000;
+  if (!mailOnce_(key, gap)) { Logger.log("   (這位夥伴的同一個錯誤已經通知過,這次不另外寄信)"); return false; }
+  var to2 = notifyOrAlert_();
+  var sent2 = sendMail_(to2, "【會員名錄】夥伴資料更新沒有送進後台：" + (who || "(選項格式不對)"), body + MAIL_FOOTER_);
+  Logger.log(sent2 ? "   ✉ 已通知 " + to2 : "   ✉ 沒有寄出通知(沒有收件人)");
+  return sent2;
+}
+
+/* 送進待審核的通知:寄 NOTIFY_EMAIL(沒設就不寄),6 小時最多一封,內容是「目前共 N 筆」。
+   一筆一封的話,全員補資料的那天組長會收到幾十封,也會吃光寄信額度。 */
+function notifyUpdateSuccess_(label, out) {
+  var to = String(PropertiesService.getScriptProperties().getProperty("NOTIFY_EMAIL") || "").trim();
+  if (!to) return false;
+  if (lowMailQuota_()) { Logger.log("   ⚠ 今天剩下的寄信額度不到 " + UPDATE_MAIL_MIN_QUOTA + " 封,成功通知這次略過(額度留給失敗通知)"); return false; }
+  var now = Date.now(), go = false;
+  try {
+    go = withScriptLock_(function () {
+      var props = PropertiesService.getScriptProperties();
+      var last = Number(props.getProperty("UPDATE_NOTIFY_LAST_AT")) || 0;
+      if (now - last < UPDATE_SUCCESS_MAIL_GAP_MS) return false;
+      props.setProperty("UPDATE_NOTIFY_LAST_AT", String(now));
+      return true;
+    });
+  } catch (err) { Logger.log("   ⚠ 成功通知的節流紀錄寫不進去,這次不寄:" + errText_(err)); return false; }
+  if (!go) { Logger.log("   (6 小時內已經寄過成功通知,這筆不另外寄信)"); return false; }
+  var who = safeLabel_(label);
+  var open = Math.max(1, Math.floor(Number(out && out.open) || 1));
+  var oldest = Date.parse(out && out.oldestAt);
+  var days = isFinite(oldest) ? Math.max(0, Math.floor((now - oldest) / 86400000)) : 0;
+  return sendMail_(to, "【會員名錄】有夥伴送來資料更新：" + who,
+    who + " 送來了名錄資料更新，等組長審核。\n" +
+    "目前共 " + open + " 筆待審核（最久的已等 " + days + " 天）。\n\n" +
+    "請組長到後台「夥伴資料更新（待審核）」區確認後套用：\n" +
+    SITE_BASE_URL + "admin.html\n\n" +
+    "（為了不洗版，之後 6 小時內的新送件不會再個別寄信，請直接到後台查看。）" +
+    MAIL_FOOTER_);
+}
+
+/* ── 「找不到我的名字」彙整信 ─────────────────────────────────────────
+   UPDATE_NF_STATE = {n: 累積人數, last: 上一封的 ms, names: [過濾後的姓名,最多 10 個]}。
+   以「人數」累計而不是靠姓名去重,所以沒留可辨識姓名的人也算得到。 */
+function nfState_() {
+  var s = readJsonProp_("UPDATE_NF_STATE", null), out = { n: 0, last: 0, names: [] };
+  if (s && typeof s === "object") {
+    out.n = Math.max(0, Math.floor(Number(s.n) || 0));
+    out.last = Number(s.last) || 0;
+    if (isArr_(s.names)) out.names = s.names.filter(function (x) { return typeof x === "string" && x; }).slice(0, UPDATE_NF_NAMES_MAX);
+  }
+  return out;
+}
+function nfRecord_(rawName) {
+  var name = safeNameText_(rawName, 10);
+  try {
+    withScriptLock_(function () {
+      var st = nfState_();
+      st.n += 1;
+      if (name && st.names.indexOf(name) < 0 && st.names.length < UPDATE_NF_NAMES_MAX) st.names.push(name);
+      PropertiesService.getScriptProperties().setProperty("UPDATE_NF_STATE", JSON.stringify(st));
+    });
+  } catch (err) { Logger.log("⚠ 「找不到名字」的累計寫不進去:" + errText_(err)); }
+}
+/* 有累積、距離上一封滿 6 小時、額度夠,才寄。先在鎖裡「認領」這一批再寄,
+   兩個觸發器同時跑時不會各寄一封;沒寄出就把這一批加回去,等下一次。 */
+function nfFlush_(form) {
+  var st0 = nfState_();
+  if (st0.n <= 0 || Date.now() - st0.last < UPDATE_NF_MAIL_GAP_MS) return false;
+  if (lowMailQuota_()) { Logger.log("⚠ 今天剩下的寄信額度不多,「找不到名字」彙整信先不寄(累計 " + st0.n + " 人,下次再寄)"); return false; }
+  var claim = null;
+  try {
+    claim = withScriptLock_(function () {
+      var st = nfState_(), now = Date.now();
+      if (st.n <= 0 || now - st.last < UPDATE_NF_MAIL_GAP_MS) return null;
+      PropertiesService.getScriptProperties().setProperty("UPDATE_NF_STATE", JSON.stringify({ n: 0, last: now, names: [] }));
+      return st;
+    });
+  } catch (err) { Logger.log("⚠ 「找不到名字」的累計讀不到,這次不寄:" + errText_(err)); return false; }
+  if (!claim) return false;
+
+  var sheet = "";
+  try {
+    var f = form || FormApp.openByUrl(PropertiesService.getScriptProperties().getProperty("UPDATE_FORM_EDIT_URL"));
+    var destId = f.getDestinationId();
+    if (destId) sheet = "https://docs.google.com/spreadsheets/d/" + destId + "/edit";
+  } catch (err) { sheet = ""; }
+  var names = [];
+  for (var i = 0; i < claim.names.length; i++) { var s = safeNameText_(claim.names[i], 10); if (s) names.push(s); }
+  var to = notifyOrAlert_();
+  var sent = sendMail_(to, "【會員名錄】有 " + claim.n + " 位夥伴在更新表單找不到自己的名字",
+    "最近有 " + claim.n + " 人在夥伴資料更新表單選了「找不到我的名字」。\n" +
+    "留下的姓名：" + (names.length ? names.join("、") + (claim.n > UPDATE_NF_NAMES_MAX ? "等" : "") : "（都沒有留下可以辨識的姓名）") + "\n" +
+    "可能是選單還沒同步、看錯組，或還沒上架名錄。請組長跟他們聯絡。\n\n" +
+    "他們想更新的內容在回應試算表裡（「請選你的名字」那一欄是「找不到我的名字」的那幾列）：\n" +
+    (sheet || "（請網管打開表單 → 回覆 → 試算表查看）") + "\n" +
+    "（試算表在網管的 Google 帳號裡，打不開的話請轉給網管。為了安全，這封信只列出姓名，不放填答者寫的其他文字。）" +
+    MAIL_FOOTER_);
+  if (sent) { Logger.log("✉ 「找不到名字」彙整信已寄到 " + to + "(" + claim.n + " 人)"); return true; }
+
+  Logger.log("✗ 「找不到名字」彙整信沒寄出,累計保留到下次");
+  try {
+    withScriptLock_(function () {
+      var cur = nfState_();
+      var merged = claim.names.slice();
+      for (var j = 0; j < cur.names.length; j++) if (merged.indexOf(cur.names[j]) < 0 && merged.length < UPDATE_NF_NAMES_MAX) merged.push(cur.names[j]);
+      PropertiesService.getScriptProperties().setProperty("UPDATE_NF_STATE",
+        JSON.stringify({ n: cur.n + claim.n, last: claim.last, names: merged }));
+    });
+  } catch (err) { Logger.log("⚠ 「找不到名字」的累計加不回去:" + errText_(err)); }
+  return false;
+}
+
+/* ── 名錄 → 名字選單 ───────────────────────────────────────────────────
+   labels 依 data.js 的分組順序 + 組內順序,手機上的選單就會依組別排好。
+   同一組同名(normName_ 相同)只留第一位:選項文字一樣,Google 選單分不出兩個人。 */
+function memberUpdateChoices_(groups) {
+  var labels = [], dupes = [], parts = [];
+  for (var i = 0; i < groups.length; i++) {
+    var g = groups[i], code = String(g.code || "").trim();
+    if (!code) continue;
+    parts.push(code + (g.name ? " " + String(g.name).trim() : ""));
+    var seen = {}, ms = isArr_(g.members) ? g.members : [];
+    for (var j = 0; j < ms.length; j++) {
+      var name = String((ms[j] && ms[j].name) || "").trim();
+      if (!name) continue;
+      var k = "n:" + normName_(name);
+      if (seen[k]) { dupes.push(memberUpdateLabel_(code, name)); continue; }
+      seen[k] = true;
+      labels.push(memberUpdateLabel_(code, name));
+    }
+  }
+  return { labels: labels, dupes: dupes, groupLine: parts.join("、") };
+}
+
+function memberUpdateNameHelp_(groupLine) {
+  return "名字依組別排列：" + groupLine + "\n" +
+    "組長傳給你的連結如果已經幫你選好名字，確認是你本人再往下。\n" +
+    "找不到自己？選最後一個「找不到我的名字」。";
+}
+
+/* 名字題:先用 item ID 找(網管改了題目文字也不會壞),找不到才用標題備援。 */
+function updateNameItemById_(form) {
+  var id = PropertiesService.getScriptProperties().getProperty("UPDATE_FORM_NAME_ITEM_ID");
+  if (!id) return null;
+  try { var it = form.getItemById(Number(id)); return it ? it.asListItem() : null; }
+  catch (err) { return null; }
+}
+function findUpdateNameItem_(form) {
+  var it = updateNameItemById_(form);
+  if (it) return it;
+  var items = form.getItems(FormApp.ItemType.LIST), want = normTitle_(UPDATE_Q.member);
+  for (var i = 0; i < items.length; i++) if (normTitle_(items[i].getTitle()) === want) return items[i].asListItem();
+  return null;
+}
+function updateNotFoundPageById_(form) {
+  var id = PropertiesService.getScriptProperties().getProperty("UPDATE_FORM_NOTFOUND_PAGE_ID");
+  if (!id) return null;
+  try { var it = form.getItemById(Number(id)); return it ? it.asPageBreakItem() : null; }
+  catch (err) { return null; }
+}
+function findUpdateNotFoundPage_(form) {
+  var it = updateNotFoundPageById_(form);
+  if (it) return it;
+  var items = form.getItems(FormApp.ItemType.PAGE_BREAK), want = normTitle_(UPDATE_Q.nfPage);
+  for (var i = 0; i < items.length; i++) if (normTitle_(items[i].getTitle()) === want) return items[i].asPageBreakItem();
+  return null;
+}
+
+function sameStrings_(a, b) {
+  if (a.length !== b.length) return false;
+  for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
+/* 把名錄寫進名字選單(含換頁設定與說明文字)。內容沒變就不寫:每小時跑一次,
+   沒必要每次都改表單。回傳 {ok, changed, n, dupes, why}。
+   ★ 任何一項找不到就整個不動:寧可選單舊一點,也不要寫出一份沒有出口頁的選單。 */
+function applyMemberUpdateChoices_(form, groups) {
+  var ch = memberUpdateChoices_(groups);
+  var res = { ok: false, changed: false, n: ch.labels.length, dupes: ch.dupes, why: "" };
+  if (!ch.labels.length) { res.why = "名錄上一位夥伴都沒有"; return res; }
+  var item = findUpdateNameItem_(form);
+  if (!item) { res.why = "找不到名字題(UPDATE_FORM_NAME_ITEM_ID 對不上,標題「" + UPDATE_Q.member + "」也找不到)"; return res; }
+  var page = findUpdateNotFoundPage_(form);
+  if (!page) { res.why = "找不到「" + UPDATE_Q.nfPage + "」那一頁"; return res; }
+  var want = ch.labels.concat([UPDATE_NOT_FOUND]);
+  var help = memberUpdateNameHelp_(ch.groupLine);
+  var cur = item.getChoices().map(function (c) { return c.getValue(); });
+  if (sameStrings_(cur, want) && item.getHelpText() === help) { res.ok = true; return res; }
+  var choices = ch.labels.map(function (l) { return item.createChoice(l, FormApp.PageNavigationType.CONTINUE); });
+  choices.push(item.createChoice(UPDATE_NOT_FOUND, page));
+  item.setChoices(choices);
+  item.setHelpText(help);
+  res.ok = true; res.changed = true;
+  return res;
+}
+
+/* 名錄索引 {normName_(姓名): [組代號, …]}。只給送出時「再查一次組別」用。
+   只存姓名與代號(約 3 KB);data.js 本身約 70 KB,接近 CacheService 單值 100 KB 上限,不整份快取。 */
+function cacheNameIndex_(groups) {
+  var idx = Object.create(null);           // 沒有原型:姓名剛好叫 __proto__ 也只是一個普通的鍵
+  for (var i = 0; i < groups.length; i++) {
+    var code = String(groups[i].code || "").trim(), ms = isArr_(groups[i].members) ? groups[i].members : [];
+    if (!code) continue;
+    for (var j = 0; j < ms.length; j++) {
+      var k = normName_(ms[j] && ms[j].name);
+      if (!k) continue;
+      if (!hasOwn_(idx, k)) idx[k] = [];
+      if (isArr_(idx[k])) idx[k].push(code);
+    }
+  }
+  try { CacheService.getScriptCache().put("mupd:nameidx", JSON.stringify(idx), UPDATE_NAMEIDX_CACHE_S); }
+  catch (err) { Logger.log("⚠ 名錄索引寫不進快取(不影響這一筆):" + errText_(err)); }
+  return idx;
+}
+function publishedNameIndex_() {
+  try {
+    var hit = CacheService.getScriptCache().get("mupd:nameidx");
+    if (hit) { var o = JSON.parse(hit); if (o && typeof o === "object" && !isArr_(o)) return o; }
+  } catch (err) { /* 快取壞了就重抓 */ }
+  var groups = publishedGroups_();
+  return groups ? cacheNameIndex_(groups) : null;
+}
+
+/* 每小時觸發一次(也可以手動跑):把名字選單對齊公開名錄。
+   讀不到名錄、0 人、找不到題目時,現有選項一律不動 —— 拿空資料去「同步」只會把所有人清掉。 */
+function syncMemberUpdateNames() {
+  var props = PropertiesService.getScriptProperties();
+  var editUrl = props.getProperty("UPDATE_FORM_EDIT_URL");
+  if (!editUrl) { Logger.log("還沒有建立夥伴資料更新表單(沒有 UPDATE_FORM_EDIT_URL),這次不同步。"); return; }
+  var form = null, why = "";
+  try {
+    form = FormApp.openByUrl(editUrl);
+    var groups = publishedGroups_();
+    if (!groups) why = "讀不到公開名錄的 data.js";
+    else {
+      var r = applyMemberUpdateChoices_(form, groups);
+      if (!r.ok) why = r.why;
+      else {
+        props.setProperty("UPDATE_NAMES_SYNCED_AT", new Date().toISOString());
+        Logger.log(r.changed ? "✅ 名字選單已更新:" + r.n + " 位 +「" + UPDATE_NOT_FOUND + "」"
+                             : "✅ 名字選單和名錄一樣(" + r.n + " 位),不用寫入");
+        if (r.dupes.length) notifySyncDupes_(r.dupes);
+        cacheNameIndex_(groups);       // 順便更新送出時用的名錄索引
+      }
+    }
+  } catch (err) {
+    why = "同步時出錯:" + errText_(err);
+  }
+  if (why) syncFailed_(why);
+  try { nfFlush_(form); } catch (err2) { Logger.log("⚠ 「找不到名字」彙整信這次沒處理:" + errText_(err2)); }
+}
+
+function notifySyncDupes_(dupes) {
+  var names = dupes.map(safeLabel_).join("、");
+  Logger.log("⚠ 名錄裡同一組有同名的夥伴,選單只列第一位:" + names);
+  if (!mailOnce_("sync-dupe", 24 * 3600 * 1000)) return;
+  sendMail_(alertEmail_(), "【會員名錄】名錄裡同一組有同名的夥伴：" + names,
+    "更新表單的選單只能列一個，另一位夥伴送不出更新。請組長在後台把其中一位的姓名加註區別（例如加上公司簡稱）。" + MAIL_FOOTER_);
+}
+
+/* 同步失敗:記一行。超過 24 小時沒成功過,才寄 ALERT,而且一天最多一封 ——
+   偶爾一次讀不到網站很正常,不值得每小時寄一封信。 */
+function syncFailed_(why) {
+  Logger.log("✗ 名字選單這次沒有同步(現有選項不動):" + why);
+  var props = PropertiesService.getScriptProperties();
+  var lastRaw = props.getProperty("UPDATE_NAMES_SYNCED_AT") || "";
+  var last = Date.parse(lastRaw);
+  if (isFinite(last) && Date.now() - last <= 24 * 3600 * 1000) return;
+  var today = fmtTime_(new Date(), "yyyy-MM-dd");
+  if (props.getProperty("UPDATE_SYNC_ALERTED_DAY") === today) return;
+  props.setProperty("UPDATE_SYNC_ALERTED_DAY", today);
+  sendMail_(alertEmail_(), "【會員名錄】夥伴資料更新表單的名字選單已經超過一天沒更新",
+    "syncMemberUpdateNames 已經超過 24 小時沒有成功（最後成功：" +
+    (isFinite(last) ? fmtTime_(new Date(last), "yyyy/MM/dd HH:mm") : "從來沒有成功過") + "）。\n" +
+    "新上架或改名的夥伴會在選單裡找不到自己。\n" +
+    "常見原因：網站網址（程式裡的 SITE_BASE_URL）改了、名錄 data.js 讀不到。\n" +
+    "請在 Apps Script 手動執行 syncMemberUpdateNames，看執行紀錄。" +
+    MAIL_FOOTER_);
+}
+
+/* ── 建立表單 ─────────────────────────────────────────────────────────── */
+
+function newMemberFormUrl_() {
+  var u = PropertiesService.getScriptProperties().getProperty("MEMBER_FORM_EDIT_URL");
+  if (!u) return "";
+  try { return String(FormApp.openByUrl(u).getPublishedUrl() || ""); } catch (err) { return ""; }
+}
+
+function memberUpdateDescription_(newMemberUrl) {
+  return "已經在分會名錄上的夥伴，用這份表單補上或修改自己的資料，例如補公司名稱、主要營業項目、我有／我要。\n" +
+    "・只填要改的格子，其他空著就好 —— 空著＝維持名錄上原本的內容，不會被清掉。\n" +
+    "・送出後由你的產業小組組長確認，確認後才會出現在名錄上。\n" +
+    "・不用登入 Google，約 2 分鐘。\n" +
+    "・要換形象照、補名片或商品照：請直接用 LINE 傳給你的組長。\n" +
+    (newMemberUrl ? "・還沒上架名錄的新夥伴，請改填新夥伴表單：" + newMemberUrl
+                  : "・還沒上架名錄的新夥伴，請跟你的組長索取新夥伴表單。");
+}
+
+/* 建立「夥伴資料更新」表單。題目、說明與換頁規則都是定稿(見 README「八」)。
+   ★ 順序有講究:會丟例外的檢查(屬性、讀名錄、0 人)全部排在 FormApp.create 之前;
+     建立之後立刻記下編輯網址,之後任何一步失敗,重跑都會被擋下,不會多出一份同名表單。 */
+function createMemberUpdateForm() {
+  guardAlreadyCreated_("UPDATE_FORM_EDIT_URL", "createMemberUpdateForm", "夥伴資料更新", "forgetMemberUpdateForm()");
+  var props = PropertiesService.getScriptProperties();
+  if (!props.getProperty("RELAY_URL") || !props.getProperty("INTAKE_SECRET")) {
+    throw new Error("請先到「專案設定 → 指令碼屬性」設好 RELAY_URL 與 INTAKE_SECRET(見檔案開頭步驟 1、2)");
+  }
+  var groups = publishedGroups_();
+  if (!groups) throw new Error("讀不到公開名錄的 data.js，表單還沒建立。請確認網站正常後再執行一次。");
+  var ch = memberUpdateChoices_(groups);
+  if (!ch.labels.length) throw new Error("公開名錄上一位夥伴都沒有，表單還沒建立。請確認網站正常後再執行一次。");
+  var newMemberUrl = newMemberFormUrl_();
+
+  var form = FormApp.create(UPDATE_FORM_TITLE);
+  props.setProperty("UPDATE_FORM_EDIT_URL", form.getEditUrl());
+  form.setDescription(memberUpdateDescription_(newMemberUrl));
+  form.setCollectEmail(false);            // 收集 email(驗證過的)會強制登入
+  form.setAllowResponseEdits(false);      // 開了的話每編輯一次就是一筆新的待審核
+  form.setLimitOneResponsePerUser(false); // 開了會強制登入
+  form.setPublishingSummary(false);       // 開了的話,送出過的人看得到所有回覆的摘要(包括別人的備註)
+  form.setConfirmationMessage(
+    "✅ 收到了，謝謝你！\n" +
+    "接下來由你的產業小組組長確認（通常一週內），確認後幾分鐘內就會出現在名錄上，你不用再做任何事。\n" +
+    "・發現填錯了：再填一次這份表單，只填要改正的那一格就好。\n" +
+    "・一週後名錄還是沒變：請直接 LINE 你的組長。\n" +
+    "・要換照片：直接用 LINE 傳給你的組長。");
+
+  // 第 1 頁:先放沒有換頁設定的選項(選項不能是空陣列),後面 applyMemberUpdateChoices_ 再補換頁
+  var nameItem = form.addListItem().setTitle(UPDATE_Q.member).setRequired(true).setChoiceValues(ch.labels);
+  props.setProperty("UPDATE_FORM_NAME_ITEM_ID", String(nameItem.getId()));
+
+  // 第 2 頁
+  form.addPageBreakItem().setTitle(UPDATE_Q.page).setHelpText(
+    "⚠ 先確認第 1 頁選的是你自己的名字（按「返回」可以看）。\n" +
+    "只填要改的格子，其他空著就好（空著＝維持名錄上原本的內容，不會被清掉）。\n" +
+    "例：只想補公司名稱 → 只填「所屬公司」，其他全部空著，直接按最下面的按鈕送出。\n" +
+    "・格子裡已經有字，是組長的連結幫你帶入的「目前名錄上的內容」：直接改要改的地方就好，沒動的格子不會被當成修改。\n" +
+    "・不用改的格子請空著，不要寫「無」「同上」「不變」。\n" +
+    "・想把某一格整個刪掉，請寫在最下面的「給組長的備註」。\n" +
+    "・目前名錄上的內容可以在這裡查（搜尋自己的名字）：" + SITE_BASE_URL);
+  form.addSectionHeaderItem().setTitle(UPDATE_Q.secNew)
+    .setHelpText("這幾格大部分夥伴都還沒填，填了就會出現在你的頁面上。");
+  form.addTextItem().setTitle(NEWMEMBER_Q.company).setRequired(false)
+    .setHelpText("公司或商號全名。不用改就空著。");
+  form.addParagraphTextItem().setTitle(NEWMEMBER_Q.business_items).setRequired(false)
+    .setHelpText("公司登記的主要營業項目。不用改就空著。");
+  form.addTextItem().setTitle(NEWMEMBER_Q.website).setRequired(false)
+    .setHelpText("有官網才填。從瀏覽器網址列整段複製貼上最準，例：https://www.example.com.tw。不用改就空著。");
+  form.addParagraphTextItem().setTitle(NEWMEMBER_Q.have).setRequired(false)
+    .setHelpText("你手上有什麼可以給出去的資源、產能、通路、人脈或專長，一項一行。例：我有國產羊肉爐資源\n" +
+                 "⚠ 會整格換掉：原本有寫的項目要保留，請一起寫上。不用改就空著。");
+  form.addParagraphTextItem().setTitle(NEWMEMBER_Q.want).setRequired(false)
+    .setHelpText("你想被引薦到誰，一項一行。例：\n羊肉特色小吃店\n肉舖\n" +
+                 "⚠ 會整格換掉：原本有寫的項目要保留，請一起寫上。不用改就空著。");
+  form.addSectionHeaderItem().setTitle(UPDATE_Q.secEdit)
+    .setHelpText("⚠ 這一段的格子會整格換掉：你寫什麼，名錄上那一格就變成什麼，原本的會被拿掉。只想多加一項，請把原本要保留的也一起寫上，一項一行。");
+  form.addTextItem().setTitle(NEWMEMBER_Q.title).setRequired(false)
+    .setHelpText("名錄上的一句話行業說明。例：國產羊肉批發。不用改就空著。");
+  form.addParagraphTextItem().setTitle(NEWMEMBER_Q.services).setRequired(false)
+    .setHelpText("你提供什麼服務或產品，一項一行。例：\n國產羊肉批發零售\n活羊批發零售\n不用改就空著。");
+  form.addParagraphTextItem().setTitle(NEWMEMBER_Q.targets).setRequired(false)
+    .setHelpText("希望夥伴幫你介紹什麼樣的對象，一項一行。例：\n火鍋餐廳\n外燴團隊\n不用改就空著。");
+  form.addParagraphTextItem().setTitle(NEWMEMBER_Q.tagline).setRequired(false)
+    .setHelpText("例會上 25 秒自我介紹的那句 slogan，兩句一組、一句一行。例：\n國產羊肉找阿成\n老饕全部都點頭\n不用改就空著。");
+  form.addParagraphTextItem().setTitle(UPDATE_Q.note).setRequired(false)
+    .setHelpText("要刪掉某一格、改名字、換組，或其他想跟組長說的，寫在這裡。只有組長和網管看得到，不會公開。例：請刪掉我的公司網站。");
+  form.addTextItem().setTitle(UPDATE_Q.token).setRequired(false)
+    .setHelpText("組長的連結會自動帶入，用來判斷哪些格子你沒有改。不用理它，也不要修改；空白也沒關係。");
+
+  // 第 3 頁(出口頁)。這個分頁設「送出」:第 2 頁填完直接送出,不會掉進第 3 頁
+  var nfPage = form.addPageBreakItem().setTitle(UPDATE_Q.nfPage).setHelpText(
+    "可能是這幾種情況：\n" +
+    "① 選單依組別排列，你可能在別的組 —— 按「返回」再找一次。\n" +
+    "② 剛加入或剛改名，選單每小時更新一次，晚一點再試。\n" +
+    "③ 還沒上架名錄：" + (newMemberUrl ? "請改填新夥伴表單 " + newMemberUrl : "請跟你的組長索取新夥伴表單。") + "\n" +
+    "都不是的話，留下你的名字，我們會請組長跟你聯絡。");
+  nfPage.setGoToPage(FormApp.PageNavigationType.SUBMIT);
+  props.setProperty("UPDATE_FORM_NOTFOUND_PAGE_ID", String(nfPage.getId()));
+  form.addTextItem().setTitle(UPDATE_Q.nfName).setRequired(true)
+    .setHelpText("寫全名，組長會跟你聯絡。");
+  form.addParagraphTextItem().setTitle(UPDATE_Q.nfWhat).setRequired(false)
+    .setHelpText("簡單寫就好，例如：補公司名稱「○○有限公司」。");
+
+  var applied = applyMemberUpdateChoices_(form, groups);
+  if (!applied.ok) Logger.log("✗ 名字選單的換頁設定沒有寫進去:" + applied.why + " —— 稍後執行 syncMemberUpdateNames 再試一次");
+  if (applied.dupes.length) notifySyncDupes_(applied.dupes);
+
+  var ss = SpreadsheetApp.create(UPDATE_FORM_TITLE + "(回應)");
+  form.setDestination(FormApp.DestinationType.SPREADSHEET, ss.getId());
+  installMemberUpdateTriggers_(form);
+
+  /* Google 官方文件:2026/6/30 之後用 API 建立的表單預設是「未發布」。沒寫清楚 FormApp 算不算,
+     所以一律主動發布,再由 checkMemberUpdateForm 核對 isPublished()。舊帳號沒有這個方法就略過。 */
+  if (typeof form.setPublished === "function") {
+    try { form.setPublished(true); }
+    catch (err) { Logger.log("✗ 自動發布失敗(" + errText_(err) + "),請照下面第 ④ 行手動發布"); }
+  }
+  props.setProperty("UPDATE_NAMES_SYNCED_AT", new Date().toISOString());
+
+  var published = "";
+  if (typeof form.isPublished === "function") {
+    try { published = form.isPublished() ? "✅ 已發布" : "✗ 未發布 —— 打開第 ③ 個網址,按右上角「發布」,回應者選「知道連結的任何人」"; }
+    catch (err) { published = "? 讀不到發布狀態,請用第 ③ 個網址打開確認"; }
+  } else published = "? 這個帳號的表單沒有發布設定,略過";
+  var lines = ["(entry 編號取不到,建好後執行 printMemberUpdateLinkConfig 重印)", ""];
+  try { lines = memberUpdateConfigLines_(form.getPublishedUrl(), memberUpdateEntryIds_(form).ids); }
+  catch (err) { Logger.log("⚠ entry 編號這次取不到:" + errText_(err)); }
+
+  Logger.log("✅ 夥伴資料更新表單已建立(不需要登入、不收照片)");
+  Logger.log("① 表單網址(之後貼進 site-config.js):" + form.getPublishedUrl());
+  Logger.log("② 回應試算表(每一筆送件都留在這裡,補送時用得到):" + ss.getUrl());
+  Logger.log("③ 表單編輯網址:" + form.getEditUrl());
+  Logger.log("④ 發布狀態:" + published);
+  Logger.log("⑤ 名字選單:" + ch.labels.length + " 位 +「" + UPDATE_NOT_FOUND + "」");
+  Logger.log("⑥ 要貼進 site-config.js 的兩行(現在先不要貼,等 README 部署表第 7 步):");
+  Logger.log(lines[0]);
+  Logger.log(lines[1]);
+  Logger.log("接下來:");
+  Logger.log("  1. 用手機的無痕視窗打開第 ① 個網址,確認看得到題目、沒有出現「要求存取權」或「請登入」。");
+  Logger.log("  2. 執行 checkMemberUpdateForm,除了 site-config 那一行之外都要是 ✅。");
+  Logger.log("  ⚠ 不要在表單上加「上傳檔案」題 —— 加了整份表單就會要求登入,從 LINE 點進來的夥伴多半會卡住。照片請夥伴用 LINE 傳給組長。");
+  Logger.log("  ⚠ 不要刪掉或改名「連結代碼」那一題 —— 它讓夥伴用舊連結再填一次時,不會把後來的修改改回去。");
+}
+
+/* ── 送出 ───────────────────────────────────────────────────────────────
+   e 有兩種來源:表單送出觸發器 {response, source};補送 {response, source, resend:true, labelOverride}。
+   回傳 {code, rid, uid?} 給補送函式印結果;觸發器不看回傳值。
+   ★ 從第 2 步起整段包在 try/catch:任何例外都記成 script_error、寄系統類通知,然後正常結束。
+     往外丟的話,Google 只會寄每日彙總的失敗信,這筆送件就沒人知道了。 */
+function onMemberUpdateSubmit(e) {
+  if (!e || !e.response) {
+    Logger.log("這個函式是給「表單送出」觸發器跑的,不能直接按執行。要補送請用 resendMemberUpdate(\"回應 ID\")。");
+    return null;
+  }
+  var rid = "";
+  try { rid = String(e.response.getId() || ""); } catch (err) { rid = ""; }
+  if (!rid) { Logger.log("✗ 這筆回應拿不到回應 ID,沒辦法處理(內容仍在回應試算表)"); return null; }
+  try {
+    return memberUpdateSubmit_(e, rid);
+  } catch (err) {
+    Logger.log("✗ 夥伴資料更新處理到一半出錯(回應 ID " + rid + "):" + errText_(err) + " —— 已記進補送清單");
+    failedPut_(rid, "script_error");
+    try { notifyUpdateFailure_({ code: "script_error", rid: rid }); }
+    catch (err2) { Logger.log("⚠ 失敗通知也寄不出去:" + errText_(err2)); }
+    return { code: "script_error", rid: rid };
+  }
+}
+
+function memberUpdateSubmit_(e, rid) {
+  var props = PropertiesService.getScriptProperties();
+  var form = e.source || FormApp.openByUrl(props.getProperty("UPDATE_FORM_EDIT_URL"));
+
+  // 熔斷:補送是網管手動做的,不算
+  if (!e.resend) {
+    var count = floodCount_();
+    if (count > UPDATE_FLOOD_PER_HOUR) { floodPause_(form, rid, count); return { code: "flood_paused", rid: rid }; }
+  }
+
+  // 先記錄:確定成功才移除。之後任何一步當掉,這筆都還在清單上
+  failedPut_(rid, "pending");
+
+  var relay = String(props.getProperty("RELAY_URL") || "").replace(/\/+$/, "");
+  var secret = props.getProperty("INTAKE_SECRET");
+  if (!relay || !secret) {
+    Logger.log("✗ 沒設 RELAY_URL / INTAKE_SECRET,這筆沒有送出(回應 ID " + rid + ")");
+    failedPut_(rid, "config_missing");
+    notifyUpdateFailure_({ code: "config_missing", rid: rid });
+    return { code: "config_missing", rid: rid };
+  }
+
+  var a = memberUpdateAnswers_(e.response);
+
+  // 選了「找不到我的名字」:不送 Worker,累計進彙整信
+  if (!e.labelOverride && a.picked === UPDATE_NOT_FOUND) {
+    nfRecord_(a.byTitle[normTitle_(UPDATE_Q.nfName)]);
+    Logger.log("・有人選了「" + UPDATE_NOT_FOUND + "」(回應 ID " + rid + "),記進彙整信,不送 Worker");
+    nfFlush_(form);
+    failedRemove_(rid);
+    return { code: "name_not_found", rid: rid };
+  }
+
+  var label = String(e.labelOverride ? e.labelOverride : (a.picked == null ? "" : a.picked)).trim();
+  var parsed = splitUpdateLabel_(label);
+  if (!parsed) {
+    Logger.log("✗ 名字選項的格式不對:" + safeLabel_(label) + "(回應 ID " + rid + ")");
+    failedPut_(rid, "bad_label");
+    notifyUpdateFailure_({ code: "bad_label", rid: rid, label: label });
+    return { code: "bad_label", rid: rid };
+  }
+
+  /* 九欄一律送出,空字串也送:Worker 要靠它判斷「本人把預填的內容清空了」。
+     佔位字、網址補 https、和名錄現值比對全部交給 Worker,這裡只轉送原文。 */
+  var changes = {}, any = false;
+  for (var i = 0; i < UPDATE_FIELD_KEYS.length; i++) {
+    var v = pickByTitle_(a.byTitle, UPDATE_FIELD_KEYS[i]);
+    changes[UPDATE_FIELD_KEYS[i]] = v == null ? "" : String(v);
+    if (changes[UPDATE_FIELD_KEYS[i]].trim()) any = true;
+  }
+  var noteRaw = a.byTitle[normTitle_(UPDATE_Q.note)];
+  var note = noteRaw == null ? "" : String(noteRaw);
+  var linkToken = String(a.byTitle[normTitle_(UPDATE_Q.token)] || "").trim().slice(0, 200);
+  if (!any && !note.trim()) {
+    Logger.log("・" + safeLabel_(label) + " 什麼都沒填，不送出(回應 ID " + rid + ")");
+    failedRemove_(rid);
+    return { code: "empty", rid: rid };
+  }
+
+  /* 再確認一次組別:選單最多晚一小時,夥伴可能剛換組。全名錄只有一位同名時改用他現在的組,
+     並把本人選的選項一起送(pickedLabel),審核時整筆預設不勾。找不到或多位同名就照選項送。 */
+  var code = parsed.code, name = parsed.name, pickedLabel = "";
+  var idx = publishedNameIndex_(), key = normName_(name);
+  if (idx && hasOwn_(idx, key) && isArr_(idx[key]) && idx[key].length === 1) {
+    var cur = String(idx[key][0] || "");
+    if (/^[A-Za-z0-9]{1,8}$/.test(cur) && cur !== code) {
+      Logger.log("・" + safeLabel_(label) + " 目前在 " + cur + " 組,改送到 " + cur + "(回應 ID " + rid + ")");
+      /* 用拆好的代號與姓名重組,不直接放原文:Worker 只收「代號・姓名」(/^[A-Za-z0-9]{1,8}・\S/),
+         網管補送時打成「A1 ・王大銘」這種多了空白的寫法,原文會被 Worker 清成空字串,
+         審核畫面就看不到「系統改送到別組」的警示。選單上的選項本來就是這樣組出來的,正常情況兩者相同。 */
+      pickedLabel = memberUpdateLabel_(parsed.code, parsed.name);
+      code = cur;
+    }
+  }
+
+  var sendLabel = memberUpdateLabel_(code, name);
+  var payload = JSON.stringify({ secret: secret, update: {
+    label: sendLabel, name: name, group: code, changes: changes, note: note,
+    responseId: rid, submittedAt: a.submittedAt, linkToken: linkToken, pickedLabel: pickedLabel } });
+  return memberUpdateResult_(rid, sendLabel, name, postMemberUpdate_(relay, payload));
+}
+
+/* 逐題讀取。名字題用 item ID 認(標題被改也認得到),其他題用正規化後的標題。 */
+function memberUpdateAnswers_(response) {
+  var nameId = String(PropertiesService.getScriptProperties().getProperty("UPDATE_FORM_NAME_ITEM_ID") || "");
+  var byTitle = Object.create(null), picked = null;
+  var items = response.getItemResponses() || [];
+  for (var i = 0; i < items.length; i++) {
+    var item = items[i].getItem(), v = items[i].getResponse();
+    var val = v == null ? "" : String(v);
+    if (picked === null && nameId && String(item.getId()) === nameId) { picked = val; continue; }
+    byTitle[normTitle_(item.getTitle())] = val;
+  }
+  if (picked === null) {
+    var t = normTitle_(UPDATE_Q.member);
+    if (hasOwn_(byTitle, t)) picked = byTitle[t];
+  }
+  var submittedAt = "";
+  try { var ts = response.getTimestamp(); if (ts) submittedAt = new Date(ts.getTime()).toISOString(); }
+  catch (err) { submittedAt = ""; }        // 拿不到時 Worker 會改用收件時間
+  return { picked: picked, byTitle: byTitle, submittedAt: submittedAt };
+}
+
+/* 熔斷計數:這一小時收到第幾筆。快取壞了就回 0(照常處理),不能因為計數器壞掉就擋下正常送件。 */
+function floodCount_() {
+  try {
+    var cache = CacheService.getScriptCache();
+    var key = "mupd:h:" + fmtTime_(new Date(), "yyyyMMddHH");
+    return withScriptLock_(function () {
+      var n = (Number(cache.get(key)) || 0) + 1;
+      cache.put(key, String(n), 7200);
+      return n;
+    });
+  } catch (err) {
+    Logger.log("⚠ 熔斷計數讀寫失敗,這筆照常處理:" + errText_(err));
+    return 0;
+  }
+}
+
+/* 超過門檻:不抓 data.js、不呼叫 Worker,直接暫停表單收件。
+   暫停之後 Google 會直接擋下送件,觸發器也不會再跑,帳號共用的額度就保住了。
+   暫停那一刻進來的記成 flood_paused(需人工處理),免得之後一鍵補送又把垃圾單送一次。 */
+function floodPause_(form, rid, count) {
+  failedPut_(rid, "flood_paused");
+  try {
+    if (form.isAcceptingResponses()) form.setCustomClosedFormMessage(UPDATE_FLOOD_CLOSED_MSG).setAcceptingResponses(false);
+  } catch (err) { Logger.log("✗ 表單沒辦法自動暫停收件:" + errText_(err)); }
+  Logger.log("🔴 1 小時內收到第 " + count + " 筆,超過 " + UPDATE_FLOOD_PER_HOUR + " 筆,表單已自動暫停收件(回應 ID " + rid + " 記成 flood_paused)");
+  if (!mailOnce_("sys:flood_paused", 3600 * 1000)) return;
+  var editUrl = "";
+  try { editUrl = form.getEditUrl(); } catch (err2) { editUrl = "(請從 Apps Script 的指令碼屬性 UPDATE_FORM_EDIT_URL 找)"; }
+  sendMail_(alertEmail_(), "【會員名錄】夥伴資料更新表單已自動暫停收件（疑似被灌單）",
+    "更新表單在 1 小時內收到超過 " + UPDATE_FLOOD_PER_HOUR + " 筆送件，看起來不像正常使用，系統已經自動暫停收件（填表的人會看到「暫停收件中」）。\n" +
+    "這樣做是為了保住同一個 Google 帳號的每日額度 —— 新夥伴申請和來賓報名也靠這份額度。\n\n" +
+    "1. 已經進到後台的送件，仍在「夥伴資料更新（待審核）」裡。不是夥伴本人送的，總管理員可以在後台勾選後一次「不採用」。\n" +
+    "2. 確認沒問題之後，打開表單編輯頁 " + editUrl + " →「回覆」分頁 → 打開「接受回覆」。\n" +
+    "3. 在 Apps Script 執行 checkMemberUpdateForm。「需人工處理」裡錯誤碼是 flood_paused 的，是暫停那一刻進來的送件：\n" +
+    "   確定是夥伴送的，執行 resendMemberUpdate(\"回應 ID\")；其他的執行 dismissFailedMemberUpdate(\"回應 ID\")。\n" +
+    "如果重新打開之後又被灌單：表單網址可能已經流到 LINE 群以外，請看 README「八」的常見問題「被灌單怎麼辦」。" +
+    MAIL_FOOTER_);
+}
+
+/* POST /member-update。連線例外或 5xx 時等 5 秒重送一次(Worker 依回應 ID 去重,送兩次也不會多一筆)。
+   第二次還是連線例外就往外丟,由 onMemberUpdateSubmit 記成 script_error。 */
+function postMemberUpdate_(relay, payload) {
+  var url = relay + "/member-update";
+  var opts = { method: "post", contentType: "application/json", payload: payload, muteHttpExceptions: true };
+  var r = null;
+  try { r = parseRelayResponse_(UrlFetchApp.fetch(url, opts)); }
+  catch (err) { Logger.log("・連不到 Worker(" + errText_(err) + "),5 秒後重送一次"); }
+  if (r && r.status < 500) return r;
+  if (r) Logger.log("・Worker 回 HTTP " + r.status + ",5 秒後重送一次");
+  Utilities.sleep(5000);
+  return parseRelayResponse_(UrlFetchApp.fetch(url, opts));
+}
+function parseRelayResponse_(res) {
+  var out = null;
+  try { out = JSON.parse(res.getContentText()); } catch (err) { out = null; }
+  return { status: res.getResponseCode(), out: out && typeof out === "object" ? out : null };
+}
+
+/* Worker 的回應 → 清單、紀錄與通知。紀錄只放欄位鍵,不放內容。 */
+function memberUpdateResult_(rid, label, name, r) {
+  var out = r.out, who = safeLabel_(label);
+  if (r.status === 200 && out && out.ok === true) {
+    if (out.duplicate) {
+      Logger.log("・" + who + ":同一筆已經在待審核(" + safeUid_(out.uid) + "),不重複建立");
+      failedRemove_(rid);
+      return { code: "duplicate", rid: rid, uid: safeUid_(out.uid) };
+    }
+    if (out.unchanged) {
+      Logger.log("・" + who + ":內容和名錄上一樣，沒有建立待審核");
+      failedRemove_(rid);
+      return { code: "unchanged", rid: rid };
+    }
+    var parts = [], tags = [["fields", "欄位"], ["ignored", "佔位字"], ["invalid", "不合格"], ["untouched", "連結帶入沒改"],
+                            ["stalePrefill", "連結過期"], ["cleared", "本人清空"], ["truncated", "截斷"]];
+    for (var i = 0; i < tags.length; i++) {
+      var ks = updateFieldKeys_(out[tags[i][0]]);
+      if (ks.length) parts.push(tags[i][1] + " " + ks.join("、"));
+    }
+    if (out.confirmOnly === true) parts.push("只確認資料正確");
+    Logger.log("✅ " + who + " 的更新已進待審核(uid " + safeUid_(out.uid) + (parts.length ? ";" + parts.join(";") : "") +
+               ";目前共 " + (Math.floor(Number(out.open)) || "?") + " 筆)");
+    failedRemove_(rid);
+    notifyUpdateSuccess_(label, out);
+    return { code: "ok", rid: rid, uid: safeUid_(out.uid) };
+  }
+  if (r.status === 400 && out && out.error === "nothing_to_update") {
+    Logger.log("・" + who + ":沒有可以更新的內容(例如只寫了「同上」),不建立待審核");
+    failedRemove_(rid);
+    return { code: "nothing_to_update", rid: rid };
+  }
+  var code = out && typeof out.error === "string" && /^[a-z0-9_]{1,40}$/.test(out.error) ? out.error : "http_" + r.status;
+  Logger.log("✗ " + who + " 的更新沒有送進後台:" + code + "(回應 ID " + rid + ")");
+  failedPut_(rid, code);
+  notifyUpdateFailure_({ code: code, rid: rid, label: label, name: name });
+  return { code: code, rid: rid };
+}
+
+/* ── 補送 ───────────────────────────────────────────────────────────── */
+
+function openUpdateForm_() {
+  var u = PropertiesService.getScriptProperties().getProperty("UPDATE_FORM_EDIT_URL");
+  if (!u) throw new Error("指令碼屬性沒有 UPDATE_FORM_EDIT_URL —— 請先執行 createMemberUpdateForm");
+  return FormApp.openByUrl(u);
+}
+function describeUpdateResult_(out) {
+  if (!out) return "沒有處理(見上面的紀錄)";
+  if (out.code === "ok") return "✅ 已進待審核(uid " + out.uid + ")";
+  if (UPDATE_DONE_CODES.indexOf(out.code) >= 0) return "✅ 處理完畢(" + out.code + ")";
+  return "✗ " + out.code + " —— " + updateErrorHint_(out.code, out.rid);
+}
+
+/* 補送一筆。label 選填:夥伴改名或選錯人時,指定正確的「代號・姓名」。
+   用法:resendMemberUpdate("回應 ID") 或 resendMemberUpdate("回應 ID", "A1・正確姓名") */
+function resendMemberUpdate(responseId, label) {
+  var id = String(responseId == null ? "" : responseId).trim();
+  if (!id) throw new Error('用法:resendMemberUpdate("回應 ID") 或 resendMemberUpdate("回應 ID", "A1・正確姓名")');
+  var form = openUpdateForm_();
+  var r = null;
+  try { r = form.getResponse(id); } catch (err) { r = null; }
+  if (!r) { Logger.log("找不到這筆回應：" + id); return null; }
+  var out = onMemberUpdateSubmit({ response: r, source: form, resend: true, labelOverride: label ? String(label) : "" });
+  Logger.log("補送結果:" + describeUpdateResult_(out));
+  return out;
+}
+
+/* 一次補送所有「可自動補送」的。需人工處理的(找不到人、同名、內容太長、選項格式不對、
+   灌單暫停)原封不動 —— 那些照樣再送一次只會再失敗一次,或把垃圾單送進後台。 */
+function resendFailedMemberUpdates() {
+  var list = failedList_();
+  if (!list.auto.length && !list.manual.length) { Logger.log("補送清單是空的,沒有要補送的。"); return; }
+  var form = list.auto.length ? openUpdateForm_() : null;
+  var start = Date.now(), ok = 0, still = 0, left = 0;
+  for (var i = 0; i < list.auto.length; i++) {
+    if (Date.now() - start > UPDATE_RESEND_BUDGET_MS) { left = list.auto.length - i; break; }
+    var rid = list.auto[i].rid, r = null;
+    try { r = form.getResponse(rid); } catch (err) { r = null; }
+    if (!r) {
+      Logger.log("✗ 找不到這筆回應：" + rid + "(可能已從表單刪除;確認不需要就執行 dismissFailedMemberUpdate(\"" + rid + "\"))");
+      still++; continue;
+    }
+    var out = onMemberUpdateSubmit({ response: r, source: form, resend: true, labelOverride: "" });
+    if (out && UPDATE_DONE_CODES.indexOf(out.code) >= 0) ok++; else still++;
+  }
+  if (left) Logger.log("還有 " + left + " 筆沒補送，請再執行一次");
+  var after = failedList_();
+  Logger.log("成功 " + ok + " 筆、仍失敗 " + still + " 筆；需人工處理 " + after.manual.length + " 筆");
+  logManualFailures_(after.manual);
+}
+
+function logManualFailures_(manual) {
+  for (var i = 0; i < manual.length; i++) {
+    Logger.log("   " + manual[i].rid + "・" + manual[i].code + "・" + updateErrorHint_(manual[i].code, manual[i].rid));
+  }
+}
+
+/* 處理完的(已經請組長手動改好、確定是垃圾單)移出補送清單 */
+function dismissFailedMemberUpdate(responseId) {
+  var id = String(responseId == null ? "" : responseId).trim();
+  var hit = failedRemove_(id);
+  Logger.log(hit ? "已移出補送清單：" + id + "（" + hit.code + "）" : "清單上沒有這筆：" + id);
+  return !!hit;
+}
+
+/* ── entry 編號與 site-config ──────────────────────────────────────────
+   做法同 visitorEntryIds_:給每一題填一個標記,從官方 toPrefilledUrl() 反查 entry 編號。
+   名字題是下拉選單,只能填真的選項,所以用第一個名字當標記。 */
+function memberUpdateEntryIds_(form) {
+  var items = form.getItems(), marks = {}, resp = form.createResponse(), memberMark = "";
+  var nameItem = findUpdateNameItem_(form), nameId = nameItem ? String(nameItem.getId()) : "";
+  for (var i = 0; i < items.length; i++) {
+    var it = items[i], type = it.getType();
+    if (nameId && String(it.getId()) === nameId) {
+      var chs = nameItem.getChoices();
+      if (chs.length) { memberMark = chs[0].getValue(); resp = resp.withItemResponse(nameItem.createResponse(memberMark)); }
+      continue;
+    }
+    var mark = "ZZMARK" + i + "ZZ";
+    if (type === FormApp.ItemType.TEXT) resp = resp.withItemResponse(it.asTextItem().createResponse(mark));
+    else if (type === FormApp.ItemType.PARAGRAPH_TEXT) resp = resp.withItemResponse(it.asParagraphTextItem().createResponse(mark));
+    else continue;
+    marks[mark] = normTitle_(it.getTitle());
+  }
+  var url = resp.toPrefilledUrl(), byTitle = Object.create(null), memberEntry = "";
+  var re = /[?&](entry\.\d+)=([^&]*)/g, m;
+  while ((m = re.exec(url)) !== null) {
+    var val;
+    try { val = decodeURIComponent(m[2].replace(/\+/g, " ")); } catch (err) { continue; }
+    if (hasOwn_(marks, val)) byTitle[marks[val]] = m[1];
+    else if (memberMark && val === memberMark) memberEntry = m[1];
+  }
+  var ids = {};
+  if (memberEntry) ids.member = memberEntry;
+  for (var k = 0; k < UPDATE_FIELD_KEYS.length; k++) {
+    var names = titlesFor_(UPDATE_FIELD_KEYS[k]);
+    for (var n = 0; n < names.length; n++) if (hasOwn_(byTitle, names[n])) { ids[UPDATE_FIELD_KEYS[k]] = byTitle[names[n]]; break; }
+  }
+  var tk = normTitle_(UPDATE_Q.token);
+  if (hasOwn_(byTitle, tk)) ids.token = byTitle[tk];
+  return { form: form, ids: ids, seenTitles: byTitle };
+}
+
+/* 要貼進 site-config.js 的兩行 */
+function memberUpdateConfigLines_(publishedUrl, ids) {
+  var parts = [];
+  for (var i = 0; i < UPDATE_ENTRY_KEYS.length; i++) parts.push(UPDATE_ENTRY_KEYS[i] + ':"' + (ids[UPDATE_ENTRY_KEYS[i]] || "") + '"');
+  return ['  UPDATE_FORM_URL: "' + publishedUrl + '",',
+          "  UPDATE_FORM_ENTRIES: { " + parts.join(", ") + " },"];
+}
+
+/* 設定遺失(或改過題目)時重印 site-config.js 的兩行 */
+function printMemberUpdateLinkConfig() {
+  var form = openUpdateForm_();
+  var r = memberUpdateEntryIds_(form);
+  var lines = memberUpdateConfigLines_(form.getPublishedUrl(), r.ids);
+  Logger.log("到 GitHub 網頁版打開 site-config.js,用下面兩行取代原本的 UPDATE_FORM_URL 與 UPDATE_FORM_ENTRIES:");
+  Logger.log("");
+  Logger.log(lines[0]);
+  Logger.log(lines[1]);
+  Logger.log("");
+  var missing = UPDATE_ENTRY_KEYS.filter(function (k) { return !r.ids[k]; });
+  if (missing.length) {
+    Logger.log("⚠ 這些鍵在表單上對不上:" + missing.join("、") + " —— 題目被刪掉或改了標題(對照 checkMemberUpdateForm 的「題目」那一段)");
+  } else {
+    Logger.log("✅ 11 個 entry 都對得上。");
+  }
+}
+
+/* 網站上目前的 site-config.js 寫了什麼。用正規表示式取值,不把網站上的檔案當程式執行。 */
+function siteConfigUpdateForm_() {
+  try {
+    var r = fetchSite_("site-config.js");
+    if (r.code !== 200) return { error: "HTTP " + r.code };
+    var mu = /UPDATE_FORM_URL\s*:\s*(["'])([^"'\n]*)\1/.exec(r.text);
+    var me = /UPDATE_FORM_ENTRIES\s*:\s*\{([^}]*)\}/.exec(r.text);
+    var entries = {};
+    if (me) {
+      var re = /["']?([A-Za-z_]+)["']?\s*:\s*(["'])([^"'\n]*)\2/g, m;
+      while ((m = re.exec(me[1])) !== null) if (UPDATE_ENTRY_KEYS.indexOf(m[1]) >= 0) entries[m[1]] = m[3].trim();
+    }
+    return { url: mu ? mu[2].trim() : "", entries: entries };
+  } catch (err) {
+    return { error: errText_(err) };
+  }
+}
+function normFormUrl_(u) { return String(u || "").trim().replace(/[?#].*$/, "").replace(/\/+$/, ""); }
+function normSiteBase_(u) { return String(u || "").trim().replace(/\/*$/, "/"); }
+
+/* ── 觸發器與重建 ───────────────────────────────────────────────────── */
+
+function installMemberUpdateTriggers_(form) {
+  var all = ScriptApp.getProjectTriggers(), removed = 0;
+  for (var i = 0; i < all.length; i++) {
+    var h = all[i].getHandlerFunction();
+    if (h === UPDATE_TRIGGER || h === UPDATE_SYNC_TRIGGER) { ScriptApp.deleteTrigger(all[i]); removed++; }
+  }
+  ScriptApp.newTrigger(UPDATE_TRIGGER).forForm(form).onFormSubmit().create();
+  ScriptApp.newTrigger(UPDATE_SYNC_TRIGGER).timeBased().everyHours(1).create();
+  Logger.log("✅ 夥伴資料更新的觸發器已裝好:送出 1 個、每小時同步 1 個(清掉舊的 " + removed + " 個)");
+}
+
+/* 觸發器不見了、重複了,或搬到新的 Apps Script 專案之後,用這支重裝(不會累積) */
+function setupMemberUpdateTriggers() { installMemberUpdateTriggers_(openUpdateForm_()); }
+
+/* 讓腳本「忘記」更新表單,之後才能重新 createMemberUpdateForm。
+   ① 補送清單還有東西就停下來(傳 true 才強制):忘記之後,那些送件就再也補送不了。
+   ② 先關閉舊表單並設停用訊息:LINE 裡散落的舊連結(包括組長私訊的預填連結)送出時,
+      夥伴會看到「已經停用」,而不是以為送出了、其實沒有任何人收到。
+   ③ 只刪更新表單自己的屬性與觸發器;新夥伴表單、來賓表單的綁定完全不碰。 */
+function forgetMemberUpdateForm(force) {
+  var props = PropertiesService.getScriptProperties();
+  var failed = failedRead_();
+  if (failed.length && force !== true) {
+    var ids = failed.slice(0, 10).map(function (x) { return x.rid; }).join("、") + (failed.length > 10 ? "…" : "");
+    throw new Error("還有 " + failed.length + " 筆送失敗的更新沒有處理（回應 ID：" + ids + "）。" +
+      "請先執行 resendFailedMemberUpdates，或用 dismissFailedMemberUpdate 逐筆處理，再忘記這份表單。" +
+      "確定要丟掉，請執行 forgetMemberUpdateForm(true)。");
+  }
+  var editUrl = props.getProperty("UPDATE_FORM_EDIT_URL");
+  if (editUrl) {
+    try {
+      FormApp.openByUrl(editUrl).setCustomClosedFormMessage(UPDATE_RETIRED_MSG).setAcceptingResponses(false);
+      Logger.log("✅ 舊表單已關閉收件(填表的人會看到「已經停用」):" + editUrl);
+    } catch (err) {
+      Logger.log("✗ 舊表單沒有關閉，請自己打開它 →「回覆」→ 關掉「接受回覆」，否則 LINE 裡的舊連結送出後不會有任何人收到");
+    }
+  }
+  var keys = ["UPDATE_FORM_EDIT_URL", "UPDATE_FORM_NAME_ITEM_ID", "UPDATE_FORM_NOTFOUND_PAGE_ID",
+              "UPDATE_NAMES_SYNCED_AT", "UPDATE_FAILED_IDS", "UPDATE_NF_STATE"];
+  for (var i = 0; i < keys.length; i++) props.deleteProperty(keys[i]);
+  var all = ScriptApp.getProjectTriggers(), removed = 0;
+  for (var j = 0; j < all.length; j++) {
+    var h = all[j].getHandlerFunction();
+    if (h === UPDATE_TRIGGER || h === UPDATE_SYNC_TRIGGER) { ScriptApp.deleteTrigger(all[j]); removed++; }
+  }
+  Logger.log("已忘記夥伴資料更新表單(刪掉 " + keys.length + " 筆屬性、" + removed + " 個觸發器;新夥伴表單與來賓表單不受影響)");
+  Logger.log("接下來:");
+  Logger.log("  1. 舊表單和回應試算表仍在 Drive,不要就自己刪掉");
+  Logger.log("  2. 執行 createMemberUpdateForm 建新的,再跑 checkMemberUpdateForm");
+  Logger.log("  3. site-config.js 的 UPDATE_FORM_URL 與 UPDATE_FORM_ENTRIES 兩行要換成新的,並通知組長舊的預填連結作廢");
+}
+
+/* ── 檢查(只讀不改)─────────────────────────────────────────────────
+   每一行 ✅/✗,最後彙總。「可自動補送」「需人工處理」「找不到名字」三行只是資訊,不算 ✗。 */
+function checkMemberUpdateForm() {
+  var props = PropertiesService.getScriptProperties();
+  var editUrl = props.getProperty("UPDATE_FORM_EDIT_URL");
+  if (!editUrl) { Logger.log("✗ 還沒有夥伴資料更新表單(沒有 UPDATE_FORM_EDIT_URL)—— 先執行 createMemberUpdateForm"); return { bad: 1 }; }
+  var form = FormApp.openByUrl(editUrl);
+  var bad = 0;
+  var line = function (label, ok, text) { if (ok === false) bad++; Logger.log(label + ":" + text); };
+
+  line("表單          ", true, form.getTitle());
+
+  if (typeof form.isPublished === "function") {
+    var pub = null;
+    try { pub = !!form.isPublished(); } catch (err) { pub = null; }
+    if (pub === null) line("發布狀態      ", true, "? 讀不到發布狀態,略過");
+    else line("發布狀態      ", pub, pub ? "✅ 已發布" : "✗ 未發布 —— 開表單編輯頁按右上角「發布」,回應者選「知道連結的任何人」");
+  } else line("發布狀態      ", true, "? 這個帳號的表單沒有發布設定,略過");
+
+  var acc = form.isAcceptingResponses();
+  line("接受回應      ", acc, acc ? "✅" : "✗ 已關閉 —— 編輯頁「回覆」分頁打開「接受回覆」(如果是被熔斷自動關掉的,先看 README「八」的「被灌單怎麼辦」再打開)");
+  var edits = form.canEditResponse();
+  line("編輯回覆      ", !edits, !edits ? "✅ 關閉" : "✗ 開著 —— 夥伴每編輯一次就多一筆待審核,請到「設定 → 回覆」關掉「允許編輯回覆」");
+  var summary = form.isPublishingSummary();
+  line("結果摘要      ", !summary, !summary ? "✅ 不公開" : "✗ 填答者看得到所有人的回覆(包括備註)—— 到「設定 → 回覆」關掉「查看結果摘要」");
+  /* 上傳題、收集電子郵件、「限制只能回覆 1 次」三種都會強制登入(建表時已關掉,這裡防網管事後打開;
+     被灌單後很容易想用「限制只能回覆 1 次」擋重複送件)。原因分開列,網管才知道要關哪一個。
+     讀不到「限制只能回覆 1 次」(舊環境沒有這個方法或讀取出錯)時視同沒開,不誤報。 */
+  var uploads = form.getItems(FormApp.ItemType.FILE_UPLOAD).length, emails = form.collectsEmail();
+  var limitOne = false;
+  try { limitOne = typeof form.hasLimitOneResponsePerUser === "function" && !!form.hasLimitOneResponsePerUser(); } catch (err) { limitOne = false; }
+  var loginWhy = [];
+  if (uploads) loginWhy.push("刪掉上傳題(照片請夥伴用 LINE 傳給組長)");
+  if (emails) loginWhy.push("到「設定 → 回覆」關掉「收集電子郵件」");
+  if (limitOne) loginWhy.push("到「設定 → 回覆」關掉「限制只能回覆 1 次」(擋灌單請看 README「八」的「被灌單怎麼辦」)");
+  line("登入要求      ", !loginWhy.length, !loginWhy.length ? "✅ 不需要登入"
+    : "✗ 會要求登入,從 LINE 點進來的夥伴多半會卡住;請" + loginWhy.join("、"));
+
+  // 名字選單
+  var nameItem = updateNameItemById_(form);
+  var syncedRaw = props.getProperty("UPDATE_NAMES_SYNCED_AT") || "", synced = Date.parse(syncedRaw);
+  var syncedText = isFinite(synced) ? fmtTime_(new Date(synced), "yyyy/MM/dd HH:mm") : "從來沒有";
+  var vals = nameItem ? nameItem.getChoices().map(function (c) { return c.getValue(); }) : [];
+  if (!nameItem) line("名字選單      ", false, "✗ 找不到名字題(UPDATE_FORM_NAME_ITEM_ID 對不上)—— 名字題被刪掉重加過的話,請重建表單");
+  else if (vals[vals.length - 1] !== UPDATE_NOT_FOUND) line("名字選單      ", false, "✗ 最後一個選項不是「" + UPDATE_NOT_FOUND + "」—— 執行 syncMemberUpdateNames");
+  else if (!isFinite(synced) || Date.now() - synced > 2 * 3600 * 1000) line("名字選單      ", false, "✗ 超過 2 小時沒同步(上次同步 " + syncedText + ")—— 執行 syncMemberUpdateNames 看原因");
+  else line("名字選單      ", true, "✅ " + (vals.length - 1) + " 位 +「" + UPDATE_NOT_FOUND + "」(上次同步 " + syncedText + ")");
+
+  // 題目
+  var qs = memberUpdateQuestionChecks_(form, nameItem), qbad = qs.filter(function (q) { return !q.ok; }).length;
+  line("題目          ", !qbad, qbad ? "✗ 有 " + qbad + " 項不對(見下面)" : "✅ 全部對得上");
+  for (var qi = 0; qi < qs.length; qi++) Logger.log("               " + (qs[qi].ok ? "✅ " : "✗ ") + qs[qi].label);
+
+  // 觸發器
+  var ns = 0, nh = 0, all = ScriptApp.getProjectTriggers();
+  for (var t = 0; t < all.length; t++) {
+    var h = all[t].getHandlerFunction();
+    if (h === UPDATE_TRIGGER) ns++; else if (h === UPDATE_SYNC_TRIGGER) nh++;
+  }
+  var trigOk = ns === 1 && nh === 1;
+  line("觸發器        ", trigOk, (trigOk ? "✅ " : "✗ ") + "送出 " + ns + " 個、每小時同步 " + nh + " 個" +
+       (trigOk ? "" : "(都要剛好 1 個)—— 執行 setupMemberUpdateTriggers"));
+
+  if (needsReauth_()) {
+    line("授權狀態      ", false, "🔴 需要重新授權 —— 授權完成前觸發器不會跑,夥伴的更新會全部靜默失敗");
+    Logger.log("   👉 用瀏覽器打開這個網址完成授權(複製整行):" +
+      (reauthUrl_() || "(取不到授權網址 —— 到左側「觸發條件」頁,點觸發器的「⋮」→ 執行一次)"));
+  } else line("授權狀態      ", true, "✅ 不需要重新授權");
+
+  // Worker
+  var relay = String(props.getProperty("RELAY_URL") || "").replace(/\/+$/, "");
+  var secret = props.getProperty("INTAKE_SECRET");
+  if (!relay) line("Worker        ", false, "✗ 沒設 RELAY_URL —— 到「專案設定 → 指令碼屬性」補上");
+  else {
+    var ping = null;
+    /* ★ 一定要用 POST:Worker 對 POST 以外的方法一律回 405 method_not_allowed(後台的 /ping 也是 POST)。
+       用 UrlFetch 預設的 GET 的話,這一行永遠是 ✗「Worker 太舊」,網管會被引導去重新部署一個沒問題的 Worker。 */
+    try {
+      ping = parseRelayResponse_(UrlFetchApp.fetch(relay + "/ping", {
+        method: "post", contentType: "application/json", payload: "{}", muteHttpExceptions: true }));
+    } catch (err) { ping = null; }
+    var caps = ping && ping.out && ping.out.caps;
+    if (!caps || caps.memberUpdate !== true) {
+      line("Worker        ", false, "✗ Worker 太舊或沒綁 R2(/ping 的 caps.memberUpdate 不是 true)—— 請總管理員重新部署 publish-relay.js,並確認綁好 R2");
+    } else {
+      var site = String(ping.out.memberUpdateSite || "");
+      var siteShow = /^https?:\/\/\S{1,200}$/.test(site) ? site : "(看不懂的網址)";
+      if (normSiteBase_(site) !== normSiteBase_(SITE_BASE_URL)) {
+        line("Worker        ", false, "✗ Worker 讀的網址(" + siteShow + ")和 SITE_BASE_URL(" + SITE_BASE_URL + ")不一樣 —— 請總管理員在 Cloudflare 設 SITE_BASE(見 worker/README)");
+      } else line("Worker        ", true, "✅ caps.memberUpdate,讀名錄的網址 " + siteShow);
+    }
+  }
+
+  // 連線與密碼:故意送空白,secret 對的話會回 bad_update
+  if (!relay || !secret) line("連線與密碼    ", false, "✗ 沒設 RELAY_URL 或 INTAKE_SECRET");
+  else {
+    var probe = null;
+    try {
+      probe = parseRelayResponse_(UrlFetchApp.fetch(relay + "/member-update", {
+        method: "post", contentType: "application/json", muteHttpExceptions: true,
+        payload: JSON.stringify({ secret: secret, update: {} }) }));
+    } catch (err) { probe = null; }
+    var perr = probe && probe.out && typeof probe.out.error === "string" ? probe.out.error : "";
+    if (perr === "bad_update") line("連線與密碼    ", true, "✅ 回 bad_update(預期,因為刻意送空白)");
+    else if (perr === "bad_secret") line("連線與密碼    ", false, "✗ bad_secret —— INTAKE_SECRET 和 Cloudflare 上的不一樣");
+    else if (perr === "intake_disabled") line("連線與密碼    ", false, "✗ intake_disabled —— Cloudflare 上還沒設 INTAKE_SECRET");
+    else if (perr === "not_found") line("連線與密碼    ", false, "✗ not_found —— Worker 太舊,還沒有 /member-update(請總管理員重新部署)");
+    else line("連線與密碼    ", false, "✗ " + (probe ? "HTTP " + probe.status + (/^[a-z0-9_]{1,40}$/.test(perr) ? " " + perr : "") : "連不到 Worker"));
+  }
+
+  // site-config
+  var sc = siteConfigUpdateForm_();
+  if (sc.error) line("site-config   ", false, "✗ 讀不到網站上的 site-config.js(" + sc.error + ")");
+  else if (!sc.url && !objKeys_(sc.entries).length) line("site-config   ", false, "— 尚未貼進 site-config.js(README 部署表第 7 步;printMemberUpdateLinkConfig 會印出要貼的兩行)");
+  else {
+    var want = {};
+    try { want = memberUpdateEntryIds_(form).ids; } catch (err) { want = {}; }
+    var diffs = [];
+    if (normFormUrl_(sc.url) !== normFormUrl_(form.getPublishedUrl())) diffs.push("UPDATE_FORM_URL");
+    for (var k = 0; k < UPDATE_ENTRY_KEYS.length; k++) {
+      var key = UPDATE_ENTRY_KEYS[k];
+      if (!want[key] || sc.entries[key] !== want[key]) diffs.push(key);
+    }
+    line("site-config   ", !diffs.length, !diffs.length ? "✅ 網站上的 UPDATE_FORM_URL 與 11 個 entry 都對得上"
+      : "✗ 對不上:" + diffs.join("、") + " —— 執行 printMemberUpdateLinkConfig 重貼");
+  }
+
+  var notifyTo = String(props.getProperty("NOTIFY_EMAIL") || "").trim();
+  line("通知          ", !!notifyTo, notifyTo ? "NOTIFY_EMAIL ✅ " + notifyTo
+    : "NOTIFY_EMAIL ✗ 沒設 —— 有人送出更新時,不會有任何人收到通知(執行 setNotifyEmail(\"組長群信箱\"))");
+  try { Logger.log("今日可寄額度  :" + MailApp.getRemainingDailyQuota() + " 封"); }
+  catch (err) { Logger.log("今日可寄額度  :取不到(通常就是還沒授權)"); }
+
+  var fl = failedList_();
+  Logger.log("可自動補送    :" + fl.auto.length + " 筆" + (fl.auto.length ? "(修好原因後執行 resendFailedMemberUpdates)" : ""));
+  Logger.log("需人工處理    :" + fl.manual.length + " 筆" + (fl.manual.length ? ",逐筆照建議做法處理:" : ""));
+  logManualFailures_(fl.manual);
+  Logger.log("找不到名字    :累積 " + nfState_().n + " 人尚未寄出彙整信");
+  Logger.log("─────");
+  Logger.log(bad ? "⚠ 還有 " + bad + " 項沒過,先修好再發到 LINE。" : "✅ 全部正常,可以把表單網址發到 LINE。");
+  return { bad: bad };
+}
+
+/* checkMemberUpdateForm 的「題目」逐項 */
+function memberUpdateQuestionChecks_(form, nameItem) {
+  var items = form.getItems(), byTitle = Object.create(null);
+  for (var i = 0; i < items.length; i++) byTitle[normTitle_(items[i].getTitle())] = items[i];
+  var has = function (titles) { for (var j = 0; j < titles.length; j++) if (hasOwn_(byTitle, titles[j])) return byTitle[titles[j]]; return null; };
+  var out = [];
+  for (var k = 0; k < UPDATE_FIELD_KEYS.length; k++) {
+    out.push({ label: "「" + NEWMEMBER_Q[UPDATE_FIELD_KEYS[k]] + "」", ok: !!has(titlesFor_(UPDATE_FIELD_KEYS[k])) });
+  }
+  out.push({ label: "「" + UPDATE_Q.note + "」", ok: !!has([normTitle_(UPDATE_Q.note)]) });
+  out.push({ label: "「" + UPDATE_Q.token + "」(不要刪掉或改名)", ok: !!has([normTitle_(UPDATE_Q.token)]) });
+  var page = updateNotFoundPageById_(form);
+  out.push({ label: "「" + UPDATE_Q.nfPage + "」那一頁", ok: !!page });
+  var nf = has([normTitle_(UPDATE_Q.nfName)]), nfReq = false;
+  try { nfReq = !!(nf && nf.asTextItem().isRequired()); } catch (err) { nfReq = false; }
+  out.push({ label: "「" + UPDATE_Q.nfName + "」是必填", ok: nfReq });
+  var navOk = false;
+  try {
+    var chs = nameItem ? nameItem.getChoices() : [], last = chs[chs.length - 1];
+    var dest = last && last.getValue() === UPDATE_NOT_FOUND ? last.getGotoPage() : null;
+    navOk = !!(page && dest && String(dest.getId()) === String(page.getId()) &&
+               chs[0].getPageNavigationType() === FormApp.PageNavigationType.CONTINUE &&
+               page.getPageNavigationType() === FormApp.PageNavigationType.SUBMIT);
+  } catch (err) { navOk = false; }
+  out.push({ label: "換頁設定(名字 → 第 2 頁、「" + UPDATE_NOT_FOUND + "」→ 出口頁、第 2 頁填完直接送出)", ok: navOk });
+  return out;
 }

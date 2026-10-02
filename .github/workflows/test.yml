@@ -27,6 +27,7 @@ jobs:
       - name: 語法檢查
         run: |
           node --check admin.js
+          node --check admin-logic.js
           node --check tools/build-data.mjs
           # Worker 是 ES module,--check 需要 .mjs 副檔名
           cp worker/publish-relay.js /tmp/worker-check.mjs
@@ -40,6 +41,9 @@ jobs:
 
       - name: 待認領區容量測試
         run: node tests/capacity.test.mjs
+
+      - name: 夥伴資料更新測試
+        run: node tests/member-update.test.mjs
 
       - name: 前端純邏輯測試
         run: node tests/logic.test.mjs

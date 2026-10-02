@@ -10,7 +10,7 @@ const SITE = {
      visitor.html 的內嵌報名表單靠它把資料轉送到 Google 表單。 */
   RELAY_URL: "https://member-directory-relay.retetrhjj123.workers.dev",
 
-  /* ── 三個外部連結(Google 表單/試算表)──────────────────────────────
+  /* ── 四個外部連結(Google 表單/試算表)──────────────────────────────
      都由 tools/google-form.gs 的對應函式建立,執行後把「執行紀錄」印出的網址貼到這裡。
      ⚠ 留空不會壞掉:相關按鈕會自動隱藏或改走替代文案,填上去才出現。 */
   VISITOR_FORM_URL: "https://docs.google.com/forms/d/e/1FAIpQLScOoqaeS9M3Tq-vaaI6ic3bR1nIvnquSptsgtLiFd8a9EPIDg/viewform",
@@ -22,5 +22,12 @@ const SITE = {
                             // 名冊鏡像試算表(createRosterSheet)→ 後台工具列與儀表板的「名冊試算表」捷徑。
                             // 單向鏡像:A1 的 IMPORTDATA 抓 roster.csv,發布後約一小時自動跟上;
                             // 在試算表裡改字不會回寫網站,下次重抓就蓋掉,要改資料一律回後台。
+  UPDATE_FORM_URL: "",
+                            // 夥伴資料更新表單(createMemberUpdateForm)→ 後台工具列「夥伴資料更新表單」捷徑、
+                            // 缺資料清單的催收訊息。送出後進後台「夥伴資料更新(待審核)」,組長確認才上線。
+  UPDATE_FORM_ENTRIES: {},
+                            // 表單各題的 entry 編號(printMemberUpdateLinkConfig 會印出整段,直接貼上取代)。
+                            // 有 member 才會出現「複製已帶好名字的更新連結」與催收訊息裡的逐人連結;
+                            // 有 token 才會帶「連結代碼」(沒有也能用,只是舊連結再填一次時少一層保護)。
 };
 if (typeof module !== "undefined") module.exports = SITE;

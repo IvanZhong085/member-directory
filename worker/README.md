@@ -51,6 +51,7 @@
 | `GH_BRANCH` | `main` |
 | `GH_PATH` | `data.js` |
 | `ALLOWED_ORIGIN` | `https://ivanzhong085.github.io` |
+| `SITE_BASE`（選填，非機密） | 公開網站網址。沒設時用 `https://<GH_OWNER>.github.io/<GH_REPO>/`；網站用自訂網域或別的網址時才要設。 |
 
 填完按 **Save and deploy**。
 
@@ -151,6 +152,14 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 | `/drop-pending` | 刪掉一筆待認領申請。先原子移除記錄，ref 更新成功之後才刪 R2 物件 —— 順序與 `/claim` 相同，所以不會留下孤兒。 |
 | `/pending-photo` | **待認領照片的授權預覽**。輸入 `pid` + 欄位（`image`／`card`／`product` + `index`），回傳圖片位元組本身（不是 JSON），標頭帶 `Cache-Control: private, no-store`。<br>刻意**不簽任何網址**：簽出去的 URL 就是一條公開連結，只是難猜而已，一旦被複製、被貼進聊天室就收不回來。改成每次預覽都當場驗 session。<br>R2 的 key 一律從 `data/_pending.json` 查出來，呼叫端指定的 key 完全無效 —— 否則任何登入者都能拿猜的 key 把整個 bucket 讀一遍，而 bucket 裡放的正是還沒被認領的人的名片。唯讀帳號一律 403。 |
 | `/pending-audit` | **孤兒物件的唯讀盤點**（僅總管理員）。把 bucket 裡 `pending/` 的物件與 `_pending.json` 引用的 key 對起來，回報物件數、孤兒數與佔用空間、最舊的孤兒放了幾天，以及反向的 `missingRefs`（被引用但物件已不存在 —— 那是「認領會失敗」的預告）。<br>**它不刪任何東西。** 盤點與刪除混在同一支工具裡，最後總會有人在不確定的情況下按下去。<br>列舉超過頁數上限時回 `truncated: true` 且 `missingRefs: null` —— 沒看完整份清單就不下那個結論。 |
+| `/member-update` | **夥伴資料更新表單的收件口**（Apps Script 用）。只認 `INTAKE_SECRET`，不接受登入；只寫 R2 的 `updates/req/`，不寫任何 git 檔案。找人時讀的是**公開網站**（GitHub Pages），**不用 `GH_TOKEN`** —— 表單不必登入，被灌單也不會吃光權杖額度、連累後台。同一筆回應或同一位同內容的重送只會建一筆。 |
+| `/member-updates` | 後台的待審核清單（只回摘要，不回內容）。組長只看到自己那組，唯讀帳號 403。 |
+| `/member-update-get` | 讀一筆待審核的完整內容。組長只讀得到自己那組。 |
+| `/member-update-apply` | **套用夥伴更新的伺服器端交易**。逐欄比對審核者畫面上看到的值，和網站上現在的值不同就停下（`member_changed`），不會蓋掉別人剛改好的欄位；寫入後幾分鐘前台就會更新，不必再按發布。同一筆不會被寫兩次。 |
+| `/member-update-drop` | 「不採用」與「已處理」：只刪掉那一筆待審核，網站上的資料不動。和「套用」互斥，不會一邊套用、一邊被刪。 |
+| `/member-update-drop-batch` | **只限總管理員**：被灌單時勾選多筆一次不採用。 |
+
+> 待審核的 R2 key 一律由 Worker 產生的編號推出，呼叫端不能指定 —— 所以這幾支端點讀不到、也刪不到 `pending/` 底下的待認領照片。
 
 ### 4. 綁定「錯誤次數限制」用的儲存空間（KV）
 
@@ -194,6 +203,8 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 7. 回到該 bucket → **Settings** → **Object lifecycle rules** → **Add rule**
 8. Prefix 填 `pending/`，設定「**90 天後刪除**」
 
+> ⚠ **bucket 現在也放 `updates/`**（夥伴資料更新的待審核）。**每一條規則都要指定 prefix**；空白 prefix 或套用整個 bucket 的規則，會把待審核的更新提早清掉。要讓沒人審的更新自動作廢，就另加一條 `updates/`、90 天。
+
 > ⚠ **這條規則不只會清掉孤兒。** R2 的 lifecycle 只看 prefix 與物件年齡，**不知道**某個物件是不是還被 `data/_pending.json` 引用著。所以它實際上等於一條業務政策：
 >
 > **「申請超過 90 天還沒被任何組長認領，照片就會被自動清掉。」**
@@ -212,7 +223,15 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 
 #### 確認有沒有設定成功
 
-部署後打一次 `/ping`，`caps.pendingImages` 要是 `"r2-v1"`：
+部署後打一次 `/ping`，`caps.pendingImages` 要是 `"r2-v1"`。
+
+`/ping` 要用 **POST** 打：Worker 只收 POST，用瀏覽器直接開網址會看到 `method_not_allowed`，那是正常的，不代表沒部署好。在終端機執行（Windows 請打 `curl.exe`：PowerShell 裡的 `curl` 是另一個指令；Worker 網址在 Worker 總覽頁，見下面第 5 步）：
+
+```
+curl -s -X POST https://你的Worker網址/ping
+```
+
+回應裡會有這幾項（還有其他欄位，不用管）：
 
 ```json
 { "ok": true, "caps": { "pendingImages": "r2-v1", "claim": true, "read": true, "atomic": true } }
@@ -241,8 +260,8 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 | # | 動作 | 檢查點 |
 |---|---|---|
 | 1 | 建立 private R2 bucket（見 4-2） | bucket 存在、**沒有** Public Access |
-| 2 | 綁 `PENDING_IMAGES`、設 `pending/` 的 30 天 lifecycle rule | Bindings 清單裡看得到 |
-| 3 | **先**部署新版 Worker | 打 `/ping`，`caps.pendingImages === "r2-v1"` |
+| 2 | 綁 `PENDING_IMAGES`、設 `pending/` 的 90 天 lifecycle rule | Bindings 清單裡看得到 |
+| 3 | **先**部署新版 Worker | 打 `/ping`（用 POST，見 4-2 的「確認有沒有設定成功」），`caps.pendingImages === "r2-v1"` |
 | 4 | 更新 Apps Script（`tools/google-form.gs`）與前端 | 跑 `checkNotifySetup` **同意授權**，再跑 `checkNewMemberSetup`：「授權狀態」是 ✅、沒有紅字 |
 | 5 | 送一份**含 7 張照片**的測試申請 | R2 裡有 7 個物件、`_pending.json` 只有幾 KB、認領後 `images/` 有 7 張且 R2 被清空 |
 | 6 | 確認無誤後才處理／清掉舊的待認領資料 | — |
@@ -263,6 +282,22 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 
 - **先把待認領區清空**（全部認領完或刪掉），確認 `_pending.json` 是 `[]`，再部署舊版；或
 - 回滾到**仍然看得懂 `photoRefs` 的版本**（本次的 Worker 同時支援新舊兩種格式，所以往前回滾到它是安全的）。
+
+## 升級到「夥伴資料更新表單」
+
+已上架的夥伴可以用 Google 表單選自己的名字、更新公司等文字資料；送出後先進 R2 的待審核區（`updates/`），組長在後台逐欄確認後才寫進網站。完整流程與逐步檢查表在主 README 的「**八、夥伴資料更新表單**」，這裡只列 Worker 這一端：
+
+1. **R2 lifecycle**：bucket → Settings → Object lifecycle rules，確認每一條規則都有指定 Prefix（原本應該只有 `pending/` 那一條；建議再加一條 `updates/`、90 天）。**不可以有空白 prefix 或套用整個 bucket 的規則。**
+2. **部署新版 `publish-relay.js`**。不需要新增 Secret，沿用原本的 `INTAKE_SECRET` 與 `PENDING_IMAGES`。
+3. **打 `/ping` 確認**（要用 **POST**：在終端機執行 `curl -s -X POST https://你的Worker網址/ping`，Windows 請打 `curl.exe`。用瀏覽器直接開網址只會看到 `method_not_allowed`，那是正常的，不代表沒部署好）：
+   - `caps.memberUpdate` 是 `true`（`false` 代表 `PENDING_IMAGES` 沒綁好，先回 4-2）；
+   - `memberUpdateSite` 等於公開網站的網址。不同的話（例如網站改用自訂網域），在 Worker 的一般變數加 `SITE_BASE`，值填網站網址。
+
+   沒辦法用終端機的話，主 README「八」部署步驟第 5 步 `checkMemberUpdateForm` 的「Worker」那一行會核對同樣兩項；那一行不是 ✅ 就不要往下做第 6 步。
+
+> **子請求預算**：Cloudflare 免費方案每次呼叫最多 50 個子請求，呼叫 R2、KV 也算。套用一筆更新最壞約 42 個（每次只提交一次、最多 3 輪），其他端點都在 10 個以內。
+>
+> 套用時如果 GitHub 回應逾時，Worker 會回 `apply_uncertain`（不確定有沒有寫進網站），而不是說「沒有寫入」。再按一次套用是安全的：已經寫進去的那一筆會被認出來，不會重複寫入。
 
 ## 之後要做的維護
 
