@@ -23,6 +23,7 @@
  * 相容性：沒有設定 ADMIN_USERS 時，仍會沿用舊的單一 ADMIN_PASSWORD，此時帳號固定為 admin。
  *    - 一般變數：GH_OWNER=IvanZhong085、GH_REPO=member-directory、GH_BRANCH=main、GH_PATH=data.js、
  *      ALLOWED_ORIGIN=https://ivanzhong085.github.io
+ *      （選填）SITE_BASE：公開網站網址，夥伴資料更新收件時讀名錄用；沒設就從 GH_OWNER／GH_REPO 推出。
  * 4. 到 Settings → Bindings → 新增 KV Namespace binding，一共兩個，**各自要有自己的 Namespace**：
  *      RATE_LIMIT → 新建一個（例如 member-directory-rate-limit）：登入失敗次數，必要。
  *      VIEWS      → 新建一個（例如 member-directory-views）：前台「累計瀏覽」那格，選用。
@@ -387,7 +388,7 @@ async function clearFail(env, ip){
 async function handlePing(request, env){
   /* atomic:一次發布寫成單一 commit(全成功或全失敗);read:權威讀取端點;
      claim:認領是伺服器端交易。編輯頁靠這幾個旗標判斷該走新路徑還是舊路徑。 */
-  return json(env, { ok:true, service:"member-directory-relay",
+  const out = { ok:true, service:"member-directory-relay",
     caps:{ files:true, visitor: visitorConfigured(), atomic:true, read:true, claim:true, drop:true,
            /* 待認領照片的授權預覽與盤點。舊版 Worker 沒有這兩個旗標,編輯頁就繼續
               顯示佔位圖,而不是把每一張都試著抓一次然後全部失敗。
@@ -398,7 +399,16 @@ async function handlePing(request, env){
            /* 待認領照片存放方式。"r2-v1" = 私有 R2 bucket(照片不進公開 repo)。
               沒有這個欄位或值不同,代表 Worker 還沒更新到支援 R2 的版本 —— 部署時
               一定要先確認這一項,否則 Apps Script 送來的申請會被 503 擋下。 */
-           pendingImages: env.PENDING_IMAGES ? PENDING_IMAGE_CAPABILITY : false } });
+           pendingImages: env.PENDING_IMAGES ? PENDING_IMAGE_CAPABILITY : false,
+           /* 夥伴資料更新(/member-update*)。待審核存在同一個 R2 bucket 的 updates/ 底下,
+              所以同樣跟著 binding 走、不寫死 true:沒綁 R2 時這幾支一律 503,回報 true
+              只會讓後台與 Apps Script 打一輪注定失敗的請求。 */
+           memberUpdate: !!env.PENDING_IMAGES } };
+  /* 收件讀的是哪一個公開網站(非機密)。checkMemberUpdateForm 拿它和 site-config.js 的
+     SITE_BASE 比對 —— 網站換了網址卻沒設 SITE_BASE 時,Worker 會讀到舊站或 404,
+     而那種失敗只會表現成「每一筆都 group_not_found」,很難從錯誤碼猜到原因。 */
+  if(out.caps.memberUpdate) out.memberUpdateSite = siteBase(env);
+  return json(env, out);
 }
 
 async function handleLogin(request, env){
@@ -1858,11 +1868,18 @@ async function checkIndexInvariant(env, headers, o){
 }
 
 /* 逐檔版本比對 + 單一 commit 寫入,ref 被搶就重讀重試。
-   回傳 { ok:true, newHashes, commitSha } 或 { ok:false, body, status }。 */
+   回傳 { ok:true, newHashes, commitSha } 或 { ok:false, body, status }。
+   opts.maxTries(選填,1–3,沒傳就是 3):夥伴資料更新的套用一律傳 1 —— 每次呼叫只讀一次
+   head、只提交一次,重試交給外層的「輪」(handleMemberUpdateApply)。外層每一輪還要重讀
+   組檔、重新比對審核者看到的值,這件事 commitWithVersionCheck 自己做不到;兩層各自重試 3 次
+   的話,最壞會是 9 次提交,超過子請求預算。 */
 async function commitWithVersionCheck(env, headers, opts){
   const { files, remove, baseHashes, sess, message } = opts;
   const branch = env.GH_BRANCH || "main";
-  const MAX_TRIES = 3;   // 子請求預算:N 個 blob(一次)+ 每次重試 6 個,見 MAX_FILES_PER_REQUEST
+  /* 子請求預算:N 個 blob(只做一次)+ 每次嘗試:總管理員最多 8 個、組長最多 10 個
+     (head 2、tree 1、組長代號檢查 1–2、_index 不變式 1–2、tree/commit/ref 3),
+     見 MAX_FILES_PER_REQUEST */
+  const MAX_TRIES = Math.max(1, Math.min(3, opts.maxTries || 3));
 
   const { baseBlobShas, assetPaths } = opts;
   /* 先把圖片的 blob 建好(以內容雜湊快取,重試不必重建)。
@@ -1934,6 +1951,849 @@ async function commitWithVersionCheck(env, headers, opts){
     }
     return { ok:false, status:502, body:{ ok:false, error:res.error, status:res.status } };
   }
+}
+
+/* ══ 夥伴資料更新(Google 表單 → 私有 R2 待審核 → 組長在後台逐欄確認後套用)════════
+   已上架的夥伴用「夥伴資料更新表單」選自己的名字、只填要改的格子。表單不驗證是不是本人
+   (要驗證就得強制登入,而 LINE 內建瀏覽器登不進 Google),所以送出的內容**不直接上線**:
+   一筆一個物件存進私有 R2 的 updates/req/,等那一組的組長或總管理員逐欄確認,
+   再由這裡用伺服器端交易寫進 data/<組>.json。
+
+   為什麼不存進公開 repo、也不併進 _pending.json:
+     ・沒審核過的內容(包括冒名送件、私人備註)一旦進了 git 歷史就刪不掉,還會掛在真實會員名下
+     ・不佔待認領區 30 筆的上限 —— 全員補資料那天,新夥伴的申請不會被 pending_full 退件
+     ・讀 _pending.json 的既有程式(待認領區、/claim、/pending-photo)完全不必改
+     ・收件不產生 commit,也不會觸發 sync.yml
+
+   ★ 收件(/member-update)只讀**公開網站**(GitHub Pages),不用 GH_TOKEN。
+     表單不必登入,拿到網址的人可以用程式大量送件;收件若打 GitHub API,灌單會吃光權杖
+     每小時 5,000 次的額度,連後台的讀取、發布、認領都一起失敗。收件只需要拿到 memberId
+     與當下的值(base),套用時會用 API 重讀並逐欄比對審核者看到的值,Pages 晚幾分鐘無妨。 */
+const UPDATE_REQ_PREFIX = "updates/req/";
+const UPDATE_UID_RE = /^u_[a-z0-9]{6,40}$/;
+const UPDATE_TEXT_LIMITS = { title:80, company:120, business_items:400, website:300 };   // 與 sanitizeApplicantText 相同
+const UPDATE_LIST_FIELDS = ["services","targets","have","want","tagline"];             // 每欄 INTAKE_LIST_MAX(12)項 × INTAKE_TEXT_MAX(400)字
+const UPDATE_FIELDS = ["title","company","services","targets","have","want","tagline","business_items","website"];
+/* 連結代碼裡 9 段雜湊的順序。= admin-logic.js 的 UPDATE_FIELD_ORDER。
+   ★ 不可以調整:已經發到 LINE 的連結代碼是照這個順序切的,改了順序,舊連結的每一格
+     都會對到別欄的雜湊,每一格都會被當成「本人改過」。 */
+const UPDATE_TOKEN_ORDER = ["company","business_items","website","have","want","title","services","targets","tagline"];
+const UPDATE_TOKEN_RE = /^v1\.([A-Za-z0-9_-]{1,64})\.([0-9a-f]{72})$/;
+const UPDATE_HASH_EMPTY = "00000000";
+const UPDATE_NOTE_MAX = 1000;
+const MAX_OPEN_UPDATES = 100;
+const MAX_OPEN_UPDATES_PER_MEMBER = 3;
+const UPDATE_LIST_MAX_PAGES = 5;
+const UPDATE_APPLY_ROUNDS = 3;                // 套用最多 3 輪,每輪只提交一次(見 handleMemberUpdateApply)
+const UPDATE_LOCK_MS = 10 * 60 * 1000;        // > 最壞耗時:約 36 個 GitHub 請求 × 15 秒
+const UPDATE_META_MAX_BYTES = 2048;
+const MAX_UPDATE_REQ_BYTES = 192 * 1024;      // changes + base 各約 75 KB 上限
+const UPDATE_SAT_MAX_AGE_MS = 180 * 86400 * 1000;
+const MAX_DROP_BATCH = 100;
+const SITE_TIMEOUT_MS = 10000;
+const UPDATE_FAIL_KEY = "mupd-fail:";         // KV:只記密碼錯誤
+const UPDATE_PLACEHOLDERS = new Set(["無","沒有","不變","不用改","同上","同原本","維持原樣","一樣","照舊","略","n/a","na","-","—","/","無變更","不變更"]);
+
+const hasOwnKey = (o, k) => !!o && typeof o === "object" && Object.prototype.hasOwnProperty.call(o, k);
+const isUpdateListField = f => UPDATE_LIST_FIELDS.indexOf(f) >= 0;
+/* 與 str() 同一組控制字元:保留 \t \n \r(段落題本來就會有換行) */
+const UPDATE_CTRL_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
+
+/* ── canon 與雜湊:admin-logic.js 的逐字副本 ──────────────────────────────────
+   ★ 這四支(canonText / canonUpdateValue / sameUpdateValue / updateValueHash)必須和
+     admin-logic.js **逐字相同**。組長複製的連結帶著「連結代碼」—— 產生連結當下每一格帶入
+     內容的雜湊 —— 這裡用同一套算法判斷「這格是連結帶入、本人沒改」。兩邊只要差一個字元,
+     每一格都會被當成修改,夥伴從 LINE 點舊連結再填一次,就會把後來的更新改回去,而且不會
+     有任何錯誤訊息。Worker 不能 import 前端的檔案,所以只能複製一份,再用
+     tests/member-update-cases.mjs 的共用測資與 tests/member-update.test.mjs 的端到端測試鎖住。 */
+
+/* 比對與雜湊用的文字正規化:去掉控制字元後 trim。
+   ★ 刻意**不截長度**:截過再比的話,現值已經 14 項、夥伴只改了第 14 項,
+     兩邊截到 12 項後一樣,真的修改就會被判成「沒改」而丟掉。截斷只在寫入時做。 */
+function canonText(v){
+  return String(v == null ? "" : v).replace(UPDATE_CTRL_RE, "").trim();
+}
+
+/* 清單欄位:陣列或「一行一項」的字串都轉成去掉空行的陣列;文字欄位:canonText。
+   表單送來的是字串、網站上存的是陣列,兩種寫法要能直接比。 */
+function canonUpdateValue(field, v){
+  if(isUpdateListField(field)){
+    return (Array.isArray(v) ? v : String(v == null ? "" : v).split("\n")).map(canonText).filter(Boolean);
+  }
+  return canonText(v);
+}
+
+function sameUpdateValue(field, a, b){
+  return JSON.stringify(canonUpdateValue(field, a)) === JSON.stringify(canonUpdateValue(field, b));
+}
+
+/* 一格內容的 8 位 hex 雜湊(FNV-1a 32 位元,對 UTF-8 位元組)。
+   不用 SHA-256 是因為後台按「複製連結」要同步拿到結果(crypto.subtle 是非同步的);
+   這裡要的只是「這格有沒有被改過」,不是防偽 —— 代碼本來就印在表單上。 */
+function updateValueHash(field, v){
+  const c = canonUpdateValue(field, v);
+  if(!c.length) return UPDATE_HASH_EMPTY;          // 空字串或空陣列
+  const bytes = new TextEncoder().encode(JSON.stringify(c));
+  let h = 0x811c9dc5;
+  for(let i = 0; i < bytes.length; i++){
+    h ^= bytes[i];
+    h = Math.imul(h, 0x01000193);
+  }
+  const hex = (h >>> 0).toString(16).padStart(8, "0");
+  return hex === UPDATE_HASH_EMPTY ? "00000001" : hex;
+}
+
+/* 寫入用的清理(會截斷)。比對一律用上面不截斷的 canon,只有真的要存的時候才走這裡。 */
+function normUpdateValue(field, v){
+  return isUpdateListField(field) ? list(v) : str(v, UPDATE_TEXT_LIMITS[field]);
+}
+
+/* 這一格超過上限的話,寫入時會被截掉多少。回傳 {total, kept, unit} 或 null。
+   審核畫面會標示這一欄並預設不勾 —— 截斷是「默默改掉夥伴寫的內容」,要讓組長先跟本人確認。 */
+function overLimit(field, v){
+  const c = canonUpdateValue(field, v);
+  if(isUpdateListField(field)){
+    if(c.length > INTAKE_LIST_MAX) return { total:c.length, kept:INTAKE_LIST_MAX, unit:"項" };
+    const longest = c.reduce((n, x) => Math.max(n, x.length), 0);
+    if(longest > INTAKE_TEXT_MAX) return { total:longest, kept:INTAKE_TEXT_MAX, unit:"字" };
+    return null;
+  }
+  const max = UPDATE_TEXT_LIMITS[field];
+  return c.length > max ? { total:c.length, kept:max, unit:"字" } : null;
+}
+
+/* 連結代碼 "v1.<成員 id>.<9 段 8 位 hex>" → { memberId, hashes:{欄位:雜湊} }。
+   格式不對(少一碼、多一段、大寫 hex…)一律回 null,當成沒有代碼 —— 夥伴把代碼改壞了,
+   最多只是少一層保護,不能讓它變成拒收的理由。 */
+function parseLinkToken(s){
+  const m = UPDATE_TOKEN_RE.exec(String(s == null ? "" : s));
+  if(!m) return null;
+  const hashes = {};
+  UPDATE_TOKEN_ORDER.forEach((f, i) => { hashes[f] = m[2].slice(i * 8, i * 8 + 8); });
+  return { memberId: m[1], hashes };
+}
+
+/* 整格只寫「無、同上、不變…」這類字,視為留白(記進 ignored,審核畫面看得到)。
+   清單欄位要整格只有這一項才算 —— 「同上」夾在其他項目中間時,那是夥伴真的寫的內容。 */
+function isPlaceholder(field, v){
+  const norm = t => String(t).normalize("NFKC").trim().toLowerCase().replace(/。+$/, "").trim();
+  if(isUpdateListField(field)){
+    const c = canonUpdateValue(field, v);
+    return c.length === 1 && UPDATE_PLACEHOLDERS.has(norm(c[0]));
+  }
+  return UPDATE_PLACEHOLDERS.has(norm(canonText(v)));
+}
+
+/* 公司網站。www.xxx.com.tw 這種寫法自動補 https://;其他不合格的不收,但回傳原文
+   ({invalid}),讓審核畫面看得到夥伴寫了什麼 —— 不要悄悄丟掉。 */
+function normalizeWebsite(v){
+  const s = canonText(v);
+  if(/^https?:\/\//i.test(s)){
+    return /^https?:\/\/[^\s]{1,300}$/.test(s) ? { url:s } : { invalid: str(v, 300) };
+  }
+  if(s.length <= 292 && /^(www\.)?[a-z0-9-]+(\.[a-z0-9-]+)+(\/\S*)?$/i.test(s)) return { url: "https://" + s };
+  return { invalid: str(v, 300) };
+}
+
+/* 內容雜湊:擋「Apps Script 重送、補送、提交其他回應」造成的重複送件。
+   crypto.subtle 是 Worker 內建的運算,不算子請求。 */
+async function updateContentHash(o){
+  const text = JSON.stringify({ changes:o.changes, note:o.note, invalid:o.invalid,
+                                cleared:o.cleared, confirmOnly:o.confirmOnly });
+  return (await sha256Hex(new TextEncoder().encode(text))).slice(0, 16);
+}
+
+/* key 一律由 uid 推出,呼叫端不能指定。uid 一定要先通過 UPDATE_UID_RE —— 少了這一關,
+   "../pending/…" 這種值就能讀寫到待認領照片。 */
+function updateKey(uid){ return UPDATE_REQ_PREFIX + uid + ".json"; }
+
+/* 列表用的 customMetadata。全部是字串、直接存 UTF-8(不做 encodeURIComponent)。
+   ★ R2 的 put 會**整份取代**舊的 metadata,所以收件、上鎖、解鎖的每一次 put 都要帶完整的一份。
+   lockBy 不在規格列出的鍵裡,但後台清單的「處理中（{lockBy}）」要靠它,所以一起放(≤32 字)。 */
+function updateMeta(req){
+  return {
+    v:"1", name: str(req.name, 80), memberId: str(req.memberId, 64), gid: str(req.gid, 64),
+    code: str(req.code, 16), at: str(req.at, 40), sat: str(req.sat || req.at, 40),
+    fields: Object.keys(req.changes || {}).join(","),
+    hasNote: req.note ? "1" : "0", confirm: req.confirmOnly ? "1" : "0",
+    state: str(req.state || "open", 16), lockAt: str(req.lockAt, 40), lockBy: str(req.lockBy, 32),
+    rid: str(req.responseId, 128), h: str(req.h, 32),
+  };
+}
+
+/* 讀一筆請求。回傳 {obj, req, etag} / {gone:true} / {error}。
+   uid 對不上(物件被搬動或寫壞)一律當成讀不懂 —— 不拿別人的請求內容來套用。 */
+async function readUpdate(env, uid){
+  let obj;
+  try{ obj = await env.PENDING_IMAGES.get(updateKey(uid)); }
+  catch(e){ return { error:"update_store_failed" }; }
+  if(!obj) return { gone:true };
+  let req;
+  try{ req = JSON.parse(await obj.text()); }
+  catch(e){ return { error:"update_unreadable" }; }
+  if(!req || typeof req !== "object" || Array.isArray(req) || req.uid !== uid) return { error:"update_unreadable" };
+  return { obj, req, etag: obj.etag };
+}
+
+/* 寫一筆請求。有 onlyIfEtag 時是 CAS:物件已經被別人改過或刪掉就回 null、什麼都不寫。
+   上鎖與解鎖都必須走 CAS —— 無條件 put 會把剛被「不採用」刪掉的請求救回來。 */
+async function putUpdate(env, req, onlyIfEtag){
+  const opts = { httpMetadata:{ contentType:"application/json" }, customMetadata: updateMeta(req) };
+  if(onlyIfEtag) opts.onlyIf = { etagMatches: onlyIfEtag };
+  const r = await env.PENDING_IMAGES.put(updateKey(req.uid), JSON.stringify(req), opts);
+  return r || null;
+}
+
+/* 列出所有待審核(只讀 metadata,不讀內容)。帶 metadata 的 list 一頁可能比 1000 筆少,
+   所以照 cursor 分頁,最多 UPDATE_LIST_MAX_PAGES 頁。
+   回傳 {items, truncated, unknown}:key 或 metadata 不合格的物件跳過並計數 ——
+   一個壞物件不可以讓整份清單變成 500,否則所有組長都看不到自己的待審核。
+   list 本身丟例外就往外丟,由呼叫端回 update_store_failed。 */
+async function listUpdateMeta(env){
+  const items = [];
+  let unknown = 0, truncated = false, cursor;
+  for(let page = 0; ; page++){
+    const res = await env.PENDING_IMAGES.list({ prefix: UPDATE_REQ_PREFIX, include:["customMetadata"], cursor });
+    for(const o of (res && res.objects) || []){
+      const key = String(o && o.key || "");
+      const uid = key.endsWith(".json") ? key.slice(UPDATE_REQ_PREFIX.length, -".json".length) : "";
+      const m = (o && o.customMetadata) || {};
+      if(!UPDATE_UID_RE.test(uid) || !m.memberId || !m.gid || !m.at){ unknown++; continue; }
+      items.push({
+        uid, memberId: String(m.memberId), name: String(m.name || ""), gid: String(m.gid),
+        code: String(m.code || ""), at: String(m.at), sat: String(m.sat || m.at),
+        fields: String(m.fields || ""), hasNote: m.hasNote === "1", confirm: m.confirm === "1",
+        state: String(m.state || "open"), lockAt: String(m.lockAt || ""), lockBy: String(m.lockBy || ""),
+        rid: String(m.rid || ""), h: String(m.h || ""),
+      });
+    }
+    if(!res || !res.truncated) break;
+    if(page + 1 >= UPDATE_LIST_MAX_PAGES){ truncated = true; break; }
+    cursor = res.cursor;
+  }
+  return { items, truncated, unknown };
+}
+
+/* 有人正在套用或不採用這一筆。鎖 10 分鐘後自動失效:Worker 中途被砍掉時,
+   沒有人能替它解鎖,所以不能做成永久鎖。 */
+function isLocked(x, now){
+  return !!x && x.state !== "open" && now - Date.parse(x.lockAt) < UPDATE_LOCK_MS;
+}
+
+/* 收件密碼錯誤的節流。固定窗:窗內只加次數、不重設 windowStart(否則一直錯就永遠不會解鎖,
+   也一直不會被擋)。只有密碼錯才寫 KV —— 正常送件不寫,灌單也不會吃掉 KV 的寫入額度。 */
+async function recordUpdateFail(env, ip, d){
+  const now = Date.now();
+  const inWin = d && typeof d.windowStart === "number" && now - d.windowStart <= FAIL_WINDOW_SECONDS * 1000;
+  const next = inWin ? { count:(Number(d.count) || 0) + 1, windowStart:d.windowStart } : { count:1, windowStart:now };
+  await env.RATE_LIMIT.put(UPDATE_FAIL_KEY + ip, JSON.stringify(next), { expirationTtl: FAIL_WINDOW_SECONDS });
+}
+
+/* 公開網站的網址(結尾有 /)。SITE_BASE 是選填的非機密變數,網站用自訂網域時才要設;
+   沒設就從 GH_OWNER/GH_REPO 推出 GitHub Pages 的網址(就是 site-config.js 的 SITE_BASE)。 */
+function siteBase(env){
+  const s = String(env.SITE_BASE == null ? "" : env.SITE_BASE).trim();
+  if(/^https:\/\//.test(s)) return s.endsWith("/") ? s : s + "/";
+  return "https://" + String(env.GH_OWNER).toLowerCase() + ".github.io/" + env.GH_REPO + "/";
+}
+
+/* 讀公開網站上的 JSON。加時間戳避開 Pages 快取(與 google-form.gs 的 fetchSite_ 同一個做法)。
+   回傳 {ok:true, data}(404 → data:null)或 {ok:false, error, status}。
+   ★ 解析一律 JSON.parse,不可以用 eval / new Function。 */
+async function readSiteJson(env, path){
+  let r, text;
+  try{
+    r = await fetchWithTimeout(siteBase(env) + path + "?t=" + Date.now(), {}, SITE_TIMEOUT_MS);
+    if(r.status === 404) return { ok:true, data:null };
+    if(r.status !== 200) return { ok:false, error:"site_unreachable", status:r.status };
+    text = await r.text();
+  }catch(e){
+    return { ok:false, error:"site_unreachable" };
+  }
+  try{ return { ok:true, data: JSON.parse(text) }; }
+  catch(e){ return { ok:false, error:"group_unreadable" }; }
+}
+
+/* data/_index.json 的內容 → { byCode: Map(代號小寫 → {code,name,id}), byGid: Map(id → {code,name}) }。
+   不是陣列就回 null。代號會被總管理員改,gid 不會 —— 請求一律記 gid,用的時候再換成當下的代號。 */
+function indexMapFrom(arr){
+  if(!Array.isArray(arr)) return null;
+  const byCode = new Map(), byGid = new Map();
+  for(const e of arr){
+    if(!e || typeof e !== "object" || typeof e.code !== "string" || typeof e.id !== "string" || !e.id) continue;
+    const code = e.code.trim();
+    if(!GROUPCODE_RE.test(code)) continue;
+    const name = typeof e.name === "string" ? e.name : "";
+    byCode.set(code.toLowerCase(), { code, name, id:e.id });
+    byGid.set(e.id, { code, name });
+  }
+  return { byCode, byGid };
+}
+/* 後台端點(清單、讀取、套用、不採用)用 GitHub API 讀 —— 立即一致,改代號之後馬上對得上。 */
+async function readIndexMap(env, headers){
+  const r = await ghReadFile(env, headers, "data/_index.json");
+  if(!r.ok) return { ok:false, error:r.error, status:r.status };
+  if(r.bytes === null) return { ok:false, error:"index_unreadable" };
+  let arr;
+  try{ arr = JSON.parse(new TextDecoder().decode(r.bytes)); }catch(e){ return { ok:false, error:"index_unreadable" }; }
+  const map = indexMapFrom(arr);
+  return map ? { ok:true, map } : { ok:false, error:"index_unreadable" };
+}
+/* 只有收件用這支:讀公開網站,不打 GitHub API(理由見本段開頭)。 */
+async function readIndexMapSite(env){
+  const r = await readSiteJson(env, "data/_index.json");
+  if(!r.ok) return r;
+  const map = r.data === null ? null : indexMapFrom(r.data);
+  return map ? { ok:true, map } : { ok:false, error:"group_unreadable" };
+}
+
+/* 後台端點共用的開頭:解析 → session → 唯讀擋下 → R2 有沒有綁。 */
+async function memberUpdateAuth(request, env){
+  let body; try{ body = await request.json(); }catch(e){ return { resp: json(env, { ok:false, error:"bad_request" }, 400) }; }
+  const sess = await verifySession(body && body.session, env.SESSION_SECRET);
+  if(!sess) return { resp: json(env, { ok:false, error:"session_expired" }, 401) };
+  // 唯讀帳號在後台整塊看不到;這裡再擋一次 —— 授權只寫在前端等於沒寫
+  if(isViewerSession(sess)) return { resp: json(env, { ok:false, error:"read_only" }, 403) };
+  if(!env.PENDING_IMAGES) return { resp: json(env, { ok:false, error:"pending_image_store_unavailable" }, 503) };
+  return { body: body || {}, sess };
+}
+
+/* 組長只能動自己那一組。用 _index(GitHub API)把 session 的代號換成 gid 再比 ——
+   請求記的是 gid,代號被總管理員改過之後仍然對得上。總管理員不讀 _index,省子請求。
+   回傳 null(通過)或可以直接送出去的 Response。 */
+function leaderGroupDenied(env, sess, map, gid){
+  if(sessionRole(sess) !== "leader") return null;
+  const hit = map.byCode.get(String(sess.g || "").trim().toLowerCase());
+  /* 他的代號已經不在 _index:是總管理員改了代號,不是越權。回 group_renamed(與清單、
+     發布同一個碼),後台會請他重新整理,而不是說他沒有權限。 */
+  if(!hit) return json(env, { ok:false, error:"group_renamed", group: sess.g || "" }, 409);
+  if(hit.id !== gid) return json(env, { ok:false, error:"forbidden_group" }, 403);
+  return null;
+}
+async function requireOwnGroup(env, sess, gid){
+  if(sessionRole(sess) !== "leader") return null;
+  const idx = await readIndexMap(env, await ghHeaders(env));
+  if(!idx.ok) return json(env, { ok:false, error:idx.error, status:idx.status }, 502);
+  return leaderGroupDenied(env, sess, idx.map, gid);
+}
+
+/* ── POST /member-update:Apps Script 收件 ────────────────────────────────────
+   只認 INTAKE_SECRET,不接受 session;只寫 updates/req/,不寫任何 git 檔案,也不用 GH_TOKEN。
+   子請求最多 10:KV 1、公開網站 2、R2 list ≤5、put 1、回滾 delete 1(GitHub API 0)。 */
+async function handleMemberUpdate(request, env){
+  const secret = env.INTAKE_SECRET;
+  if(!secret) return json(env, { ok:false, error:"intake_disabled" }, 503);
+
+  const startedAt = Date.now();
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  /* 只節流「密碼錯誤」。不沿用 /intake 的「每個 IP 每 15 分鐘 20 份」:Apps Script 的
+     對外 IP 是 Google 共用的,全分會補資料那天同一個 IP 一下就會送超過 20 份。 */
+  let fails = null;
+  try{
+    requireKV(env);
+    const raw = await env.RATE_LIMIT.get(UPDATE_FAIL_KEY + ip);
+    let d = null;
+    try{ d = raw ? JSON.parse(raw) : null; }catch(e){ d = null; }
+    if(d && typeof d.windowStart === "number" && Date.now() - d.windowStart <= FAIL_WINDOW_SECONDS * 1000){
+      if((Number(d.count) || 0) >= MAX_FAILS){
+        return json(env, { ok:false, error:"too_many_submissions",
+          retryAfter: Math.ceil((d.windowStart + FAIL_WINDOW_SECONDS * 1000 - Date.now()) / 1000) }, 429);
+      }
+      fails = d;
+    }
+  }catch(e){
+    // 寧可明講「節流壞了」(Apps Script 會自動補送),也不要在沒有防猜密碼的情況下照收
+    if(e && e.code === "rate_limit_kv_missing") return json(env, { ok:false, error:"rate_limit_unavailable" }, 500);
+    return json(env, { ok:false, error:"rate_limit_unavailable" }, 503);
+  }
+
+  let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
+  const good = timingSafeEqual(String(body && body.secret == null ? "" : body.secret), secret);
+  const elapsed = Date.now() - startedAt;
+  if(elapsed < MIN_LOGIN_MS) await sleep(MIN_LOGIN_MS - elapsed);
+  if(!good){
+    try{ await recordUpdateFail(env, ip, fails); }
+    catch(e){ return json(env, { ok:false, error:"rate_limit_unavailable" }, 503); }
+    return json(env, { ok:false, error:"bad_secret" }, 401);
+  }
+
+  // 與 /intake 同一個錯誤碼:Apps Script 與部署文件的對照可以共用
+  if(!env.PENDING_IMAGES) return json(env, { ok:false, error:"pending_image_store_unavailable" }, 503);
+
+  /* 基本驗證。update:{} 會停在這裡,這也是 checkMemberUpdateForm 探測用的固定回應。 */
+  const u = body && body.update;
+  if(!u || typeof u !== "object" || Array.isArray(u)) return json(env, { ok:false, error:"bad_update" }, 400);
+  const name = str(u.name, 80);
+  const group = str(u.group, 16);
+  if(!name || !GROUPCODE_RE.test(group)) return json(env, { ok:false, error:"bad_update" }, 400);
+
+  const now = Date.now();
+  const at = new Date(now).toISOString();
+  const token = parseLinkToken(str(u.linkToken, 200));
+  /* sat = 夥伴按送出的時間。排序、「只開放最舊一筆」都用它,不用收件時間 ——
+     否則失敗後補送的舊內容會變成「最新的一筆」,蓋過本人後來的更正。
+     範圍外(超過 180 天、未來 5 分鐘以上、亂碼)就退回收件時間。 */
+  const satMs = Date.parse(String(u.submittedAt == null ? "" : u.submittedAt));
+  const sat = (Number.isFinite(satMs) && satMs >= now - UPDATE_SAT_MAX_AGE_MS && satMs <= now + 5 * 60 * 1000)
+    ? new Date(Math.min(satMs, now)).toISOString() : at;
+  let pickedLabel = str(u.pickedLabel, 100);
+  if(!/^[A-Za-z0-9]{1,8}・\S/.test(pickedLabel)) pickedLabel = "";
+  const note = str(u.note, UPDATE_NOTE_MAX);
+  const responseId = str(u.responseId, 128);
+
+  /* 逐欄處理。只看 UPDATE_FIELDS,一律用 hasOwnProperty 判斷 ——
+     "constructor"、"__proto__" 這類鍵查得到 Object.prototype 上的東西,不能用 in 或 []。 */
+  const rawChanges = (u.changes && typeof u.changes === "object" && !Array.isArray(u.changes)) ? u.changes : {};
+  const cand = {}, ignored = [], invalid = [], untouched = [], clearedCandidates = [], truncatedCandidates = {};
+  for(const f of UPDATE_FIELDS){
+    if(!hasOwnKey(rawChanges, f)) continue;
+    let v = rawChanges[f];
+    if(!(typeof v === "string" || (Array.isArray(v) && v.every(x => typeof x === "string")))) v = "";
+    const c = canonUpdateValue(f, v);
+    if(!c.length){
+      // 連結帶入了內容、送來卻是空的:先記下來,找到人之後再看網站上這格是不是真的有內容
+      if(token && token.hashes[f] !== UPDATE_HASH_EMPTY) clearedCandidates.push(f);
+      continue;
+    }
+    if(isPlaceholder(f, v)){ ignored.push({ field:f, value: str(isUpdateListField(f) ? c[0] : c, 100) }); continue; }
+    // 連結帶入、本人沒改:不管網站現在是什麼都剔除,舊連結再填一次才不會把後來的修改改回去
+    if(token && updateValueHash(f, v) === token.hashes[f]){ untouched.push(f); continue; }
+    let val = v;
+    if(f === "website"){
+      const w = normalizeWebsite(v);
+      if(w.invalid !== undefined){ invalid.push({ field:f, value:w.invalid }); continue; }
+      val = w.url;
+    }
+    const over = overLimit(f, val);
+    if(over) truncatedCandidates[f] = over;
+    cand[f] = canonUpdateValue(f, val);
+  }
+  if(!Object.keys(cand).length && !invalid.length && !note && !clearedCandidates.length && !untouched.length){
+    return json(env, { ok:false, error:"nothing_to_update", ignored }, 400);
+  }
+
+  /* 找組別與人:讀公開網站(不打 GitHub API)。之後一律以 memberId 與 gid 為準。 */
+  const idx = await readIndexMapSite(env);
+  if(!idx.ok) return json(env, { ok:false, error:idx.error, status:idx.status }, 502);
+  const hit = idx.map.byCode.get(group.toLowerCase());
+  if(!hit) return json(env, { ok:false, error:"group_not_found", group }, 404);
+  const gid = hit.id, code = hit.code;
+  const site = await readSiteJson(env, "data/" + code.toLowerCase() + ".json");
+  if(!site.ok) return json(env, { ok:false, error:site.error, status:site.status }, 502);
+  if(site.data === null) return json(env, { ok:false, error:"group_not_found", group }, 404);
+  if(!site.data || typeof site.data !== "object" || !Array.isArray(site.data.members)){
+    return json(env, { ok:false, error:"group_unreadable" }, 502);
+  }
+  const members = site.data.members.filter(x => x && typeof x === "object" && !Array.isArray(x));
+  const nameKey = name.replace(/\s+/g, "");
+  let m = null, nameMismatch = null;
+  /* 連結代碼裡的成員 id 優先:夥伴改名之後,舊連結照樣找得到人。
+     id 一律以 gid + "_" 開頭,不是這一組的就不採用(成員不會跨組搬動)。 */
+  if(token && token.memberId.startsWith(gid + "_")){
+    m = members.find(x => x.id === token.memberId) || null;
+    if(m && str(m.name, 80).replace(/\s+/g, "") !== nameKey) nameMismatch = { picked:name, current: str(m.name, 80) };
+  }
+  if(!m){
+    const hits = members.filter(x => str(x.name).replace(/\s+/g, "") === nameKey);
+    if(!hits.length) return json(env, { ok:false, error:"member_not_found", group:code }, 404);
+    if(hits.length > 1) return json(env, { ok:false, error:"member_ambiguous", group:code }, 409);
+    m = hits[0];
+  }
+  if(!MEMBER_ID_RE.test(typeof m.id === "string" ? m.id : "")) return json(env, { ok:false, error:"group_unreadable" }, 502);
+
+  /* 和網站目前的值一樣的格子剔除。比對用不截斷的完整內容,寫入時才截。 */
+  const changes = {}, base = {}, stalePrefill = [], truncated = [], cleared = [];
+  for(const f of UPDATE_FIELDS){
+    if(!hasOwnKey(cand, f)) continue;
+    if(sameUpdateValue(f, cand[f], m[f])) continue;
+    changes[f] = normUpdateValue(f, cand[f]);
+    base[f] = canonUpdateValue(f, m[f]);
+    // 連結發出之後網站上這一欄變過:夥伴是看著舊內容改的,審核時預設不勾
+    if(token && token.hashes[f] !== updateValueHash(f, m[f])) stalePrefill.push(f);
+    if(truncatedCandidates[f]) truncated.push(Object.assign({ field:f }, truncatedCandidates[f]));
+  }
+  for(const f of clearedCandidates){
+    if(canonUpdateValue(f, m[f]).length) cleared.push({ field:f });
+  }
+
+  /* 什麼都沒改。被標「資料需確認」的夥伴例外:他確認資料正確也要留一筆,
+     組長跟本人確認之後才能用它取消提示(表單不驗證本人,不能自動取消)。 */
+  let confirmOnly = false;
+  if(!Object.keys(changes).length && !note && !invalid.length && !cleared.length){
+    if(m.dataIssue === true) confirmOnly = true;
+    else return json(env, { ok:true, unchanged:true, memberId:m.id, name: str(m.name, 80), code, ignored, untouched });
+  }
+
+  /* 去重排在計數之前:這位已經有 3 筆、其中一筆就是這次重送的,要回 duplicate 而不是 too_many。 */
+  const h = await updateContentHash({ changes, note, invalid, cleared: cleared.map(c => c.field), confirmOnly });
+  let listed;
+  try{ listed = await listUpdateMeta(env); }
+  catch(e){ return json(env, { ok:false, error:"update_store_failed" }, 502); }
+  const dup = listed.items.find(it => (responseId && it.rid === responseId) || (it.memberId === m.id && it.h === h));
+  if(dup) return json(env, { ok:true, duplicate:true, uid:dup.uid, memberId:m.id, name: str(m.name, 80), code });
+  /* 上限是軟性的:兩筆同時送出可能各自都通過計數,這是可以接受的。
+     沒看完整份清單就不能說「還沒滿」—— 那時 fail-closed。 */
+  if(listed.truncated) return json(env, { ok:false, error:"updates_full", reason:"list_truncated" }, 409);
+  if(listed.items.length >= MAX_OPEN_UPDATES) return json(env, { ok:false, error:"updates_full", max:MAX_OPEN_UPDATES }, 409);
+  const mine = listed.items.filter(it => it.memberId === m.id).length;
+  if(mine >= MAX_OPEN_UPDATES_PER_MEMBER){
+    return json(env, { ok:false, error:"too_many_updates_for_member", max:MAX_OPEN_UPDATES_PER_MEMBER, open:mine }, 409);
+  }
+
+  // uid 由這裡產生,不讓外面決定 —— 它就是 R2 的 key
+  const rnd = Array.from(crypto.getRandomValues(new Uint8Array(6)), b => (b % 36).toString(36)).join("");
+  const uid = "u_" + now.toString(36) + rnd;
+  const req = {
+    v:1, uid, at, sat, state:"open", lockBy:"", lockAt:"",
+    memberId: m.id, name: str(m.name, 80), gid, code,
+    label: str(u.label, 100) || (code + "・" + str(m.name, 80)),
+    pickedLabel, nameMismatch, tokenUsed: !!token,
+    changes, base, untouched, stalePrefill, cleared, truncated, ignored, invalid,
+    confirmOnly, note, responseId, h,
+  };
+  const reqBytes = new TextEncoder().encode(JSON.stringify(req)).length;
+  if(reqBytes > MAX_UPDATE_REQ_BYTES){
+    return json(env, { ok:false, error:"update_too_large", size:reqBytes, max:MAX_UPDATE_REQ_BYTES }, 413);
+  }
+  const metaBytes = new TextEncoder().encode(JSON.stringify(updateMeta(req))).length;
+  if(metaBytes > UPDATE_META_MAX_BYTES){
+    return json(env, { ok:false, error:"update_too_large", reason:"metadata", size:metaBytes, max:UPDATE_META_MAX_BYTES }, 413);
+  }
+
+  try{ await putUpdate(env, req); }
+  catch(e){
+    // put 丟例外不代表沒寫進去(可能只是回應掉了),試著刪掉,不留一筆「回報失敗卻存在」的請求
+    try{ await env.PENDING_IMAGES.delete(updateKey(uid)); }catch(e2){ /* lifecycle 會清 */ }
+    return json(env, { ok:false, error:"update_store_failed" }, 502);
+  }
+
+  const oldestMs = listed.items.reduce((n, it) => {
+    const t = Date.parse(it.sat);
+    return Number.isFinite(t) && t < n ? t : n;
+  }, Date.parse(sat));
+  return json(env, {
+    ok:true, uid, memberId:m.id, name: str(m.name, 80), code,
+    fields: Object.keys(changes), ignored, invalid, untouched, stalePrefill,
+    cleared: cleared.map(c => c.field), truncated: truncated.map(t => t.field),
+    confirmOnly, hasNote: !!note,
+    open: listed.items.length + 1,
+    groupOpen: listed.items.filter(it => it.gid === gid).length + 1,
+    oldestAt: new Date(oldestMs).toISOString(),
+  });
+}
+
+/* ── POST /member-updates:後台清單 ─────────────────────────────────────────
+   只回 metadata,不回內容。子請求最多 7:GitHub ≤2、R2 list ≤5。 */
+async function handleMemberUpdates(request, env){
+  const a = await memberUpdateAuth(request, env);
+  if(a.resp) return a.resp;
+  const { sess } = a;
+  const idx = await readIndexMap(env, await ghHeaders(env));
+  if(!idx.ok) return json(env, { ok:false, error:idx.error, status:idx.status }, 502);
+  let myGid = null;
+  if(sessionRole(sess) === "leader"){
+    const hit = idx.map.byCode.get(String(sess.g || "").trim().toLowerCase());
+    if(!hit) return json(env, { ok:false, error:"group_renamed", group: sess.g || "" }, 409);
+    myGid = hit.id;
+  }
+  let listed;
+  try{ listed = await listUpdateMeta(env); }
+  catch(e){ return json(env, { ok:false, error:"update_store_failed" }, 502); }
+  const now = Date.now();
+  const t = s => { const n = Date.parse(s); return Number.isFinite(n) ? n : 0; };
+  const items = listed.items
+    .filter(it => !myGid || it.gid === myGid)
+    .map(it => {
+      // 代號用當下的(請求記的是 gid);組已經不在 _index 時沿用收件當時的代號
+      const g = idx.map.byGid.get(it.gid);
+      return {
+        uid: it.uid, memberId: it.memberId, name: it.name, gid: it.gid,
+        code: g ? g.code : it.code, groupName: g ? g.name : "", groupMissing: !g,
+        at: it.at, sat: it.sat, fields: it.fields ? it.fields.split(",").filter(Boolean) : [],
+        hasNote: it.hasNote, confirm: it.confirm, state: it.state,
+        busy: isLocked(it, now), lockAt: it.lockAt, lockBy: it.lockBy,
+      };
+    })
+    // 一律依「夥伴按送出的時間」由舊到新:補送進來的舊內容不會排到後面變成「最新的一筆」
+    .sort((x, y) => (t(x.sat) - t(y.sat)) || (t(x.at) - t(y.at)) || (x.uid < y.uid ? -1 : x.uid > y.uid ? 1 : 0));
+  // openAll 是全分會的筆數,組長也拿得到:「快滿了」的提醒要看的是整體
+  return json(env, { ok:true, max:MAX_OPEN_UPDATES, perMemberMax:MAX_OPEN_UPDATES_PER_MEMBER,
+                     openAll: listed.items.length, truncated: listed.truncated, unknown: listed.unknown, items });
+}
+
+/* ── POST /member-update-get:讀一筆的完整內容 ───────────────────────────────
+   子請求最多 3:R2 1、GitHub 0–2(只有組長要讀 _index)。 */
+async function handleMemberUpdateGet(request, env){
+  const a = await memberUpdateAuth(request, env);
+  if(a.resp) return a.resp;
+  const { body, sess } = a;
+  const uid = String(body.uid == null ? "" : body.uid);
+  if(!UPDATE_UID_RE.test(uid)) return json(env, { ok:false, error:"bad_request" }, 400);
+  const rd = await readUpdate(env, uid);
+  if(rd.gone) return json(env, { ok:false, error:"update_gone" }, 409);
+  if(rd.error) return json(env, { ok:false, error:rd.error }, 502);
+  const deny = await requireOwnGroup(env, sess, rd.req.gid);
+  if(deny) return deny;
+  return json(env, { ok:true, request: rd.req });
+}
+
+/* ── POST /member-update-apply:伺服器端交易,寫進 data/<組>.json ────────────
+   輸入 { session, uid, choices:{欄位:"replace"|"append"|"skip"}, expect:{欄位:審核者畫面上的目前值},
+         clearDataIssue }
+
+   並行控制:
+     ・上鎖用 etag 做 CAS:兩個分頁同時按「套用」、或「套用」撞上「不採用」,只有一方拿得到鎖
+     ・expect:審核者看到的值和 GitHub 上的現值逐欄比對,不同就停下(member_changed),
+       不會把別人剛改好的欄位蓋回去;只有同一欄真的被改過才會擋,改到其他欄不受影響
+     ・lastUpdateFrom = uid:同一筆不會被套用兩次(commit 成功但清除失敗、ref 更新逾時之後再按)
+
+   子請求有靜態上限(Cloudflare 免費方案單次 50):每一輪只提交一次(maxTries:1)、最多 3 輪。
+     固定:R2 get 1 + _index 1–2 + 上鎖 1 + 刪除或解鎖 1(清除失敗時再加解鎖 1)= 最多 6
+     每輪:組檔 ≤2 + 提交一次(組長 ≤10、總管理員 ≤8)
+     合計:組長 6 + 3 × 12 = 42、總管理員 6 + 3 × 10 = 36 */
+async function handleMemberUpdateApply(request, env){
+  const a = await memberUpdateAuth(request, env);
+  if(a.resp) return a.resp;
+  const { body, sess } = a;
+  const uid = String(body.uid == null ? "" : body.uid);
+  const choicesIn = body.choices;
+  if(!UPDATE_UID_RE.test(uid) || !choicesIn || typeof choicesIn !== "object" || Array.isArray(choicesIn)){
+    return json(env, { ok:false, error:"bad_request" }, 400);
+  }
+
+  const rd = await readUpdate(env, uid);
+  if(rd.gone) return json(env, { ok:false, error:"update_gone" }, 409);
+  if(rd.error) return json(env, { ok:false, error:rd.error }, 502);
+  const req = rd.req;
+  const changes = (req.changes && typeof req.changes === "object" && !Array.isArray(req.changes)) ? req.changes : {};
+
+  /* choices 的鍵必須同時在白名單與這筆的 changes 裡;append 只給清單欄位。
+     不在 choices 裡的欄位就是不套用。 */
+  const choices = {};
+  for(const k of Object.keys(choicesIn)){
+    const c = choicesIn[k];
+    if(UPDATE_FIELDS.indexOf(k) < 0 || !hasOwnKey(changes, k)) return json(env, { ok:false, error:"bad_choice", field:k }, 400);
+    if(!(c === "replace" || c === "skip" || (c === "append" && isUpdateListField(k)))){
+      return json(env, { ok:false, error:"bad_choice", field:k }, 400);
+    }
+    choices[k] = c;
+  }
+  const active = UPDATE_FIELDS.filter(f => hasOwnKey(choices, f) && choices[f] !== "skip");
+  const expect = (body.expect && typeof body.expect === "object" && !Array.isArray(body.expect)) ? body.expect : {};
+  for(const f of active){
+    // 審核者畫面上那一欄的「目前」值。沒送就無從判斷他看到的是不是現值 → 不套用
+    const v = hasOwnKey(expect, f) ? expect[f] : undefined;
+    const okType = v === null || typeof v === "string" || (Array.isArray(v) && v.every(x => typeof x === "string"));
+    if(!okType) return json(env, { ok:false, error:"bad_choice", field:f, reason:"expect" }, 400);
+  }
+  const clearDataIssue = body.clearDataIssue === true;
+  if(!active.length && !clearDataIssue) return json(env, { ok:false, error:"nothing_selected" }, 400);
+
+  /* 權限與路徑:請求記的是 gid,用 _index 換成當下的代號(總管理員改過代號也找得到新檔)。
+     組長有三道:這裡比 gid、canWriteDataFile 比路徑、commitWithVersionCheck 再用同一個快照
+     確認他的代號仍有效。 */
+  const headers = await ghHeaders(env);
+  const idx = await readIndexMap(env, headers);
+  if(!idx.ok) return json(env, { ok:false, error:idx.error, status:idx.status }, 502);
+  const grp = idx.map.byGid.get(req.gid);
+  if(!grp) return json(env, { ok:false, error:"group_missing" }, 409);
+  const denied = leaderGroupDenied(env, sess, idx.map, req.gid);
+  if(denied) return denied;
+  const code = grp.code;
+  const dataPath = "data/" + code.toLowerCase() + ".json";
+  if(!canWriteDataFile(sess, dataPath)) return json(env, { ok:false, error:"forbidden_path", path:dataPath }, 403);
+
+  const now = Date.now();
+  if(isLocked(req, now)){
+    return json(env, { ok:false, error:"update_busy", state:req.state, lockBy:req.lockBy || "", lockAt:req.lockAt || "" }, 409);
+  }
+  const who = String(sess.u || "").slice(0, 32);
+  let lockObj;
+  try{ lockObj = await putUpdate(env, Object.assign({}, req, { state:"applying", lockBy:who, lockAt:new Date(now).toISOString() }), rd.etag); }
+  catch(e){ return json(env, { ok:false, error:"update_store_failed" }, 502); }
+  if(!lockObj) return json(env, { ok:false, error:"update_busy" }, 409);
+
+  /* 條件式解鎖:只在物件還是我們上鎖的那一版時才寫回 open。
+     ★ 不可以無條件 put —— 別人在這期間把它刪掉(或 7c 已經清掉)的話,那會把請求救回來。
+     丟例外或回 null 都吞掉:鎖 10 分鐘後自動失效。 */
+  const unlock = async () => {
+    try{ await putUpdate(env, Object.assign({}, req, { state:"open", lockBy:"", lockAt:"" }), lockObj.etag); }
+    catch(e){ /* best-effort */ }
+  };
+  const key = updateKey(uid);
+  let committed = null, released = false;
+  try{
+    let last = null;
+    for(let round = 0; round < UPDATE_APPLY_ROUNDS; round++){
+      /* a. 每一輪都重讀組檔(不帶 ref = 當下的 main)。上一輪被判 stale_base 時,
+            多半是別人剛發布了同組的其他成員 —— 重讀之後 expect 仍然相符,就照常套用。 */
+      const read = await ghReadFile(env, headers, dataPath);
+      if(!read.ok) return json(env, { ok:false, error:read.error, status:read.status }, 502);
+      if(read.bytes === null) return json(env, { ok:false, error:"group_renamed", path:dataPath }, 409);
+      let groupBody;
+      try{ groupBody = JSON.parse(new TextDecoder().decode(read.bytes)); }
+      catch(e){ return json(env, { ok:false, error:"group_unreadable" }, 502); }
+      if(!groupBody || typeof groupBody !== "object" || Array.isArray(groupBody) || !Array.isArray(groupBody.members)){
+        return json(env, { ok:false, error:"group_unreadable" }, 502);
+      }
+      // b. 用 memberId 找人(不看姓名:改名之後一樣找得到)
+      const mi = groupBody.members.findIndex(x => x && typeof x === "object" && x.id === req.memberId);
+      if(mi < 0) return json(env, { ok:false, error:"member_missing", code }, 409);
+      const member = groupBody.members[mi];
+      // c. 這一筆已經寫進去過了(上次 commit 成功但清除失敗,或 ref 更新逾時其實已生效)
+      if(member.lastUpdateFrom === uid){
+        try{ await env.PENDING_IMAGES.delete(key); released = true; }catch(e){ /* 下次再清 */ }
+        return json(env, { ok:false, error:"update_already_applied", memberId:req.memberId, code }, 409);
+      }
+      // d. 審核者看到的值必須還是現值
+      const moved = active.filter(f => !sameUpdateValue(f, expect[f], member[f]));
+      if(moved.length) return json(env, { ok:false, error:"member_changed", fields:moved }, 409);
+
+      // e. 組新的成員卡。值一律再清理一次;apply 沒有「清空」的語意,也永遠不會把 dataIssue 設成 true
+      const next = Object.assign({}, member);
+      const warnings = [];
+      let effective = false;
+      for(const f of active){
+        let nv;
+        if(choices[f] === "append"){
+          const merged = canonUpdateValue(f, member[f]).map(x => str(x));
+          const seen = new Set(merged);
+          for(const t of canonUpdateValue(f, changes[f]).map(x => str(x))){
+            if(t && !seen.has(t)){ seen.add(t); merged.push(t); }
+          }
+          if(merged.length > INTAKE_LIST_MAX){
+            warnings.push({ field:f, reason:"list_truncated", dropped: merged.length - INTAKE_LIST_MAX });
+          }
+          nv = normUpdateValue(f, merged);
+        } else {
+          nv = normUpdateValue(f, changes[f]);
+          if(!canonUpdateValue(f, nv).length) return json(env, { ok:false, error:"bad_choice", field:f, reason:"empty" }, 400);
+          if(f === "website" && !/^https?:\/\/[^\s]{1,300}$/.test(nv)){
+            return json(env, { ok:false, error:"bad_choice", field:f, reason:"bad_website" }, 400);
+          }
+        }
+        if(!sameUpdateValue(f, nv, member[f])){ next[f] = nv; effective = true; }
+      }
+      let dataIssueCleared = false;
+      if(clearDataIssue && member.dataIssue === true){ next.dataIssue = false; dataIssueCleared = true; effective = true; }
+      if(!effective) return json(env, { ok:false, error:"no_effective_change" }, 409);
+      // lastUpdateFrom 是公開欄位(前例是 claimedFrom):事後查得到這張卡最後一次是哪一筆更新寫的
+      next.updatedAt = new Date().toISOString();
+      next.lastUpdateFrom = uid;
+      groupBody.members[mi] = next;
+
+      // f. 寫進去之前先過產線的同一道檢查,壞檔不 commit(否則整個網站停止更新)
+      const text = JSON.stringify(groupBody, null, 2) + "\n";
+      const why = checkDataFileBody(dataPath, text);
+      if(why) return json(env, { ok:false, error:"bad_data_file", path:dataPath, reason:why }, 400);
+      const bytes = new TextEncoder().encode(text);
+      if(bytes.length > MAX_DATA_BYTES) return json(env, { ok:false, error:"data_too_large", size:bytes.length, max:MAX_DATA_BYTES }, 413);
+
+      // g. 每一輪只提交一次。版本基準是這一輪讀到的 blob sha
+      const r = await commitWithVersionCheck(env, headers, {
+        files: [{ path:dataPath, contentB64: bytesToB64(bytes) }], remove: [],
+        baseHashes:{}, baseBlobShas:{ [dataPath]: read.sha }, blobCache:{}, assetPaths: [], sess,
+        maxTries: 1,
+        message: "夥伴資料更新：" + str(member.name, 80) + "（" + code + "・" + who + "）",
+      });
+      // h.
+      if(r.ok){ committed = { r, warnings, dataIssueCleared }; break; }
+      const e = r.body && r.body.error;
+      if(e === "stale_base" || e === "busy_retry_later"){ last = r; continue; }
+      /* ref PATCH 的回應不是 2xx 或逾時:GitHub 端可能其實已經更新了 ref。
+         不能說「沒有寫入」—— 回 apply_uncertain,後台會說明怎麼判斷。再按一次套用也安全(7c)。 */
+      if(e === "github_write_failed" || e === "github_timeout" || e === "github_unreachable"){
+        return json(env, { ok:false, error:"apply_uncertain", cause:e }, 502);
+      }
+      // 其他(group_renamed、forbidden_asset、index_missing_group、version_check_failed、token_forbidden…)
+      // 都發生在寫入 ref 之前,確定沒有寫入
+      return json(env, r.body, r.status);
+    }
+    // 3 輪都被搶先
+    if(!committed) return json(env, last.body, last.status);
+  }catch(e){
+    // ghCommitFiles 的 ref PATCH 逾時會丟 AbortError,此時 ref 可能已經更新 → 不確定
+    if(!committed) return json(env, { ok:false, error:"apply_uncertain", cause:"exception" }, 502);
+  }finally{
+    // ★ 一定解鎖(除了成功與已清掉的情況),否則這一筆要卡 10 分鐘
+    if(!committed && !released) await unlock();
+  }
+
+  /* commit 成功之後才刪請求。刪除失敗**不回滾**(網站資料是對的),回 cleanupFailed;
+     同時把鎖解開 —— 否則這一筆要卡 10 分鐘,後台按「已處理」或再按「套用」都只會看到「處理中」。
+     解開之後再按套用,會在 7c 被 lastUpdateFrom 攔下並清掉。 */
+  let cleanupFailed = false;
+  try{ await env.PENDING_IMAGES.delete(key); }
+  catch(e){ cleanupFailed = true; await unlock(); }
+  const out = { ok:true, memberId:req.memberId, code, commit: committed.r.commitSha, applied: active,
+                dataIssueCleared: committed.dataIssueCleared, warnings: committed.warnings };
+  if(cleanupFailed) out.cleanupFailed = true;
+  return json(env, out);
+}
+
+/* ── POST /member-update-drop:「不採用」與「已處理」共用 ─────────────────────
+   只動 R2,不動網站。先用 CAS 改成 dropping(和「套用」互斥),再刪。
+   子請求最多 5:R2 get 1、GitHub 0–2、put 1、delete 1。 */
+async function handleMemberUpdateDrop(request, env){
+  const a = await memberUpdateAuth(request, env);
+  if(a.resp) return a.resp;
+  const { body, sess } = a;
+  const uid = String(body.uid == null ? "" : body.uid);
+  if(!UPDATE_UID_RE.test(uid)) return json(env, { ok:false, error:"bad_request" }, 400);
+  const rd = await readUpdate(env, uid);
+  if(rd.gone) return json(env, { ok:false, error:"update_gone" }, 409);
+  if(rd.error) return json(env, { ok:false, error:rd.error }, 502);
+  const req = rd.req;
+  const deny = await requireOwnGroup(env, sess, req.gid);
+  if(deny) return deny;
+  const now = Date.now();
+  if(isLocked(req, now)){
+    return json(env, { ok:false, error:"update_busy", state:req.state, lockBy:req.lockBy || "", lockAt:req.lockAt || "" }, 409);
+  }
+  let lockObj;
+  try{
+    lockObj = await putUpdate(env, Object.assign({}, req, { state:"dropping", lockBy: String(sess.u || "").slice(0, 32),
+                                                            lockAt: new Date(now).toISOString() }), rd.etag);
+  }catch(e){ return json(env, { ok:false, error:"update_store_failed" }, 502); }
+  if(!lockObj) return json(env, { ok:false, error:"update_busy" }, 409);
+  // 刪除失敗時物件停在 dropping,10 分鐘後可以再操作
+  try{ await env.PENDING_IMAGES.delete(updateKey(uid)); }
+  catch(e){ return json(env, { ok:false, error:"update_store_failed" }, 502); }
+  return json(env, { ok:true });
+}
+
+/* ── POST /member-update-drop-batch:總管理員一次不採用多筆(被灌單時用)──────────
+   R2 的 delete 接受 key 陣列(一次最多 1,000 個),只算一次呼叫。
+   ★ 競態:列表之後、刪除之前剛好有人對其中一筆上鎖套用,套用照樣會 commit,
+     請求被這裡刪掉 —— 結果是「資料已套用、請求不見了」,不會損壞資料。單筆的
+     /member-update-drop 仍然用 CAS,只有批次這條路接受這個競態(逐筆 CAS 要 2N 個子請求)。
+   子請求最多 6:R2 list ≤5、delete 1。 */
+async function handleMemberUpdateDropBatch(request, env){
+  let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
+  const sess = await verifySession(body && body.session, env.SESSION_SECRET);
+  if(!sess) return json(env, { ok:false, error:"session_expired" }, 401);
+  if(sessionRole(sess) !== "owner") return json(env, { ok:false, error:"admin_only" }, 403);
+  if(!env.PENDING_IMAGES) return json(env, { ok:false, error:"pending_image_store_unavailable" }, 503);
+  const uids = body && body.uids;
+  if(!Array.isArray(uids) || !uids.length || uids.length > MAX_DROP_BATCH ||
+     !uids.every(x => typeof x === "string" && UPDATE_UID_RE.test(x))){
+    return json(env, { ok:false, error:"bad_request" }, 400);
+  }
+  let listed;
+  try{ listed = await listUpdateMeta(env); }
+  catch(e){ return json(env, { ok:false, error:"update_store_failed" }, 502); }
+  const byUid = new Map(listed.items.map(it => [it.uid, it]));
+  const now = Date.now();
+  const drop = [], skipped = [];
+  for(const uid of new Set(uids)){
+    const it = byUid.get(uid);
+    if(it && !isLocked(it, now)) drop.push(uid); else skipped.push(uid);
+  }
+  if(drop.length){
+    try{ await env.PENDING_IMAGES.delete(drop.map(updateKey)); }
+    catch(e){ return json(env, { ok:false, error:"update_store_failed" }, 502); }
+  }
+  return json(env, { ok:true, dropped: drop.length, skipped });
 }
 
 /* ══ 來賓報名(公開、免密碼)══════════════════════════════════════════════
@@ -2143,6 +3003,12 @@ export default {
       if(pathname === "/health") return await handleHealth(request, env);
       if(pathname === "/views") return await handleViews(request, env);
       if(pathname === "/visitor") return await handleVisitor(request, env);
+      if(pathname === "/member-update") return await handleMemberUpdate(request, env);
+      if(pathname === "/member-updates") return await handleMemberUpdates(request, env);
+      if(pathname === "/member-update-get") return await handleMemberUpdateGet(request, env);
+      if(pathname === "/member-update-apply") return await handleMemberUpdateApply(request, env);
+      if(pathname === "/member-update-drop") return await handleMemberUpdateDrop(request, env);
+      if(pathname === "/member-update-drop-batch") return await handleMemberUpdateDropBatch(request, env);
       return json(env, { ok:false, error:"not_found" }, 404);
     }catch(e){
       return json(env, { ok:false, error:"server_error" }, 500);
