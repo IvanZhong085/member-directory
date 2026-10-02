@@ -1266,6 +1266,14 @@ function cleanupArchivedPhotos() { photoCleanup_(false); }
 /* 比對姓名用:去掉所有空白、轉小寫。表單填的與名錄上的偶爾差一個空白。 */
 function normName_(s) { return String(s == null ? "" : s).replace(/\s+/g, "").toLowerCase(); }
 
+/* 夥伴資料更新表單「請選你的名字」的選項文字:「A1・曾俊凱」。
+   中間是 U+30FB「・」,和網站徽章「代號・組名」同一種寫法。
+   ★ 後台 admin-logic.js 有一支逐字相同的 memberUpdateLabel:組長複製的預填連結靠這串字
+     預選名字。兩邊只要差一個字(例如一邊用 U+00B7「·」),預填就選不到人,夥伴只會看到
+     空白的選單 —— 而且不會有任何錯誤。所以 tests/logic.test.mjs 會載入這個檔比對兩邊的輸出,
+     改這裡請一起改 admin-logic.js。 */
+function memberUpdateLabel_(code, name) { return String(code).trim() + "・" + String(name).trim(); }
+
 /* 抓公開網站上的檔案。加時間戳避開 GitHub Pages 的快取 —— 讀到舊版就可能誤判。 */
 function fetchSite_(path) {
   var url = SITE_BASE_URL + path + (path.indexOf("?") >= 0 ? "&" : "?") + "t=" + Date.now();
