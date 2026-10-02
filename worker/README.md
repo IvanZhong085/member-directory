@@ -223,7 +223,15 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 
 #### 確認有沒有設定成功
 
-部署後打一次 `/ping`，`caps.pendingImages` 要是 `"r2-v1"`：
+部署後打一次 `/ping`，`caps.pendingImages` 要是 `"r2-v1"`。
+
+`/ping` 要用 **POST** 打：Worker 只收 POST，用瀏覽器直接開網址會看到 `method_not_allowed`，那是正常的，不代表沒部署好。在終端機執行（Windows 請打 `curl.exe`：PowerShell 裡的 `curl` 是另一個指令；Worker 網址在 Worker 總覽頁，見下面第 5 步）：
+
+```
+curl -s -X POST https://你的Worker網址/ping
+```
+
+回應裡會有這幾項（還有其他欄位，不用管）：
 
 ```json
 { "ok": true, "caps": { "pendingImages": "r2-v1", "claim": true, "read": true, "atomic": true } }
@@ -253,7 +261,7 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 |---|---|---|
 | 1 | 建立 private R2 bucket（見 4-2） | bucket 存在、**沒有** Public Access |
 | 2 | 綁 `PENDING_IMAGES`、設 `pending/` 的 90 天 lifecycle rule | Bindings 清單裡看得到 |
-| 3 | **先**部署新版 Worker | 打 `/ping`，`caps.pendingImages === "r2-v1"` |
+| 3 | **先**部署新版 Worker | 打 `/ping`（用 POST，見 4-2 的「確認有沒有設定成功」），`caps.pendingImages === "r2-v1"` |
 | 4 | 更新 Apps Script（`tools/google-form.gs`）與前端 | 跑 `checkNotifySetup` **同意授權**，再跑 `checkNewMemberSetup`：「授權狀態」是 ✅、沒有紅字 |
 | 5 | 送一份**含 7 張照片**的測試申請 | R2 裡有 7 個物件、`_pending.json` 只有幾 KB、認領後 `images/` 有 7 張且 R2 被清空 |
 | 6 | 確認無誤後才處理／清掉舊的待認領資料 | — |
@@ -281,9 +289,11 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 
 1. **R2 lifecycle**：bucket → Settings → Object lifecycle rules，確認每一條規則都有指定 Prefix（原本應該只有 `pending/` 那一條；建議再加一條 `updates/`、90 天）。**不可以有空白 prefix 或套用整個 bucket 的規則。**
 2. **部署新版 `publish-relay.js`**。不需要新增 Secret，沿用原本的 `INTAKE_SECRET` 與 `PENDING_IMAGES`。
-3. **打 `/ping` 確認**：
+3. **打 `/ping` 確認**（要用 **POST**：在終端機執行 `curl -s -X POST https://你的Worker網址/ping`，Windows 請打 `curl.exe`。用瀏覽器直接開網址只會看到 `method_not_allowed`，那是正常的，不代表沒部署好）：
    - `caps.memberUpdate` 是 `true`（`false` 代表 `PENDING_IMAGES` 沒綁好，先回 4-2）；
    - `memberUpdateSite` 等於公開網站的網址。不同的話（例如網站改用自訂網域），在 Worker 的一般變數加 `SITE_BASE`，值填網站網址。
+
+   沒辦法用終端機的話，主 README「八」部署步驟第 5 步 `checkMemberUpdateForm` 的「Worker」那一行會核對同樣兩項；那一行不是 ✅ 就不要往下做第 6 步。
 
 > **子請求預算**：Cloudflare 免費方案每次呼叫最多 50 個子請求，呼叫 R2、KV 也算。套用一筆更新最壞約 42 個（每次只提交一次、最多 3 輪），其他端點都在 10 個以內。
 >

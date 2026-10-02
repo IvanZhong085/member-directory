@@ -206,7 +206,7 @@ https://ivanzhong085.github.io/member-directory/roster.csv
 3. 執行紀錄若出現紅字「需要重新授權」，用瀏覽器打開它印出的網址完成同意，再跑一次。
 4. 收到測試信就完成了。之後想確認觸發器還在不在，跑 `checkVisitorNotify`。
 
-收件人依序找第一個有設的：`VISITOR_NOTIFY_EMAIL` → `NOTIFY_EMAIL` → `ALERT_EMAIL` → 腳本擁有者。分會信箱已經設在 `ALERT_EMAIL` 的話什麼都不用多做；要另外寄到接待組的信箱就跑 `setVisitorNotifyEmail("接待組信箱")`。
+收件人依序找第一個有設的：`VISITOR_NOTIFY_EMAIL` → `NOTIFY_EMAIL` → `ALERT_EMAIL` → 腳本擁有者。分會信箱已經設在 `ALERT_EMAIL` 的話什麼都不用多做；要另外寄到接待組的信箱就跑 `setVisitorNotifyEmail("接待組信箱")`（要帶參數，不能直接從下拉選單選它按執行，做法見「八」的「要帶參數的函式怎麼執行」）。
 
 > ⚠ 這封信含來賓的電話與 LINE ID，請不要在分會信箱設定自動轉寄到群組。
 
@@ -312,9 +312,27 @@ Google 表單只要有「上傳檔案」題，整份表單就會**強制登入 G
 | 8 | 在自己的成員卡按「複製已帶好名字的更新連結」，用手機打開，只改一格送出；再用**同一條連結**送一次，這次什麼都不改 | 第一次後台出現一筆，只有改的那一格；第二次不會多一筆（Apps Script 執行紀錄是「內容和名錄上一樣，沒有建立待審核」）。最後把那一筆按「不採用」 |
 | 9 | 再跑一次 `checkMemberUpdateForm` | **全部 ✅ 才把網址發到 LINE** |
 
-- 第 2 步的 `/ping` 要用 **POST** 打：Worker 只收 POST，用瀏覽器直接開網址會看到 `method_not_allowed`，那是正常的。可以在終端機執行 `curl -s -X POST https://你的Worker網址/ping`；第 5 步 `checkMemberUpdateForm` 的「Worker」那一行也會再核對一次這兩項。
+- 第 2 步的 `/ping` 要用 **POST** 打：Worker 只收 POST，用瀏覽器直接開網址會看到 `method_not_allowed`，那是正常的。可以在終端機執行 `curl -s -X POST https://你的Worker網址/ping`（Windows 請打 `curl.exe`：PowerShell 裡的 `curl` 是另一個指令）；第 5 步 `checkMemberUpdateForm` 的「Worker」那一行也會再核對一次這兩項。
 - 第 7 步要貼的兩行，在第 4 步執行紀錄的第 ⑥ 段；找不到了就執行 `printMemberUpdateLinkConfig` 重印。
-- 函式都是在 Apps Script 上方的函式下拉選單選好再按「執行」；要帶參數的（例如下面的補送），寫法和 `setNotifyEmail("…")` 一樣。
+- 函式都是在 Apps Script 上方的函式下拉選單選好再按「執行」；括號裡要帶東西的（例如下面的補送），照下一段做。
+
+**要帶參數的函式怎麼執行**
+
+「執行」按鈕沒辦法帶參數。`resendMemberUpdate("回應 ID")`、`dismissFailedMemberUpdate("回應 ID")`、`forgetMemberUpdateForm(true)`、`setAlertEmail("…")` 這類括號裡有東西的函式，直接從下拉選單選它按執行，只會看到用法錯誤、「清單上沒有這筆」或被擋下來；`setAlertEmail`、`setNotifyEmail`、`setVisitorNotifyEmail` 沒帶參數還會**把原本設好的信箱清掉**。要另外包一層：
+
+1. 左邊「檔案」旁的 ＋ →「指令碼」→ 檔名打 `暫用` → 按 Enter。已經有「暫用」這個檔，就直接點開它，**不要再開第二個**。
+2. 把「暫用」裡的內容**整個換成**下面這一行，大括號裡換成這次要跑的那一句：
+
+   ```js
+   function runOnce() { resendMemberUpdate("貼上回應 ID", "A1・正確姓名"); }
+   ```
+
+   其他例子：`function runOnce() { dismissFailedMemberUpdate("貼上回應 ID"); }`、`function runOnce() { forgetMemberUpdateForm(true); }`、`function runOnce() { setAlertEmail("yourname@gmail.com"); }`。引號要用英文半形的 `"`，不能是「」或全形的 ＂。
+3. 按存檔（磁碟圖示）。跳出錯誤訊息（例如 `Syntax error`）代表貼錯了，檢查引號和括號，先不要往下做。
+4. 上方函式下拉選單選 `runOnce` → 按「執行」→ 看下方的執行紀錄。
+5. 用完**把「暫用」這個檔刪掉**（滑到檔名上 → 旁邊的 ⋮ →「刪除」）。留著的話，日後誤選 `runOnce` 會把同一件事再做一次。
+
+主程式那個檔（通常叫「程式碼.gs」，就是貼 `google-form.gs` 的那個）不要動：在裡面加減程式碼容易誤刪到別的地方，下次整份貼新版時也會被蓋掉。
 
 ### 常見問題
 
@@ -332,7 +350,7 @@ Google 表單只要有「上傳檔案」題，整份表單就會**強制登入 G
 
 **送失敗的怎麼補送**
 
-修好原因之後，在 Apps Script 執行：
+修好原因之後，在 Apps Script 執行（第一行沒有參數，下拉選單直接選；後兩行要帶參數，照上面「要帶參數的函式怎麼執行」包一層）：
 
 ```js
 resendFailedMemberUpdates()                      // 一次補送所有「可自動補送」的
@@ -354,11 +372,11 @@ dismissFailedMemberUpdate("回應 ID")              // 已經手動處理好、�
 
 1. 總管理員到後台「夥伴資料更新（待審核）」，勾選不是夥伴本人送的卡片，按「不採用勾選的更新」一次清掉（一次最多 100 筆）。
 2. 確認沒問題之後，打開表單編輯頁 →「回覆」分頁 → 打開「接受回覆」。
-3. 在 Apps Script 執行 `checkMemberUpdateForm`，處理「需人工處理」裡錯誤碼是 `flood_paused` 的（暫停那一刻進來的送件）：確定是夥伴送的，執行 `resendMemberUpdate("回應 ID")`；其他的執行 `dismissFailedMemberUpdate("回應 ID")`。
+3. 在 Apps Script 執行 `checkMemberUpdateForm`，處理「需人工處理」裡錯誤碼是 `flood_paused` 的（暫停那一刻進來的送件）：確定是夥伴送的，執行 `resendMemberUpdate("回應 ID")`；其他的執行 `dismissFailedMemberUpdate("回應 ID")`（這兩個都要帶參數，做法見上面「要帶參數的函式怎麼執行」）。
 
 重新打開之後**又反覆被灌單**，代表表單網址已經流到 LINE 群以外，要換一份新表單：
 
-1. 執行 `forgetMemberUpdateForm`。它會先關掉舊表單（LINE 裡的舊連結送出時會看到「已經停用」，不會石沉大海），再讓腳本忘記它。補送清單還有東西時會先停下來提醒；確定都不要了，改執行 `forgetMemberUpdateForm(true)`。
+1. 執行 `forgetMemberUpdateForm`。它會先關掉舊表單（LINE 裡的舊連結送出時會看到「已經停用」，不會石沉大海），再讓腳本忘記它。補送清單還有東西時會先停下來提醒；確定都不要了，改執行 `forgetMemberUpdateForm(true)`（要帶參數，照上面「要帶參數的函式怎麼執行」包一層）。**跑完一定要把「暫用」這個檔刪掉**：留著的話，日後誤選 `runOnce` 會把新的那份表單也關掉，補送清單也一起清空。
 2. 執行 `createMemberUpdateForm` 建新表單，照部署表第 5、7、9 步把 `site-config.js` 的兩行換成新的。
 3. 通知組長：**舊的「已帶好名字的連結」全部作廢**，要重新從成員卡複製。
 
@@ -527,6 +545,8 @@ setAlertEmail("yourname@gmail.com")     // 失敗通知，務必設
 setNotifyEmail("leaders@example.com")   // 新申請與資料更新通知，選用；不要就別跑這行
 ```
 
+這兩行都要帶參數，**不能直接從下拉選單選 `setAlertEmail` 按執行**（沒帶參數會把原本設好的信箱清掉）。照「八」的「要帶參數的函式怎麼執行」包一層，兩行可以一起放進 `runOnce` 的大括號裡。
+
 | 屬性 | 作用 |
 |---|---|
 | `ALERT_EMAIL` | **失敗通知**。申請沒進待認領區就寄一封信，內含姓名、錯誤原因與該怎麼處理。沒設的話會退回寄給腳本擁有者 —— 但那需要「讀取你的帳號信箱」這個權限，授權沒完成時取不到，所以還是明確設一個比較好。 |
@@ -563,7 +583,7 @@ setNotifyEmail("leaders@example.com")   // 新申請與資料更新通知，選�
 setPhotoArchiveFolder("https://drive.google.com/drive/folders/你的資料夾ID")
 ```
 
-（指令碼屬性優先於程式碼預設值，所以換帳號或臨時改目的地時不必動程式碼。設成空字串則停用這個功能。）
+（要帶參數，做法見「八」的「要帶參數的函式怎麼執行」。指令碼屬性優先於程式碼預設值，所以換帳號或臨時改目的地時不必動程式碼。設成空字串則停用這個功能。）
 
 每次有人送出表單，照片就會自動搬進：
 
