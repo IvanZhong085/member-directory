@@ -748,5 +748,157 @@ hr("⑲ 後台 ↔ Worker:審核端點會回的 409/403 錯誤碼,後台都有�
       humanCodes(["leaderGroupDenied"]).indexOf("group_renamed") >= 0);
 }
 
+/* ══ 後台審核區的兩個時序漏洞 ══
+   admin.js 是瀏覽器裡的 IIFE,這裡把相關函式**原樣**從原始碼切出來,放進 vm 跑;
+   DOM、網路、載入資料換成假的。要守住的是:
+     (a) 套用、重新整理把伺服器端寫入後的線上資料讀進來之後,「上一步」不能回到寫入之前 ——
+         否則再按發布(版本基準已是新值,不會 stale_base、也不跳衝突提示)會把已套用的夥伴更新無聲蓋回去;
+     (b) 套用／不採用成功的當下就把那筆從畫面拿掉,不等清單重抓 —— 否則按鈕解鎖後舊卡還在,
+         再按一次只拿到「已經被別人處理掉了」,還蓋掉帶「複製給本人的訊息」的成功 toast。 */
+hr("⑳ 審核區:套用／重新整理之後不能復原到寫入之前;處理掉的那筆當下就從畫面拿掉");
+{
+  const asrc = fs.readFileSync(path.join(ROOT, "admin.js"), "utf8");
+  const fnSrc = (s, name) => {
+    const m = new RegExp("^([ \\t]*)(?:async )?function " + name + "\\([\\s\\S]*?\\n\\1\\}", "m").exec(s);
+    return m ? m[0] : "";
+  };
+  const constSrc = (s, name) => (new RegExp("^[ \\t]*const " + name + " = [^\\n]*;$", "m").exec(s) || [""])[0];
+  const FNS = ["updateHistoryButtons", "resetHistory", "undo", "findMemberById", "mupdRawValue",
+               "mupdForget", "mupdApply", "mupdReloadData", "mupdReloadAll", "mupdDrop", "mupdBatchDrop"];
+  const CONSTS = ["snapshot", "restore", "mupdCode", "mupdKey", "mupdCardBusy", "mupdLabel"];
+  const missing = FNS.filter(n => !fnSrc(asrc, n)).concat(CONSTS.filter(n => !constSrc(asrc, n)));
+  chk("admin.js 切得出要測的函式", !missing.length, missing.length ? "缺 " + missing.join("、") : "");
+
+  const M1 = (company, extra = {}) => Object.assign({ id:"g3_m1", name:"曾俊凱", company }, extra);
+  const OLD = () => [{ id:"g3", code:"A1", members:[ M1(""), { id:"g3_m3", name:"李小華", company:"組長自己改的" } ] }];
+  const LIVE = () => [{ id:"g3", code:"A1", members:[ M1("夥伴自己填的公司", { lastUpdateFrom:"u_aaaaaa1" }),
+                                                     { id:"g3_m3", name:"李小華", company:"組長自己改的" } ] }];
+  const it = (uid, memberId, sat) => ({ uid, memberId, name:"x", code:"A1", sat, at:sat });
+
+  /* 每個情境一個乾淨的 vm。o.unpublished:有未發布的修改;o.loadFails:重讀失敗(DATA 沒換);
+     o.api:假 Worker 的回應;o.slowList:清單重抓不回來 */
+  function makeCtx(o = {}){
+    const btn = { undo:{ disabled:false, title:"" }, redo:{ disabled:false, title:"" } };
+    const log = [];
+    const c = {
+      DATA: OLD(), PENDING: [], selected: "g3",
+      undoStack: [], redoStack: [], pendingSnap: null,
+      mupdList: null, mupdOpen: new Set(), mupdReqs: new Map(), mupdChecked: new Set(), mupdCards: [],
+      mupdAfter: null, mupdLast: Promise.resolve(), MUPD_BATCH_MAX: 100,
+      MUPD_APPLY_OFF: "off", MUPD_GROUP_RENAMED: "renamed",
+      AdminLogic: L, SITE: { SITE_BASE: "https://example.test/" },
+      byId: id => id === "btn-undo" ? btn.undo : id === "btn-redo" ? btn.redo : null,
+      clone: x => JSON.parse(JSON.stringify(x)),
+      isViewer: () => false, isLeader: () => false, hasUnpublishedChanges: () => !!o.unpublished,
+      fixSelected(){}, renderAll(){}, validate(){}, saveDraft(){}, renderMupdAfter(){}, copyWithToast(){},
+      confirm: () => true, mupdReady: async () => true, mupdSession: () => ({ token:"t" }), mupdSessionExpired: () => false,
+      mupdReadChoices: () => ({ company:"replace" }),
+      nameOnlyUpdateLink: () => "https://form.test/",
+      toast: (msg, opts) => log.push({ t:"toast", msg, opts: opts || {} }),
+      mupdToastLater: msg => log.push({ t:"later", msg }),
+      /* 清單重抓。slowList:故意永遠不回來(手機上很慢)—— 成功分支不能靠它把舊卡拿掉。
+         (這支檔案整段只跑 microtask,不要 await 永遠不回來的 promise。) */
+      refreshMemberUpdates: () => { log.push({ t:"refresh" }); return o.slowList ? new Promise(() => {}) : Promise.resolve(); },
+      renderMemberUpdates: () => log.push({ t:"render", uids: (c.mupdList && c.mupdList.items || []).map(x => x.uid),
+                                            after: !!c.mupdAfter }),
+      loadData: async () => { log.push({ t:"load" }); if(o.loadFails) throw new Error("read_failed"); c.DATA = LIVE(); },
+      workerFetch: async (p, body) => { log.push({ t:"api", p, body }); return o.api ? o.api(p, body) : { ok:true }; },
+    };
+    vm.createContext(c);
+    vm.runInContext(CONSTS.map(n => constSrc(asrc, n)).join("\n") + "\n" + FNS.map(n => fnSrc(asrc, n)).join("\n"), c,
+                    { filename: "admin.js(切片)" });
+    c.log = log; c.btn = btn;
+    return c;
+  }
+  const company = c => c.DATA[0].members.find(m => m.id === "g3_m1").company;
+  const seedHistory = c => { c.undoStack = [ { data: OLD(), pending: [] } ]; c.redoStack = [ { data: OLD(), pending: [] } ];
+                             c.pendingSnap = { data: OLD(), pending: [] }; };
+  const cleared = c => c.undoStack.length === 0 && c.redoStack.length === 0 && c.pendingSnap === null && c.btn.undo.disabled === true;
+  const view = (req) => ({ req, member: OLD()[0].members[0], rows:[{ field:"company", label:"所屬公司" }],
+                           group:{ code:"A1" }, orphan:false });
+  const el = { querySelector: () => null };
+  const REQ = (o = {}) => Object.assign({ uid:"u_aaaaaa1", memberId:"g3_m1", name:"曾俊凱", code:"A1",
+                                          sat:"2026-09-30T02:00:00.000Z", note:"", cleared:[] }, o);
+
+  /* (a) 復原歷史 */
+  {
+    const c = makeCtx({ api: () => ({ ok:true, memberId:"g3_m1", applied:["company"], warnings:[] }) });
+    seedHistory(c);
+    await c.mupdApply(el, view(REQ()));
+    chk("★ 套用成功、重讀線上資料之後:上一步／重做清空,「上一步」按鈕停用", cleared(c),
+        `undo=${c.undoStack.length} redo=${c.redoStack.length} btn=${c.btn.undo.disabled}`);
+    c.undo();
+    chk("★ 套用之後按「上一步」不會把夥伴的更新改回套用前", company(c) === "夥伴自己填的公司", JSON.stringify(company(c)));
+  }
+  {
+    const c = makeCtx(); seedHistory(c);
+    await c.mupdReloadAll();
+    chk("★ 審核區「重新整理」(沒有未發布的修改)重讀資料後清空復原歷史", cleared(c) && company(c) === "夥伴自己填的公司");
+  }
+  {
+    const c = makeCtx({ unpublished:true }); seedHistory(c);
+    await c.mupdReloadAll();
+    chk("有未發布的修改時「重新整理」只抓清單:不重讀資料、復原歷史保留",
+        c.undoStack.length === 1 && !c.log.some(x => x.t === "load"));
+  }
+  {
+    const c = makeCtx({ loadFails:true }); seedHistory(c);
+    await c.mupdReloadAll();
+    chk("重讀失敗(DATA 沒換)→ 復原歷史保留", c.undoStack.length === 1 && company(c) === "");
+  }
+  {
+    const c = makeCtx(); seedHistory(c);
+    await c.mupdReloadData();
+    chk("★ member_changed／member_missing 之後的重讀也清空復原歷史", cleared(c));
+    const f = makeCtx({ loadFails:true }); seedHistory(f);
+    await f.mupdReloadData();
+    chk("mupdReloadData 重讀失敗 → 復原歷史保留", f.undoStack.length === 1);
+  }
+
+  /* (b) 處理掉的那筆當下就從畫面拿掉 */
+  const LIST = () => ({ ok:true, max:100, openAll:4, items:[ it("u_aaaaaa1", "g3_m1", "2026-09-30T02:00:00.000Z"),
+    it("u_bbbbbb2", "g3_m1", "2026-09-30T03:00:00.000Z"), it("u_cccccc3", "g3_m9", "2026-09-30T04:00:00.000Z"),
+    it("u_dddddd4", "g3_m2", "2026-09-30T05:00:00.000Z") ] });
+  {
+    const c = makeCtx({ slowList:true, api: () => ({ ok:true, memberId:"g3_m1", applied:["company"], warnings:[] }) });
+    c.mupdList = LIST(); c.mupdOpen.add("u_aaaaaa1"); c.mupdReqs.set("u_aaaaaa1", REQ());
+    await c.mupdApply(el, view(REQ({ note:"請刪掉我的網站" })));
+    const r = c.log.filter(x => x.t === "render").pop();
+    const api = c.log.findIndex(x => x.t === "api");
+    const rIdx = c.log.lastIndexOf(r);
+    chk("★ 套用成功:清單還沒重抓回來,這筆就已經從畫面拿掉(同一位的下一筆接上)",
+        !!r && rIdx > api && eq(r.uids, ["u_bbbbbb2", "u_cccccc3", "u_dddddd4"]) &&
+        !c.mupdOpen.has("u_aaaaaa1") && !c.mupdReqs.has("u_aaaaaa1"), r ? JSON.stringify(r.uids) : "沒有重畫");
+    chk("★ 套用成功:重畫時備註提醒已經設好(最後一筆被拿掉時整塊才不會藏起來)", !!r && r.after === true);
+    chk("套用成功:openAll 跟著減掉", c.mupdList.openAll === 3, String(c.mupdList.openAll));
+    const toasts = c.log.filter(x => x.t === "toast");
+    chk("套用成功:最後一則 toast 是帶「複製給本人的訊息」的成功訊息",
+        toasts.length && toasts[toasts.length - 1].opts.actionLabel === "複製給本人的訊息");
+  }
+  {
+    const c = makeCtx({ slowList:true, api: () => ({ ok:true }) });
+    c.mupdList = LIST(); c.mupdOpen.add("u_cccccc3");
+    const req = REQ({ uid:"u_cccccc3", memberId:"g3_m9", name:"王大銘" });
+    await c.mupdDrop({ req }, { code:"A1" }, "reject", "公司名稱打錯");
+    const r = c.log.filter(x => x.t === "render").pop();
+    chk("★ 不採用成功:清單還沒重抓回來,這筆就已經從畫面拿掉",
+        !!r && eq(r.uids, ["u_aaaaaa1", "u_bbbbbb2", "u_dddddd4"]) && !c.mupdOpen.has("u_cccccc3"), r ? JSON.stringify(r.uids) : "沒有重畫");
+    const toasts = c.log.filter(x => x.t === "toast");
+    chk("不採用成功:最後一則 toast 帶「複製給本人的訊息」",
+        toasts.length && toasts[toasts.length - 1].opts.actionLabel === "複製給本人的訊息");
+  }
+  {
+    const c = makeCtx({ slowList:true, api: () => ({ ok:true, dropped:2, skipped:["u_bbbbbb2"] }) });
+    c.mupdList = LIST();
+    c.mupdCards = L.groupMemberUpdates(c.mupdList.items);
+    const key = vm.runInContext("mupdKey", c);
+    c.mupdCards.forEach(card => { if(card.memberId !== "g3_m2") c.mupdChecked.add(key(card)); });
+    await c.mupdBatchDrop();
+    const r = c.log.filter(x => x.t === "render").pop();
+    chk("批次不採用成功:刪掉的當下就拿掉,正在處理中(skipped)的留著",
+        !!r && eq(r.uids, ["u_bbbbbb2", "u_dddddd4"]), r ? JSON.stringify(r.uids) : "沒有重畫");
+  }
+}
+
 console.log(`\n${fail===0 ? "✅ 全數通過" : "❌ 有失敗"}:${pass} 通過 / ${fail} 失敗\n`);
 process.exit(fail === 0 ? 0 : 1);

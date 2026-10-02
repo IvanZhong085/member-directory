@@ -245,6 +245,17 @@
     pendingSnap = null;
     updateHistoryButtons();
   }
+  /* 審核區把伺服器端寫入後的線上資料重讀進 DATA 時呼叫(套用夥伴更新、重新整理)。
+     堆疊裡的快照是「寫入之前」的整份資料,版本基準卻已經是重讀後的新值 —— 這時按「上一步」
+     再發布,不會撞到 stale_base、也不會跳衝突提示,會把已套用的夥伴更新(連同 lastUpdateFrom)
+     無聲蓋回舊內容,而那筆待審核已經刪掉了(§4.8 的同類風險)。
+     只在審核區自己的重讀呼叫,不放進 loadData():登入、認領、捨棄變更是既有流程,這次不動。 */
+  function resetHistory(){
+    undoStack = [];
+    redoStack = [];
+    pendingSnap = null;
+    updateHistoryButtons();
+  }
   /* 選到的分組必須是「這個角色看得到的」——組長被指派的組被刪或改代號時會退回無選取 */
   function fixSelected(){
     const groups = visibleGroups();
@@ -2455,6 +2466,7 @@
     if(!hasUnpublishedChanges()){
       try{
         await loadData();          // 成功的話它自己會重抓清單
+        resetHistory();            // 重讀之前的快照不能再拿來復原(見 resetHistory)
         renderAll();
         await mupdLast;
         return;
@@ -2884,6 +2896,20 @@
       wrap.querySelectorAll("button[data-mupd-locked]").forEach(b => { b.disabled = false; delete b.dataset.mupdLocked; });
     }
   }
+  /* 伺服器說處理掉了,就馬上從畫面拿掉,不等清單重抓。重抓要讀 GitHub 加 R2,手機上一兩秒;
+     這段時間 mupdRun 已經把按鈕解鎖,舊卡還展開著 —— 組長以為沒成功再按一次,只會拿到
+     「已經被別人處理掉了」,還把帶「複製給本人的訊息」的成功 toast 蓋掉(不採用的原因就找不回來了)。
+     從清單濾掉再重畫(不是直接刪 DOM):同一位夥伴的下一筆會馬上接上。背景重抓照常進行。 */
+  function mupdForget(uids){
+    const gone = new Set([].concat(uids));
+    gone.forEach(u => { mupdOpen.delete(u); mupdReqs.delete(u); });
+    if(mupdList && Array.isArray(mupdList.items)){
+      const before = mupdList.items.length;
+      mupdList.items = mupdList.items.filter(it => !gone.has(it.uid));
+      if(mupdList.openAll != null) mupdList.openAll = Math.max(0, (Number(mupdList.openAll) || 0) - (before - mupdList.items.length));
+    }
+    renderMemberUpdates();
+  }
 
   /* ---- 查看(展開)---- */
   async function mupdToggle(uid, btn){
@@ -2953,7 +2979,7 @@
     if(res.ok){
       mupdOpen.delete(req.uid); mupdReqs.delete(req.uid);
       let reloaded = true;
-      try{ await loadData(); }catch(e){ reloaded = false; }
+      try{ await loadData(); resetHistory(); }catch(e){ reloaded = false; }
       const hit = findMemberById(req.memberId);
       if(hit) selected = hit.g.id;
       fixSelected(); renderAll();
@@ -2964,6 +2990,8 @@
         mupdAfter = { memberId: req.memberId, name, note, cleared };
         renderMupdAfter();
       }
+      // 放在 mupdAfter 之後:這筆如果是最後一筆,先拿掉的話整塊會被藏起來,備註提醒就看不到
+      mupdForget(req.uid);
       const extra = (Array.isArray(res.warnings) ? res.warnings : [])
         .filter(w => w && w.reason === "list_truncated")
         .map(w => "「" + mupdLabel(w.field) + "」超過 12 項，最後 " + (Number(w.dropped) || 0) + " 項沒有放進去。").join("");
@@ -3022,7 +3050,7 @@
   }
   /* member_changed / member_missing 之後:重讀網站資料再重畫,展開中的卡會用新的「目前」重算 */
   async function mupdReloadData(){
-    try{ await loadData(); renderAll(); await mupdLast; }
+    try{ await loadData(); resetHistory(); renderAll(); await mupdLast; }
     catch(e){ toast("重新載入網站資料失敗，請重新整理頁面。", { warn:true, duration:7000 }); }
   }
 
@@ -3043,7 +3071,7 @@
     if(!ok) return;
     const res = await workerFetch("/member-update-drop", { session, uid: req.uid });
     if(res.ok){
-      mupdOpen.delete(req.uid); mupdReqs.delete(req.uid);
+      mupdForget(req.uid);
       if(kind === "handled"){
         toast("已從清單移除。");
       } else {
@@ -3088,6 +3116,9 @@
       const skipped = Array.isArray(res.skipped) ? res.skipped.length : 0;
       mupdChecked.clear();
       uids.forEach(u => { mupdOpen.delete(u); mupdReqs.delete(u); });
+      // 正在處理中的(skipped)還在 R2 上,留著;其他的先從畫面拿掉
+      const kept = new Set(Array.isArray(res.skipped) ? res.skipped : []);
+      mupdForget(uids.filter(u => !kept.has(u)));
       toast("已不採用 " + (Number(res.dropped) || 0) + " 筆。" + (skipped ? skipped + " 筆正在處理或已經不在，沒有動。" : ""),
             { duration:8000 });
       refreshMemberUpdates();
