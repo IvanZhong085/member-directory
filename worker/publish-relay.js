@@ -403,7 +403,11 @@ async function handlePing(request, env){
            /* 夥伴資料更新(/member-update*)。待審核存在同一個 R2 bucket 的 updates/ 底下,
               所以同樣跟著 binding 走、不寫死 true:沒綁 R2 時這幾支一律 503,回報 true
               只會讓後台與 Apps Script 打一輪注定失敗的請求。 */
-           memberUpdate: !!env.PENDING_IMAGES } };
+           memberUpdate: !!env.PENDING_IMAGES,
+           /* 最近刪除的夥伴(/recycle-*)。回收區也在同一個 R2 bucket(recycle/),理由同上:
+              跟著 binding 走。後台看到 false 就不記、也不顯示那一區 —— 否則每次發布後都會
+              打一次注定 503 的請求,還跳出「沒有記進回收區」的警告。 */
+           recycle: !!env.PENDING_IMAGES } };
   /* 收件讀的是哪一個公開網站(非機密)。checkMemberUpdateForm 拿它和 site-config.js 的
      SITE_BASE 比對 —— 網站換了網址卻沒設 SITE_BASE 時,Worker 會讀到舊站或 404,
      而那種失敗只會表現成「每一筆都 group_not_found」,很難從錯誤碼猜到原因。 */
@@ -2805,6 +2809,328 @@ async function handleMemberUpdateDropBatch(request, env){
   return json(env, { ok:true, dropped: drop.length, skipped });
 }
 
+/* ══ 最近刪除的夥伴(回收區):被刪掉的成員卡在私有 R2 留一份,一鍵救回 ══════════════
+   為什麼要有這個:10/1 一份 8 月的舊草稿整檔蓋掉了 6 個組檔,9 月才加入的夥伴從網站上消失,
+   要靠工程師翻 git 歷史才救得回來。刪人本來就是發布的一部分(也可能是誤刪),
+   但「救回來」不應該需要懂 git。
+
+   流程:後台**發布成功之後**,把這次被刪掉的人(完整成員卡、原本在哪一組、排第幾位)
+   用 /recycle-put 存進私有 R2 的 recycle/;儀表板「最近刪除的夥伴」用 /recycle-list 列出來,
+   按「救回」由 /recycle-restore 用伺服器端交易寫回 data/<組>.json,不必再按發布。
+
+   為什麼放 R2、不放 repo:
+     ・存一份不產生 commit,不會觸發 sync.yml,也不會跟正在進行的發布搶 ref
+     ・被刪的人本來就是「不想再公開」,不該為了留後路又把他寫回公開 repo 的某個角落
+   建議 bucket 加一條 recycle/、90 天的 lifecycle rule:三個月沒人救,就是真的刪了。
+
+   ★ 安全邊界(與 updates/ 同一套寫法):
+     ・key 一律由 Worker 產生的 rid 推出;端點收到的 rid 先過 RECYCLE_ID_RE 才組 key ——
+       "../pending/…" 這種值永遠組不出來,讀不到、也刪不到待認領照片與待審核的更新
+     ・組長只能存、看、救自己那一組(用 _index 把 session 的代號換成 gid 再比)
+     ・唯讀帳號一律 403;永久刪除只限總管理員
+     ・by(誰刪的)與 at(什麼時候)由 Worker 填,不採用前端送來的值
+     ・不記任何 log:成員卡有手機、地址這類個資,錯誤回應也只回錯誤碼與欄位名 */
+const RECYCLE_PREFIX = "recycle/";
+/* rid = "r_" + 9 碼「倒數時間戳」(36 進位)+ "_" + 6 碼亂數,key = recycle/<rid>.json。
+   ★ 為什麼時間戳是倒過來的(上限減掉現在):R2 的 list 一律依 key 字典序**由小到大**回傳,
+     而清單最多只讀 RECYCLE_LIST_MAX_PAGES 頁。用正著走的時間戳的話,萬一筆數多到讀不完,
+     讀到的是**最舊**的那幾頁 —— 最近刪的人(最需要救回的)反而看不到。
+     倒過來之後字典序就是新到舊,讀不完時少掉的是最舊的那些。
+   9 碼 36 進位的上限約 1.0e14 毫秒(西元 5000 年後);一律補零到 9 碼,字典序才等於數值順序。 */
+const RECYCLE_TS_MAX = 36 ** 9 - 1;
+const RECYCLE_ID_RE = /^r_[0-9a-z]{9}_[0-9a-z]{6}$/;
+const RECYCLE_PUT_MAX = 20;                   // 一次最多記幾位(每位一次 R2 put,見下方預算)
+const RECYCLE_MEMBER_MAX_BYTES = 64 * 1024;   // 一張成員卡序列化後的上限(現有資料最大約 1.2 KB)
+const RECYCLE_META_MAX_BYTES = 2048;          // R2 customMetadata 的上限
+const RECYCLE_INDEX_MAX = 100000;             // 「原本排第幾位」的合理上限,擋掉亂送的大數字
+const RECYCLE_LIST_MAX_PAGES = 5;
+const RECYCLE_RESTORE_ROUNDS = 3;             // 救回最多 3 輪,每輪只提交一次(與套用夥伴更新相同)
+
+function recycleKey(rid){ return RECYCLE_PREFIX + rid + ".json"; }
+/* rid 只在這裡產生。亂數用 crypto.getRandomValues(與 /member-update 的 uid 同一種做法)。 */
+function newRecycleId(now){
+  const ts = Math.max(0, RECYCLE_TS_MAX - now).toString(36).padStart(9, "0");
+  const rnd = Array.from(crypto.getRandomValues(new Uint8Array(6)), b => (b % 36).toString(36)).join("");
+  return "r_" + ts + "_" + rnd;
+}
+/* 只收字串:成員卡來自前端,name 若是 {"toString":null} 這種物件,直接 String() 會丟例外變成 500。 */
+const recycleText = (v, max) => str(typeof v === "string" ? v : "", max);
+
+/* 成員卡的基本形狀。回傳問題的代號(給 400 的 reason)或 null。
+   ★ member.id 必須以 gid + "_" 開頭:成員 id 一律是 uid(分組內部 id + "_m…"),
+     這條讓「存進來的人」與「他宣稱的組別」綁在一起 —— 組長不能拿自己組的 gid
+     存一張別組成員的卡,之後再「救回」到自己組裡。 */
+function recycleMemberProblem(m, gid){
+  if(!m || typeof m !== "object" || Array.isArray(m)) return "member";
+  const id = hasOwnKey(m, "id") && typeof m.id === "string" ? m.id : "";
+  if(!MEMBER_ID_RE.test(id)) return "member_id";
+  if(!id.startsWith(gid + "_")) return "member_gid";
+  return null;
+}
+
+/* 列表用的 customMetadata。全部是字串、直接存 UTF-8(與 updates/ 相同,不做 encodeURIComponent)。 */
+function recycleMeta(rec){
+  return { v:"1", at: recycleText(rec.at, 40), by: recycleText(rec.by, 32), gid: recycleText(rec.gid, 64),
+           code: recycleText(rec.code, 16), id: recycleText(rec.member.id, 64), name: recycleText(rec.member.name, 80) };
+}
+
+/* 讀一筆回收物件。回傳 {rec} / {gone:true} / {error}。
+   內容的 rid 對不上 key、或形狀不對,一律當成讀不懂 —— 不拿一份來路不明的成員卡寫進網站。 */
+async function readRecycle(env, rid){
+  let obj, text;
+  try{
+    obj = await env.PENDING_IMAGES.get(recycleKey(rid));
+    if(!obj) return { gone:true };
+    text = await obj.text();
+  }catch(e){ return { error:"update_store_failed" }; }
+  let rec;
+  try{ rec = JSON.parse(text); }catch(e){ return { error:"recycle_unreadable" }; }
+  if(!rec || typeof rec !== "object" || Array.isArray(rec) || rec.v !== 1 || rec.rid !== rid ||
+     typeof rec.gid !== "string" || !MEMBER_ID_RE.test(rec.gid) ||
+     !Number.isInteger(rec.index) || rec.index < 0 || recycleMemberProblem(rec.member, rec.gid)){
+    return { error:"recycle_unreadable" };
+  }
+  return { rec };
+}
+
+/* ── POST /recycle-put:發布成功後,把這次被刪的人記進回收區 ─────────────────────
+   輸入 { session, items:[{ gid, code, index, member }] }(1–20 筆)。
+   先全部驗完才寫:任何一筆不合格就整批 400,一筆都不寫。
+   中途 put 失敗不回滾 —— 回收區多一筆是無害的(救回時會被 already_present 認出來),
+   少一筆才是損失。回 502 並附上已經存了幾筆。
+   子請求最多 22:GitHub 0–2(只有組長要讀 _index)、R2 put ≤ 20。 */
+async function handleRecyclePut(request, env){
+  // 解析 → session → 唯讀 403 → R2 有沒有綁:與夥伴資料更新的後台端點是同一個開頭
+  const a = await memberUpdateAuth(request, env);
+  if(a.resp) return a.resp;
+  const { body, sess } = a;
+  const items = hasOwnKey(body, "items") ? body.items : null;
+  if(!Array.isArray(items) || !items.length || items.length > RECYCLE_PUT_MAX){
+    return json(env, { ok:false, error:"bad_request", reason:"items", max:RECYCLE_PUT_MAX }, 400);
+  }
+  const now = Date.now();
+  const at = new Date(now).toISOString();
+  const by = String(sess.u || "").slice(0, 32);
+  const enc = new TextEncoder();
+  const recs = [], seen = new Set();
+  for(let i = 0; i < items.length; i++){
+    // 只回第幾筆、哪一項不對,不回內容
+    const bad = reason => json(env, { ok:false, error:"bad_request", item:i, reason }, 400);
+    const it = items[i];
+    if(!it || typeof it !== "object" || Array.isArray(it)) return bad("item");
+    const gid = hasOwnKey(it, "gid") && typeof it.gid === "string" ? it.gid : "";
+    if(!MEMBER_ID_RE.test(gid)) return bad("gid");
+    const code = hasOwnKey(it, "code") && typeof it.code === "string" ? it.code.trim() : "";
+    if(!GROUPCODE_RE.test(code)) return bad("code");
+    const index = hasOwnKey(it, "index") ? it.index : null;
+    if(!Number.isInteger(index) || index < 0 || index > RECYCLE_INDEX_MAX) return bad("index");
+    const member = hasOwnKey(it, "member") ? it.member : null;
+    const why = recycleMemberProblem(member, gid);
+    if(why) return bad(why);
+    if(enc.encode(JSON.stringify(member)).length > RECYCLE_MEMBER_MAX_BYTES) return bad("member_too_large");
+    let rid;
+    do{ rid = newRecycleId(now); }while(seen.has(rid));   // 同一毫秒的同一批,亂數撞到就重抽
+    seen.add(rid);
+    const rec = { v:1, rid, at, by, gid, code, index, member };
+    const meta = recycleMeta(rec);
+    if(enc.encode(JSON.stringify(meta)).length > RECYCLE_META_MAX_BYTES) return bad("metadata_too_large");
+    recs.push({ rec, meta });
+  }
+
+  /* 組長:每一筆的 gid 都必須是他自己那一組。用 _index(GitHub API,立即一致)把 session 的
+     代號換成 gid 再比。總管理員不讀,省子請求 —— 他可能剛刪掉整個分組,那一組本來就不在 _index 了。 */
+  if(sessionRole(sess) === "leader"){
+    const idx = await readIndexMap(env, await ghHeaders(env));
+    if(!idx.ok) return json(env, { ok:false, error:idx.error, status:idx.status }, 502);
+    for(const { rec } of recs){
+      const denied = leaderGroupDenied(env, sess, idx.map, rec.gid);
+      if(denied) return denied;
+    }
+  }
+
+  const rids = [];
+  for(const { rec, meta } of recs){
+    try{
+      await env.PENDING_IMAGES.put(recycleKey(rec.rid), JSON.stringify(rec),
+        { httpMetadata:{ contentType:"application/json" }, customMetadata: meta });
+    }catch(e){
+      return json(env, { ok:false, error:"update_store_failed", stored: rids.length, rids }, 502);
+    }
+    rids.push(rec.rid);
+  }
+  return json(env, { ok:true, stored: rids.length, rids });
+}
+
+/* ── POST /recycle-list:儀表板「最近刪除的夥伴」 ─────────────────────────────
+   只讀 metadata,不讀內容。組長只看到自己那一組;依刪除時間新到舊。
+   代號用 _index 換成**現在的**(物件記的是 gid);分組已經不在 _index 的回 groupMissing:true,
+   沿用刪除當時的代號。key 或 metadata 不合格的物件跳過並計數 —— 一個壞物件不可以讓整份清單變成錯誤。
+   子請求最多 7:GitHub ≤ 2、R2 list ≤ 5。 */
+async function handleRecycleList(request, env){
+  const a = await memberUpdateAuth(request, env);
+  if(a.resp) return a.resp;
+  const { sess } = a;
+  const idx = await readIndexMap(env, await ghHeaders(env));
+  if(!idx.ok) return json(env, { ok:false, error:idx.error, status:idx.status }, 502);
+  let myGid = null;
+  if(sessionRole(sess) === "leader"){
+    const hit = idx.map.byCode.get(String(sess.g || "").trim().toLowerCase());
+    if(!hit) return json(env, { ok:false, error:"group_renamed", group: sess.g || "" }, 409);
+    myGid = hit.id;
+  }
+  const items = [];
+  let unknown = 0, truncated = false, cursor;
+  try{
+    for(let page = 0; ; page++){
+      const res = await env.PENDING_IMAGES.list({ prefix: RECYCLE_PREFIX, include:["customMetadata"], cursor });
+      for(const o of (res && res.objects) || []){
+        const key = String(o && o.key || "");
+        const rid = key.endsWith(".json") ? key.slice(RECYCLE_PREFIX.length, -".json".length) : "";
+        const m = (o && o.customMetadata) || {};
+        const gid = typeof m.gid === "string" ? m.gid : "";
+        const id = typeof m.id === "string" ? m.id : "";
+        const at = typeof m.at === "string" ? m.at : "";
+        if(!RECYCLE_ID_RE.test(rid) || m.v !== "1" || !MEMBER_ID_RE.test(gid) || !MEMBER_ID_RE.test(id) ||
+           !id.startsWith(gid + "_") || !Number.isFinite(Date.parse(at))){ unknown++; continue; }
+        if(myGid && gid !== myGid) continue;
+        const g = idx.map.byGid.get(gid);
+        items.push({ rid, at, by: recycleText(m.by, 32), gid, code: g ? g.code : recycleText(m.code, 16),
+                     groupMissing: !g, id, name: recycleText(m.name, 80) });
+      }
+      if(!res || !res.truncated) break;
+      if(page + 1 >= RECYCLE_LIST_MAX_PAGES){ truncated = true; break; }
+      cursor = res.cursor;
+    }
+  }catch(e){ return json(env, { ok:false, error:"update_store_failed" }, 502); }
+  items.sort((x, y) => (Date.parse(y.at) - Date.parse(x.at)) || (x.rid < y.rid ? -1 : x.rid > y.rid ? 1 : 0));
+  return json(env, { ok:true, items, truncated, unknown });
+}
+
+/* ── POST /recycle-restore:伺服器端交易,把一位被刪的夥伴寫回他原本那一組 ─────────
+   輸入 { session, rid }。
+     ・物件記的是 gid,用 _index 換成**現在的**代號 —— 總管理員改過代號也救得回來;
+       分組已經不在了 → group_missing(不替他猜要放哪一組)
+     ・組檔裡已經有同一個 id → already_present,並把回收物件刪掉(那筆已經沒有用了)。
+       這也是「救回一半」的保險:commit 成功但回應逾時、或同一個人被記了兩筆,
+       再按一次都只會得到 already_present,不會寫出兩張同 id 的卡
+     ・放回 min(原本的位置, 現在的人數);成員卡原樣放回,不改 updatedAt
+       (三方合併靠 updatedAt 判斷誰比較新,救回不該讓他看起來像剛被改過)
+     ・寫入前先過 checkDataFileBody;壞檔不 commit(否則整個網站停止更新)
+     ・commit 成功之後才刪回收物件;刪除失敗不回滾(網站資料是對的),回 cleanupFailed
+
+   子請求有靜態上限(Cloudflare 免費方案單次 50):每一輪只提交一次(maxTries:1)、最多 3 輪。
+     固定:R2 get 1 + _index 1–2 + R2 delete 1 = 最多 4
+     每輪:組檔 ≤ 2 + 提交一次(組長 ≤ 10、總管理員 ≤ 8)
+     合計:組長 4 + 3 × 12 = 40、總管理員 4 + 3 × 10 = 34 */
+async function handleRecycleRestore(request, env){
+  const a = await memberUpdateAuth(request, env);
+  if(a.resp) return a.resp;
+  const { body, sess } = a;
+  const rid = typeof body.rid === "string" ? body.rid : "";   // 只收字串:怪物件直接 String() 會丟例外變 500
+  if(!RECYCLE_ID_RE.test(rid)) return json(env, { ok:false, error:"bad_request" }, 400);
+
+  const rd = await readRecycle(env, rid);
+  if(rd.gone) return json(env, { ok:false, error:"recycle_gone" }, 409);
+  if(rd.error) return json(env, { ok:false, error:rd.error }, 502);
+  const rec = rd.rec;
+
+  /* 權限與路徑。組長有三道:這裡比 gid、canWriteDataFile 比路徑、commitWithVersionCheck 再用
+     同一個快照確認他的代號仍有效。權限擋在 group_missing 之前:別組的組長連「那一組還在不在」都不必知道。 */
+  const headers = await ghHeaders(env);
+  const idx = await readIndexMap(env, headers);
+  if(!idx.ok) return json(env, { ok:false, error:idx.error, status:idx.status }, 502);
+  const denied = leaderGroupDenied(env, sess, idx.map, rec.gid);
+  if(denied) return denied;
+  const grp = idx.map.byGid.get(rec.gid);
+  if(!grp) return json(env, { ok:false, error:"group_missing" }, 409);
+  const code = grp.code;
+  const dataPath = "data/" + code.toLowerCase() + ".json";
+  if(!canWriteDataFile(sess, dataPath)) return json(env, { ok:false, error:"forbidden_path", path:dataPath }, 403);
+
+  const memberId = rec.member.id;
+  const name = recycleText(rec.member.name, 80);
+  const who = String(sess.u || "").slice(0, 32);
+  const key = recycleKey(rid);
+  let committed = null;
+  try{
+    let last = null;
+    for(let round = 0; round < RECYCLE_RESTORE_ROUNDS; round++){
+      /* 每一輪都重讀組檔(不帶 ref = 當下的 main)。上一輪被判 stale_base 時,多半是別人剛發布了
+         同組的其他成員 —— 重讀之後照樣插得進去;若是有人已經把他救回來了,就會在下面被認出來。 */
+      const read = await ghReadFile(env, headers, dataPath);
+      if(!read.ok) return json(env, { ok:false, error:read.error, status:read.status }, 502);
+      if(read.bytes === null) return json(env, { ok:false, error:"group_renamed", path:dataPath }, 409);
+      let groupBody;
+      try{ groupBody = JSON.parse(new TextDecoder().decode(read.bytes)); }
+      catch(e){ return json(env, { ok:false, error:"group_unreadable" }, 502); }
+      if(!groupBody || typeof groupBody !== "object" || Array.isArray(groupBody) || !Array.isArray(groupBody.members)){
+        return json(env, { ok:false, error:"group_unreadable" }, 502);
+      }
+      if(groupBody.members.some(x => x && typeof x === "object" && x.id === memberId)){
+        // 已經在名錄上了:這筆回收物件不會再有用,刪掉;刪不掉也不影響結論
+        const out = { ok:false, error:"already_present", id:memberId, code };
+        try{ await env.PENDING_IMAGES.delete(key); }catch(e){ out.cleanupFailed = true; }
+        return json(env, out, 409);
+      }
+      const pos = Math.min(rec.index, groupBody.members.length);
+      groupBody.members.splice(pos, 0, rec.member);
+
+      const text = JSON.stringify(groupBody, null, 2) + "\n";
+      const why = checkDataFileBody(dataPath, text);
+      if(why) return json(env, { ok:false, error:"bad_data_file", path:dataPath, reason:why }, 400);
+      const bytes = new TextEncoder().encode(text);
+      if(bytes.length > MAX_DATA_BYTES) return json(env, { ok:false, error:"data_too_large", size:bytes.length, max:MAX_DATA_BYTES }, 413);
+
+      // 每一輪只提交一次。版本基準是這一輪讀到的 blob sha
+      const r = await commitWithVersionCheck(env, headers, {
+        files: [{ path:dataPath, contentB64: bytesToB64(bytes) }], remove: [],
+        baseHashes:{}, baseBlobShas:{ [dataPath]: read.sha }, blobCache:{}, assetPaths: [], sess,
+        maxTries: 1,
+        message: "救回刪除的夥伴：" + name + "（" + code + "・" + who + "）",
+      });
+      if(r.ok){ committed = r; break; }
+      const e = r.body && r.body.error;
+      if(e === "stale_base" || e === "busy_retry_later"){ last = r; continue; }
+      /* ref PATCH 的回應不是 2xx 或逾時:GitHub 端可能其實已經更新了 ref。
+         不能說「沒有救回」—— 回 restore_uncertain。再按一次救回是安全的:已經寫進去的話會得到
+         already_present(並清掉回收物件),沒寫進去就照常救回。 */
+      if(e === "github_write_failed" || e === "github_timeout" || e === "github_unreachable"){
+        return json(env, { ok:false, error:"restore_uncertain", cause:e }, 502);
+      }
+      // 其他(group_renamed、index_missing_group、version_check_failed、token_forbidden…)都發生在寫入 ref 之前
+      return json(env, r.body, r.status);
+    }
+    // 3 輪都被搶先
+    if(!committed) return json(env, last.body, last.status);
+  }catch(e){
+    // ghCommitFiles 的 ref PATCH 逾時會丟 AbortError,此時 ref 可能已經更新 → 不確定
+    return json(env, { ok:false, error:"restore_uncertain", cause:"exception" }, 502);
+  }
+
+  let cleanupFailed = false;
+  try{ await env.PENDING_IMAGES.delete(key); }catch(e){ cleanupFailed = true; }
+  const out = { ok:true, id:memberId, name, code, commit: committed.commitSha };
+  if(cleanupFailed) out.cleanupFailed = true;
+  return json(env, out);
+}
+
+/* ── POST /recycle-drop:永久刪除一筆(「確定是刻意刪的、不想留」)─────────────
+   只限總管理員:回收區是誤刪時的最後一條路,組長刪掉的話,連總管理員都救不回來了。
+   R2 的 delete 對不存在的 key 不會出錯,所以重按也是 ok。
+   子請求 1:R2 delete。 */
+async function handleRecycleDrop(request, env){
+  let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
+  const sess = await verifySession(body && body.session, env.SESSION_SECRET);
+  if(!sess) return json(env, { ok:false, error:"session_expired" }, 401);
+  if(sessionRole(sess) !== "owner") return json(env, { ok:false, error:"admin_only" }, 403);
+  if(!env.PENDING_IMAGES) return json(env, { ok:false, error:"pending_image_store_unavailable" }, 503);
+  const rid = body && typeof body.rid === "string" ? body.rid : "";
+  if(!RECYCLE_ID_RE.test(rid)) return json(env, { ok:false, error:"bad_request" }, 400);
+  try{ await env.PENDING_IMAGES.delete(recycleKey(rid)); }
+  catch(e){ return json(env, { ok:false, error:"update_store_failed" }, 502); }
+  return json(env, { ok:true });
+}
+
 /* ══ 來賓報名(公開、免密碼)══════════════════════════════════════════════
    visitor.html 上的內嵌表單送到這裡,由 Worker 轉送到 Google 表單的
    formResponse 端點,資料照樣進原本那張表單與來賓 CRM。
@@ -3018,6 +3344,10 @@ export default {
       if(pathname === "/member-update-apply") return await handleMemberUpdateApply(request, env);
       if(pathname === "/member-update-drop") return await handleMemberUpdateDrop(request, env);
       if(pathname === "/member-update-drop-batch") return await handleMemberUpdateDropBatch(request, env);
+      if(pathname === "/recycle-put") return await handleRecyclePut(request, env);
+      if(pathname === "/recycle-list") return await handleRecycleList(request, env);
+      if(pathname === "/recycle-restore") return await handleRecycleRestore(request, env);
+      if(pathname === "/recycle-drop") return await handleRecycleDrop(request, env);
       return json(env, { ok:false, error:"not_found" }, 404);
     }catch(e){
       return json(env, { ok:false, error:"server_error" }, 500);
