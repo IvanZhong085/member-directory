@@ -1340,12 +1340,12 @@ const GROUPS = [
         "image": "g8_m7_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "果冉整合設計有限公司",
         "business_items": "",
         "website": "",
         "id": "g8_m7",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "2026-09-11T14:08:58.109Z"
       },
       {
         "number": "222",
@@ -1398,6 +1398,50 @@ const GROUPS = [
         "website": "",
         "dataIssue": false,
         "updatedAt": "2026-07-28T14:37:53.049Z"
+      },
+      {
+        "id": "g8_m_mtjjp2sy1rgp",
+        "number": "227",
+        "name": "魏宛柔",
+        "title": "兒童理財",
+        "services": [
+          "兒童理財活動"
+        ],
+        "targets": [
+          "補習班、才藝班業者",
+          "家長會委員、家長會會長",
+          "親子共學空間經營者",
+          "關注家庭理財者"
+        ],
+        "have": [
+          "軍隊人脈 (先生軍職)",
+          "無人機產業",
+          "兒童理財活動",
+          "兒童英語教學"
+        ],
+        "want": [
+          "補習班、才藝班",
+          "私立國中、國小"
+        ],
+        "tagline": [
+          "小錢滾出大未來",
+          "理財從小動起來"
+        ],
+        "image": "g8_m_mtjjp2sy1rgp_x_c7535e9607.jpg",
+        "card": "g8_m_mtjjp2sy1rgp_card_c478f1bb1e.jpg",
+        "products": [
+          "g8_m_mtjjp2sy1rgp_p1_d2e7ab5d6b.jpg",
+          "g8_m_mtjjp2sy1rgp_p2_050889314a.jpg",
+          "g8_m_mtjjp2sy1rgp_p3_921b5f8828.jpg",
+          "g8_m_mtjjp2sy1rgp_p4_b6d0c071bc.jpg",
+          "g8_m_mtjjp2sy1rgp_p5_44b70767fc.jpg"
+        ],
+        "company": "立洋國際教育顧問有限公司",
+        "business_items": "顧問服務",
+        "website": "",
+        "dataIssue": true,
+        "claimedFrom": "p_mtiouthdee3z",
+        "updatedAt": "2026-09-02T14:03:48.397Z"
       }
     ],
     "id": "g8",
@@ -1907,7 +1951,7 @@ const GROUPS = [
         "website": "",
         "id": "g4_m6",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "2026-08-12T15:38:40.359Z"
       }
     ],
     "id": "g4",
@@ -2122,33 +2166,6 @@ const GROUPS = [
         "business_items": "",
         "website": "",
         "id": "g11_m7",
-        "dataIssue": false,
-        "updatedAt": ""
-      },
-      {
-        "number": "184",
-        "name": "徐玉真",
-        "title": "太陽光電建置",
-        "services": [
-          "太陽光電規劃建置"
-        ],
-        "targets": [
-          "一般住宅閒置屋頂的屋主",
-          "廠房老闆、營造公司、水電行業，房仲業者、採光罩廠商"
-        ],
-        "have": [],
-        "want": [],
-        "tagline": [
-          "太陽公公當長工",
-          "累積財富很輕鬆"
-        ],
-        "image": "g11_m8_x.jpg",
-        "card": "",
-        "products": [],
-        "company": "",
-        "business_items": "",
-        "website": "",
-        "id": "g11_m8",
         "dataIssue": false,
         "updatedAt": ""
       },
@@ -2693,7 +2710,7 @@ const GROUPS = [
           "讓健康回到本源",
           "讓好水走進生活"
         ],
-        "image": "",
+        "image": "g1_m_ms8d1a021g8f_x_b99d84d406.jpg",
         "card": "",
         "products": [],
         "company": "源恆企業社",
@@ -2701,6 +2718,61 @@ const GROUPS = [
         "website": "",
         "dataIssue": false,
         "updatedAt": "2026-10-01T15:01:41.205Z"
+      },
+      {
+        "id": "g1_m_mtx0wciu8rv",
+        "number": "228",
+        "name": "紀宜伶",
+        "title": "廢氣再燃燒淨化設備",
+        "services": [
+          "後燃機",
+          "專業廢氣淨化處理設備",
+          "工業用烘乾爐",
+          "油煙淨化設備"
+        ],
+        "targets": [
+          "燒烤餐廳",
+          "油炸餐廳或工廠",
+          "咖啡烘豆業",
+          "食品加工",
+          "燃燒金紙廢氣處理",
+          "小型焚化爐廢氣處理",
+          "客製化機器"
+        ],
+        "have": [
+          "金屬印刷",
+          "鐵盒印製",
+          "鋼鐵材料商",
+          "咖啡農",
+          "烘豆機製造商"
+        ],
+        "want": [
+          "燒烤餐廳",
+          "油炸餐廳或工廠",
+          "咖啡烘豆業",
+          "食品加工廠",
+          "燃燒金紙廢氣處理",
+          "小型焚化爐廢氣處理"
+        ],
+        "tagline": [
+          "油煙異味找宜伶",
+          "清新環境，生意一定贏"
+        ],
+        "image": "g1_m_mtx0wciu8rv_x_aea07ab5ab.jpg",
+        "card": "g1_m_mtx0wciu8rv_card_0d3a4b2b59.jpg",
+        "products": [
+          "g1_m_mtx0wciu8rv_p1_2f60c07c85.jpg",
+          "g1_m_mtx0wciu8rv_p2_65fe26640f.jpg",
+          "g1_m_mtx0wciu8rv_p3_3cc342fb9f.jpg",
+          "g1_m_mtx0wciu8rv_p4_0ab0161c56.jpg",
+          "g1_m_mtx0wciu8rv_p5_e3fedc74a5.jpg"
+        ],
+        "company": "良記造機工廠有限公司",
+        "business_items": "廢氣處理設備、熱風烘乾爐、工業用燃燒機、工業用烘乾爐、工業用輸送帶",
+        "website": "https://www.lianggi.com",
+        "dataIssue": true,
+        "claimedFrom": "p_mtww26uec28",
+        "updatedAt": "2026-09-11T14:00:53.476Z"
       }
     ],
     "id": "g1",
