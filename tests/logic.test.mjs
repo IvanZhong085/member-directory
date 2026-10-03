@@ -370,10 +370,10 @@ hr("⑩ 預填連結(updatePrefillUrl)");
 
   const plain = L.updatePrefillUrl("https://docs.google.com/forms/d/e/X/viewform", ENT, { member:"A1・曾俊凱" });
   chk("沒有 ? 的網址也能組", plain.url.startsWith("https://docs.google.com/forms/d/e/X/viewform?usp=pp_url&"), plain.url);
-  chk("★ 只有 member:只帶 usp 和名字", eq([...new URL(plain.url).searchParams.keys()], ["usp","entry.1001"]));
+  chk("★ 只有 member:只帶 usp、名字和 openExternalBrowser", eq([...new URL(plain.url).searchParams.keys()], ["usp","entry.1001","openExternalBrowser"]));
 
-  chk("entries 沒有 member → 通用連結 + nameless",
-      eq(L.updatePrefillUrl(FORM, { company:"entry.1003" }, vals), { url: FORM, nameless: true, trimmed: false }));
+  chk("entries 沒有 member → 通用連結(帶 openExternalBrowser=1)+ nameless",
+      eq(L.updatePrefillUrl(FORM, { company:"entry.1003" }, vals), { url: FORM + "&openExternalBrowser=1", nameless: true, trimmed: false }));
   chk("entries 是空的 → nameless", (L.updatePrefillUrl(FORM, {}, vals) || {}).nameless === true);
   chk("★ formUrl 空 → null", L.updatePrefillUrl("", ENT, vals) === null && L.updatePrefillUrl(null, ENT, vals) === null &&
       L.updatePrefillUrl("   ", ENT, vals) === null);
@@ -384,7 +384,7 @@ hr("⑩ 預填連結(updatePrefillUrl)");
   chk("★ entries 沒有 token → 不帶 token(其他照帶)", !nt.searchParams.has("entry.1011") &&
       ![...nt.searchParams.values()].some(x => x === vals.token) && nt.searchParams.get("entry.1004") === vals.services);
   chk("只放 entries 與 values 都有的鍵", eq([...new URL(L.updatePrefillUrl(FORM, { member:"entry.1001", company:"entry.1003" },
-      { member:"A1・曾俊凱", title:"x" }).url).searchParams.keys()], ["usp","entry.1001"]));
+      { member:"A1・曾俊凱", title:"x" }).url).searchParams.keys()], ["usp","entry.1001","openExternalBrowser"]));
   /* 有內容的格子沒有 entry → 那一格帶不進表單、送出時是空的;代碼若照帶,Worker 會判成「本人清空了」 */
   const noTitle = Object.assign({}, ENT); delete noTitle.title;
   const ntu = new URL(L.updatePrefillUrl(FORM, noTitle, vals).url);
@@ -401,10 +401,26 @@ hr("⑩ 預填連結(updatePrefillUrl)");
   const b = L.updatePrefillUrl(FORM, ENT, bv);
   const bu = new URL(b.url);
   chk("★ 超過 6000 字 → trimmed", b.trimmed === true, b.url.length);
-  chk("★ 退回的版本只帶名字", eq([...bu.searchParams.keys()], ["usp","entry.1001"]) && bu.searchParams.get("entry.1001") === "A1・曾俊凱");
+  chk("★ 退回的版本只帶名字(和 openExternalBrowser)", eq([...bu.searchParams.keys()], ["usp","entry.1001","openExternalBrowser"]) &&
+      bu.searchParams.get("entry.1001") === "A1・曾俊凱" && bu.searchParams.get("openExternalBrowser") === "1");
   chk("★ 退回的版本不含 token", !bu.searchParams.has("entry.1011") && b.url.indexOf(bv.token) < 0);
   chk("maxLen 可以指定", L.updatePrefillUrl(FORM, ENT, vals, 100).trimmed === true &&
       L.updatePrefillUrl(FORM, ENT, vals, 100000).trimmed === false);
+
+  /* openExternalBrowser=1:表單要登入 Google(能上傳照片),LINE 內建瀏覽器登不進去,
+     帶這個參數 LINE 才會改用手機瀏覽器開。三種結果(完整、退回只帶名字、通用)都要有。 */
+  chk("★ 完整預填的連結帶 openExternalBrowser=1(剛好一個)", eq(u.searchParams.getAll("openExternalBrowser"), ["1"]), r.url.slice(-40));
+  chk("openExternalBrowser 放在最後", [...u.searchParams.keys()].pop() === "openExternalBrowser");
+  const dupe = L.updatePrefillUrl(FORM + "&openExternalBrowser=1", ENT, vals);
+  chk("表單網址本來就有 openExternalBrowser → 不會變成兩個", eq(new URL(dupe.url).searchParams.getAll("openExternalBrowser"), ["1"]));
+  chk("nameless 的通用連結也帶", new URL(L.updatePrefillUrl(FORM, {}, vals).url).searchParams.get("openExternalBrowser") === "1");
+  // 長度判斷把 openExternalBrowser 算進去:上限剛好等於完整連結的長度 → 不退回;少 1 → 退回
+  chk("★ 長度判斷包含 openExternalBrowser(上限 = 完整長度 → 不退回;少 1 → 退回)",
+      L.updatePrefillUrl(FORM, ENT, vals, r.url.length).trimmed === false &&
+      L.updatePrefillUrl(FORM, ENT, vals, r.url.length - 1).trimmed === true, String(r.url.length));
+  const tr1 = L.updatePrefillUrl(FORM, ENT, vals, r.url.length - 1);
+  chk("退回只帶名字的版本也帶 openExternalBrowser=1,而且不帶代碼",
+      new URL(tr1.url).searchParams.get("openExternalBrowser") === "1" && !new URL(tr1.url).searchParams.has("entry.1011"));
 
   // 實際名錄:每一位都組得出連結,而且名字一定帶得進去(只記錄最長的長度,不設門檻 —— 名錄內容會變)
   let longest = 0, people = 0, labelOk = true;
@@ -418,6 +434,29 @@ hr("⑩ 預填連結(updatePrefillUrl)");
     }
   }
   chk(`實際名錄 ${people} 位都組得出帶名字的連結(最長 ${longest} 字)`, people > 0 && labelOk);
+}
+
+/* ══ withExternalBrowser ══ */
+hr("⑩-2 給夥伴的通用連結加 openExternalBrowser=1(withExternalBrowser)");
+{
+  const W = L.withExternalBrowser;
+  chk("沒有查詢字串 → 加 ?openExternalBrowser=1", W("https://forms.gle/AbC123") === "https://forms.gle/AbC123?openExternalBrowser=1");
+  chk("★ 已有參數 → 接在後面,原本的參數一字不改",
+      W("https://docs.google.com/forms/d/e/X/viewform?usp=sf_link") === "https://docs.google.com/forms/d/e/X/viewform?usp=sf_link&openExternalBrowser=1");
+  const odd = "https://x.test/f?a=%20b&c=d+e&n=%E3%83%BB";
+  chk("★ 原本參數的編碼不被重組(%20、+、%E3%83%BB 照舊)", W(odd) === odd + "&openExternalBrowser=1", W(odd));
+  chk("有 #hash → 參數加在 # 前面", W("https://x.test/f?a=1#sec") === "https://x.test/f?a=1&openExternalBrowser=1#sec");
+  chk("結尾是 ? 或 & → 不多一個分隔字元", W("https://x.test/f?") === "https://x.test/f?openExternalBrowser=1" &&
+      W("https://x.test/f?a=1&") === "https://x.test/f?a=1&openExternalBrowser=1");
+  const once = W("https://forms.gle/AbC123");
+  chk("★ 已經有了 → 原樣回傳(不重複加);連續呼叫兩次結果一樣", W(once) === once && W(W(once)) === once);
+  chk("已經有了但值不是 1 → 也不動(尊重原本的設定)", W("https://x.test/f?openExternalBrowser=0") === "https://x.test/f?openExternalBrowser=0");
+  chk("http:// 也加", W("http://x.test/f") === "http://x.test/f?openExternalBrowser=1");
+  chk("★ 不是 http(s) → 原樣回傳", W("javascript:alert(1)") === "javascript:alert(1)" && W("mailto:a@b.c") === "mailto:a@b.c" &&
+      W("line://msg/text/x") === "line://msg/text/x");
+  chk("不是網址、空字串 → 原樣回傳", W("請洽組長") === "請洽組長" && W("") === "");
+  chk("不是字串 → 原樣回傳", W(null) === null && W(undefined) === undefined && W(123) === 123);
+  chk("前後空白會去掉", W("  https://forms.gle/x  ") === "https://forms.gle/x?openExternalBrowser=1");
 }
 
 /* ══ memberUpdateHeader ══ */
@@ -791,6 +830,8 @@ hr("⑳ 審核區:套用／重新整理之後不能復原到寫入之前;處理�
       clone: x => JSON.parse(JSON.stringify(x)),
       isViewer: () => false, isLeader: () => false, hasUnpublishedChanges: () => !!o.unpublished,
       fixSelected(){}, renderAll(){}, validate(){}, saveDraft(){}, renderMupdAfter(){}, copyWithToast(){},
+      // 新照片預覽的 blob URL 撤銷:記下撤了哪幾筆(null = 全部)
+      revokeMupdPhotos: uids => log.push({ t:"revoke", uids: uids == null ? null : [...(typeof uids === "string" ? [uids] : uids)] }),
       confirm: () => true, mupdReady: async () => true, mupdSession: () => ({ token:"t" }), mupdSessionExpired: () => false,
       mupdReadChoices: () => ({ company:"replace" }),
       nameOnlyUpdateLink: () => "https://form.test/",
@@ -874,6 +915,8 @@ hr("⑳ 審核區:套用／重新整理之後不能復原到寫入之前;處理�
     const toasts = c.log.filter(x => x.t === "toast");
     chk("套用成功:最後一則 toast 是帶「複製給本人的訊息」的成功訊息",
         toasts.length && toasts[toasts.length - 1].opts.actionLabel === "複製給本人的訊息");
+    chk("★ 套用成功:這筆的新照片預覽(blob URL)一起撤掉",
+        c.log.some(x => x.t === "revoke" && Array.isArray(x.uids) && eq(x.uids, ["u_aaaaaa1"])), JSON.stringify(c.log.filter(x => x.t === "revoke")));
   }
   {
     const c = makeCtx({ slowList:true, api: () => ({ ok:true }) });
@@ -886,6 +929,7 @@ hr("⑳ 審核區:套用／重新整理之後不能復原到寫入之前;處理�
     const toasts = c.log.filter(x => x.t === "toast");
     chk("不採用成功:最後一則 toast 帶「複製給本人的訊息」",
         toasts.length && toasts[toasts.length - 1].opts.actionLabel === "複製給本人的訊息");
+    chk("★ 不採用成功:這筆的新照片預覽一起撤掉", c.log.some(x => x.t === "revoke" && eq(x.uids, ["u_cccccc3"])));
   }
   {
     const c = makeCtx({ slowList:true, api: () => ({ ok:true, dropped:2, skipped:["u_bbbbbb2"] }) });
@@ -898,6 +942,196 @@ hr("⑳ 審核區:套用／重新整理之後不能復原到寫入之前;處理�
     chk("批次不採用成功:刪掉的當下就拿掉,正在處理中(skipped)的留著",
         !!r && eq(r.uids, ["u_bbbbbb2", "u_dddddd4"]), r ? JSON.stringify(r.uids) : "沒有重畫");
   }
+
+  /* (c) 照片欄位的 choices / expect。Worker 會檢查 expect 的型別:形象照、名片是字串
+     (沒有照片是 ""),商品照是字串陣列 —— 成員卡上沒有 products 時送 "" 會被整筆打回 bad_choice。
+     沒勾的欄位不送 expect(和文字欄位同一個規則)。 */
+  const PHOTO_ROWS = () => [
+    { field:"company", label:"所屬公司", kind:"text" },
+    { field:"image", label:"形象照", kind:"photo", before:[] },
+    { field:"card", label:"名片照片", kind:"photo", before:["g3_m1_card_old.jpg"] },
+    { field:"products", label:"商品照片", kind:"photo", before:["p1.jpg"] },
+  ];
+  const photoView = member => ({ req: REQ(), member, group:{ code:"A1" }, orphan:false, rows: PHOTO_ROWS() });
+  {
+    const c = makeCtx({ api: () => ({ ok:true, memberId:"g3_m1", applied:["image","card","products"], warnings:[] }) });
+    c.mupdReadChoices = () => ({ company:"skip", image:"replace", card:"replace", products:"append" });
+    let asked = "";
+    c.confirm = msg => { asked = msg; return true; };
+    // 沒有形象照(欄位不存在)、名片有、商品照裡混了一個非字串
+    await c.mupdApply(el, photoView(M1("", { card:"g3_m1_card_old.jpg", products:["p1.jpg", 7] })));
+    const api = c.log.find(x => x.t === "api" && x.p === "/member-update-apply");
+    chk("★ choices 原樣送出(含照片欄位)", !!api && eq(api.body.choices, { company:"skip", image:"replace", card:"replace", products:"append" }),
+        api && JSON.stringify(api.body.choices));
+    chk("★ expect:形象照沒有 → \"\"、名片 → 檔名字串、商品照 → 字串陣列;沒勾的欄位不送",
+        !!api && eq(api.body.expect, { image:"", card:"g3_m1_card_old.jpg", products:["p1.jpg"] }), api && JSON.stringify(api.body.expect));
+    chk("★ confirm 寫出照片怎麼套用(新增／換成新的／加在原本後面)",
+        asked.indexOf("會更新：形象照（新增）、名片照片（換成新的）、商品照片（加在原本後面）") >= 0 && asked.indexOf("不套用：所屬公司") >= 0, asked);
+  }
+  {
+    const c = makeCtx({ api: () => ({ ok:true, memberId:"g3_m1", applied:["products"], warnings:[] }) });
+    c.mupdReadChoices = () => ({ company:"replace", image:"skip", card:"skip", products:"replace" });
+    let asked = "";
+    c.confirm = msg => { asked = msg; return true; };
+    await c.mupdApply(el, photoView(M1("")));
+    const api = c.log.find(x => x.t === "api" && x.p === "/member-update-apply");
+    chk("★ 成員卡上沒有 products → expect.products 是 [](不是 \"\")", !!api && eq(api.body.expect, { company:"", products:[] }),
+        api && JSON.stringify(api.body.expect));
+    chk("confirm:商品照整組換掉寫「整組換成新的」,沒勾的照片列在「不套用」",
+        asked.indexOf("商品照片（整組換成新的）") >= 0 && asked.indexOf("不套用：形象照、名片照片") >= 0, asked);
+  }
+  {
+    const c = makeCtx({ api: () => ({ ok:true, memberId:"g3_m1", applied:["products"],
+                                      warnings:[{ field:"products", reason:"list_truncated", dropped:2 }] }) });
+    c.mupdReadChoices = () => ({ company:"skip", image:"skip", card:"skip", products:"append" });
+    await c.mupdApply(el, photoView(M1("")));
+    const t = c.log.filter(x => x.t === "toast").pop();
+    chk("商品照被截掉 → 成功訊息寫「超過 5 張，最後 2 張沒有放進去」(不是 12 項)",
+        !!t && t.msg.indexOf("「商品照片」超過 5 張，最後 2 張沒有放進去。") >= 0 && t.msg.indexOf("12 項") < 0, t && t.msg);
+  }
+  {
+    const c = makeCtx({ api: () => ({ ok:false, error:"update_image_missing", fields:["image","products"] }) });
+    c.mupdReadChoices = () => ({ company:"skip", image:"replace", card:"skip", products:"replace" });
+    await c.mupdApply(el, photoView(M1("")));
+    const t = c.log.filter(x => x.t === "toast").pop();
+    chk("★ update_image_missing → 專屬訊息,列出哪幾種照片",
+        !!t && t.opts.warn === true && t.msg === "照片已經不在暫存區（可能超過 90 天被清掉）：形象照、商品照片。請取消勾選照片再套用，或請本人重新上傳。", t && t.msg);
+    chk("update_image_missing:沒有重讀資料、沒有從畫面拿掉(組長要取消勾選照片再套用)",
+        !c.log.some(x => x.t === "load" || x.t === "render" || x.t === "revoke"));
+  }
+  {
+    const c = makeCtx({ api: () => ({ ok:false, error:"update_image_corrupt", field:"card" }) });
+    c.mupdReadChoices = () => ({ company:"skip", image:"skip", card:"replace", products:"skip" });
+    await c.mupdApply(el, photoView(M1("")));
+    const t = c.log.filter(x => x.t === "toast").pop();
+    chk("★ update_image_corrupt → 專屬訊息(寫出哪一種照片)",
+        !!t && t.msg === "照片檔有問題（名片照片），這次沒有寫入。請取消勾選照片再套用，並聯繫總管理員。", t && t.msg);
+  }
+  {
+    const c = makeCtx({ api: () => ({ ok:false, error:"member_changed", fields:["image","company"] }) });
+    c.mupdReadChoices = () => ({ company:"replace", image:"replace", card:"skip", products:"skip" });
+    await c.mupdApply(el, photoView(M1("")));
+    const t = c.log.filter(x => x.t === "toast").pop();
+    chk("member_changed 的照片欄位也翻成中文", !!t && t.msg.indexOf("「形象照、所屬公司」在你打開這筆之後被別人改過") === 0, t && t.msg);
+  }
+  {
+    const c = makeCtx({ api: () => ({ ok:false, error:"update_store_failed" }) });
+    c.mupdReadChoices = () => ({ company:"skip", image:"replace", card:"skip", products:"skip" });
+    await c.mupdApply(el, photoView(M1("")));
+    const t = c.log.filter(x => x.t === "toast").pop();
+    chk("update_store_failed(寫入之前)→ 明確說「沒有寫入」,不是「不確定有沒有寫進網站」",
+        !!t && t.msg.indexOf("這次沒有寫入") >= 0 && t.msg.indexOf("不確定") < 0, t && t.msg);
+  }
+}
+
+/* ══ 照片:差異表的照片列、欄位名稱、轉抄文字 ══
+   夥伴可以在更新表單上傳形象照(1)、名片照片(1)、商品照片(≤5)。照片列接在文字列後面,
+   預設規則同樣是「第一條成立的決定,警示每條都列」:allSkip → 較新那筆也傳了 → 原本就有(形象照/名片)
+   → 商品照放不放得下。 */
+hr("㉑ 照片列(memberUpdateRows 的照片、memberUpdatePhotos、fieldLabel、memberUpdateCopyText)");
+{
+  const PH = { mime:"image/jpeg", bytes:12345 };          // /member-update-get 給的摘要:沒有 key、沒有 sha256
+  const REQ = (photos, extra) => Object.assign({ changes:{}, base:{}, truncated:[], stalePrefill:[], photos }, extra || {});
+  const rows = (m, req, newer, allSkip) => L.memberUpdateRows(m, req, newer || new Set(), !!allSkip);
+  const row = (m, req, f, newer, allSkip) => rows(m, req, newer, allSkip).find(r => r.field === f);
+  const has = (r, s) => !!r && r.warnings.some(w => w.indexOf(s) >= 0);
+  const m0 = MEMBER();                                     // 成員卡上沒有任何照片欄位
+  const mFull = () => Object.assign(MEMBER(), { image:"g3_m1_x_abc.jpg", card:"g3_m1_card_def.jpg", products:["p1.jpg","p2.jpg"] });
+
+  // 欄位名稱
+  chk("★ fieldLabel 查得到三個照片欄位", L.fieldLabel("image") === "形象照" && L.fieldLabel("card") === "名片照片" &&
+      L.fieldLabel("products") === "商品照片");
+  chk("fieldLabel:文字欄位照舊、未知鍵原樣、原型鍵不會查到、null → \"\"", L.fieldLabel("company") === "所屬公司" &&
+      L.fieldLabel("xyz") === "xyz" && L.fieldLabel("constructor") === "constructor" && L.fieldLabel(null) === "");
+  chk("FIELD_LABELS 還是只有 9 個文字欄位(照片另外放在 PHOTO_LABELS)",
+      Object.keys(L.FIELD_LABELS).length === 9 && !("image" in L.FIELD_LABELS) && !("products" in L.FIELD_LABELS));
+  chk("PHOTO_LABELS、UPDATE_PHOTO_FIELDS、UPDATE_PRODUCTS_MAX 照規格",
+      eq(L.PHOTO_LABELS, { image:"形象照", card:"名片照片", products:"商品照片" }) &&
+      eq(L.UPDATE_PHOTO_FIELDS, ["image","card","products"]) && L.UPDATE_PRODUCTS_MAX === 5);
+  chk("系統註記用的 fieldLabel 也認得照片(untouched 不會顯示英文鍵)",
+      eq(L.memberUpdateExtras({ untouched:["products","company"] }, {}).untouched, ["所屬公司","商品照片"]));
+
+  // 列的形狀與順序
+  const all = rows(mFull(), REQ({ products:[PH,PH,PH], card:PH, image:PH }, { changes:{ company:"新公司" } }));
+  chk("★ 照片列接在文字列後面,順序 image、card、products", eq(all.map(r => r.field), ["company","image","card","products"]),
+      all.map(r => r.field).join(","));
+  const im = all.find(r => r.field === "image");
+  chk("★ 形象照列的形狀(kind / label / before / incoming / count / options / identical / changedSinceSubmit)",
+      im.kind === "photo" && im.label === "形象照" && eq(im.before, ["g3_m1_x_abc.jpg"]) && eq(im.incoming, [{ field:"image", index:-1 }]) &&
+      im.count === 1 && eq(im.options, ["replace","skip"]) && im.identical === false && im.changedSinceSubmit === false, JSON.stringify(im));
+  const cd = all.find(r => r.field === "card");
+  chk("名片列:label 名片照片、incoming 是 card / -1", cd.label === "名片照片" && eq(cd.incoming, [{ field:"card", index:-1 }]) &&
+      eq(cd.before, ["g3_m1_card_def.jpg"]));
+  const pr = all.find(r => r.field === "products");
+  chk("★ 商品照列:incoming 是 product(單數)+ index 0..n-1,options 三選一",
+      eq(pr.incoming, [{ field:"product", index:0 }, { field:"product", index:1 }, { field:"product", index:2 }]) &&
+      pr.count === 3 && eq(pr.options, ["replace","append","skip"]) && pr.label === "商品照片" && eq(pr.before, ["p1.jpg","p2.jpg"]), JSON.stringify(pr));
+
+  chk("只傳了商品照 → 只有商品照一列(image/card 是 null)", eq(rows(m0, REQ({ image:null, card:null, products:[PH] })).map(r => r.field), ["products"]));
+  chk("沒有 photos → 沒有照片列(文字列照舊)", eq(rows(m0, REQ(undefined, { changes:{ company:"x" } })).map(r => r.field), ["company"]));
+  chk("photos 格式不對(陣列、字串、空物件、products 空陣列)→ 沒有照片列",
+      [[PH], "x", {}, { products:[] }, { image:"data:image/jpeg;base64,xx" }].every(p => rows(m0, REQ(p)).length === 0));
+  chk("★ 商品照中間有格式不對的項目 → 略過,其他保留原本的位置當 index(Worker 照位置找照片)",
+      eq(row(m0, REQ({ products:[PH, null, PH] }), "products").incoming, [{ field:"product", index:0 }, { field:"product", index:2 }]));
+  chk("商品照超過 5 張 → 只取前 5 張", row(m0, REQ({ products:[PH,PH,PH,PH,PH,PH] }), "products").count === 5);
+
+  // 預設:形象照、名片
+  const i0 = row(m0, REQ({ image:PH }), "image");
+  chk("★ 形象照原本沒有 → replace,沒有警示", i0.defaultChoice === "replace" && i0.warnings.length === 0 && eq(i0.before, []));
+  const i1 = row(mFull(), REQ({ image:PH }), "image");
+  chk("★ 形象照原本有 → skip + 「會換掉名錄上現在的形象照」",
+      i1.defaultChoice === "skip" && eq(i1.warnings, ["⚠ 會換掉名錄上現在的形象照。請先確認新照片是本人（或他的名片）再勾選。"]), JSON.stringify(i1.warnings));
+  const c1 = row(mFull(), REQ({ card:PH }), "card");
+  chk("★ 名片原本有 → skip + 「會換掉名錄上現在的名片照片」", c1.defaultChoice === "skip" && has(c1, "⚠ 會換掉名錄上現在的名片照片。"));
+  chk("名片原本是空白字串 → 算沒有 → replace", row(Object.assign(MEMBER(), { card:"  " }), REQ({ card:PH }), "card").defaultChoice === "replace");
+  chk("形象照是內嵌的 data: URL(舊資料)→ 也算原本有", row(Object.assign(MEMBER(), { image:"data:image/jpeg;base64,AAAA" }), REQ({ image:PH }), "image").defaultChoice === "skip");
+
+  // 預設:商品照
+  const p0 = row(m0, REQ({ products:[PH,PH] }), "products");
+  chk("★ 商品照原本 0 張 → replace", p0.defaultChoice === "replace" && p0.warnings.length === 0);
+  const pFit = row(Object.assign(MEMBER(), { products:["a.jpg","b.jpg"] }), REQ({ products:[PH,PH,PH] }), "products");
+  chk("★ 原本 2 張 + 新的 3 張 = 5(放得下)→ append", pFit.defaultChoice === "append" && pFit.warnings.length === 0);
+  const pOver = row(Object.assign(MEMBER(), { products:["a.jpg","b.jpg","c.jpg"] }), REQ({ products:[PH,PH,PH] }), "products");
+  chk("★ 原本 3 張 + 新的 3 張 > 5 → skip + 警示",
+      pOver.defaultChoice === "skip" && eq(pOver.warnings, ["⚠ 原本 3 張加上新的 3 張超過 5 張，請選「整組換成新的」或不套用。"]), JSON.stringify(pOver.warnings));
+  chk("原本的空字串、空白、非字串不算張數", eq(row(Object.assign(MEMBER(), { products:["a.jpg", "", " ", null, 3] }), REQ({ products:[PH] }), "products").before, ["a.jpg"]));
+
+  // 較新那筆、allSkip
+  const nw = row(m0, REQ({ image:PH }), "image", new Set(["image"]));
+  chk("★ 較新那筆也傳了形象照 → skip + 「後面那筆較新的更新也傳了這類照片」",
+      nw.defaultChoice === "skip" && eq(nw.warnings, ["後面那筆較新的更新也傳了這類照片，這裡先不套用。"]), JSON.stringify(nw.warnings));
+  const nw2 = row(mFull(), REQ({ image:PH }), "image", new Set(["image"]));
+  chk("較新那筆 + 原本有 → 兩條警示都列", nw2.defaultChoice === "skip" && nw2.warnings.length === 2);
+  chk("較新那筆改的是別的欄位 → 不受影響", row(m0, REQ({ image:PH }), "image", new Set(["company","card"])).defaultChoice === "replace");
+  const np = row(m0, REQ({ products:[PH] }), "products", new Set(["products"]));
+  chk("較新那筆也傳了商品照 → skip(原本 0 張也一樣)", np.defaultChoice === "skip" && has(np, "也傳了這類照片"));
+  const sk = rows(m0, REQ({ image:PH, card:PH, products:[PH] }), new Set(), true);
+  chk("★ allSkip → 每一張照片列都 skip,警示寫在標頭、列上不重複",
+      sk.length === 3 && sk.every(r => r.defaultChoice === "skip" && r.warnings.length === 0), sk.map(r => r.field + ":" + r.defaultChoice).join(","));
+  chk("allSkip 時仍保留「會換掉現在的形象照」提醒", has(row(mFull(), REQ({ image:PH }), "image", new Set(), true), "會換掉名錄上現在的形象照"));
+  const sk3 = row(Object.assign(MEMBER(), { products:["a","b","c","d"] }), REQ({ products:[PH,PH] }), "products", new Set(), true);
+  chk("allSkip 時仍保留「超過 5 張」提醒", sk3.defaultChoice === "skip" && has(sk3, "原本 4 張加上新的 2 張超過 5 張"));
+  chk("member 是 null 也不會丟例外(照片都算原本沒有)",
+      eq(L.memberUpdateRows(null, REQ({ image:PH, products:[PH] }), new Set(), false).map(r => r.defaultChoice), ["replace","replace"]));
+
+  // memberUpdatePhotos
+  chk("memberUpdatePhotos:依 image、card、products 排,帶 label 與 incoming",
+      eq(L.memberUpdatePhotos(REQ({ products:[PH], image:PH })).map(p => [p.field, p.label, p.incoming.length]), [["image","形象照",1],["products","商品照片",1]]));
+  chk("memberUpdatePhotos(null / 沒有 photos) → []", eq(L.memberUpdatePhotos(null), []) && eq(L.memberUpdatePhotos({}), []));
+
+  // 轉抄文字
+  const sat = "2026-10-02T05:14:41.000Z";
+  const txt = L.memberUpdateCopyText({ label:"A1・曾俊凱", sat, changes:{ company:"雲榮" }, note:"我換到 B2 了",
+                                       photos:{ image:PH, card:null, products:[PH,PH,PH] } });
+  const lines = txt.split("\n");
+  const pl = lines.findIndex(l => l.indexOf("另外傳了照片") === 0);
+  chk("★ 有照片 → 多一行「另外傳了照片：形象照 1 張、商品照 3 張（照片請在後台查看、另存）。」",
+      pl > 0 && lines[pl] === "另外傳了照片：形象照 1 張、商品照 3 張（照片請在後台查看、另存）。", txt);
+  chk("照片那一行在欄位之後、備註之前", pl > lines.indexOf("【所屬公司】雲榮") && lines[lines.length - 1] === "【給組長的備註】我換到 B2 了");
+  chk("三種都有 → 形象照、名片、商品照依序",
+      L.memberUpdateCopyText({ label:"A1・x", sat, changes:{}, photos:{ image:PH, card:PH, products:[PH] } })
+        .indexOf("另外傳了照片：形象照 1 張、名片 1 張、商品照 1 張（照片請在後台查看、另存）。") > 0);
+  chk("沒有照片 → 沒有這一行", L.memberUpdateCopyText({ label:"A1・x", sat, changes:{ company:"y" } }).indexOf("另外傳了照片") < 0);
 }
 
 console.log(`\n${fail===0 ? "✅ 全數通過" : "❌ 有失敗"}:${pass} 通過 / ${fail} 失敗\n`);

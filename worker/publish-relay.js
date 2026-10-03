@@ -403,7 +403,13 @@ async function handlePing(request, env){
            /* 夥伴資料更新(/member-update*)。待審核存在同一個 R2 bucket 的 updates/ 底下,
               所以同樣跟著 binding 走、不寫死 true:沒綁 R2 時這幾支一律 503,回報 true
               只會讓後台與 Apps Script 打一輪注定失敗的請求。 */
-           memberUpdate: !!env.PENDING_IMAGES } };
+           memberUpdate: !!env.PENDING_IMAGES,
+           /* 更新表單的照片(/member-update 的 update.photos、/member-update-photo、套用照片)。
+              舊版 Worker 會把 photos 整個忽略 —— 只傳照片的人被回 nothing_to_update,
+              照片和文字一起傳的人則是照片**靜默消失**、表單那頭顯示成功。
+              checkMemberUpdateForm 靠這個旗標在表單加了上傳題之後提醒重新部署。
+              同樣跟著 binding 走:照片也存在同一個 R2。 */
+           memberUpdatePhotos: !!env.PENDING_IMAGES } };
   /* 收件讀的是哪一個公開網站(非機密)。checkMemberUpdateForm 拿它和 site-config.js 的
      SITE_BASE 比對 —— 網站換了網址卻沒設 SITE_BASE 時,Worker 會讀到舊站或 404,
      而那種失敗只會表現成「每一筆都 group_not_found」,很難從錯誤碼猜到原因。 */
@@ -957,9 +963,11 @@ async function parsePendingPhotos(raw, maxBytes){
    為此在 key 裡加了一段「這次呼叫」的識別碼。/intake 沒有這個問題 —— pid 是伺服器
    為每一次送件新產生的,不同送件不可能撞 key。 */
 function pendingKeyFor(pid, field, index, sha256, mime){
-  const base = field + (index >= 0 ? "-" + index : "");
-  return PENDING_IMAGE_PREFIX + pid + "/" + base + "-" + sha256.slice(0, 16) +
-         "." + imgExtOf(mime);
+  return PENDING_IMAGE_PREFIX + pid + "/" + photoObjectName(field, index, sha256, mime);
+}
+/* key 的最後一段:欄位 + 索引 + 內容雜湊 + 副檔名。待認領照片與夥伴更新照片共用同一個規則。 */
+function photoObjectName(field, index, sha256, mime){
+  return field + (index >= 0 ? "-" + index : "") + "-" + sha256.slice(0, 16) + "." + imgExtOf(mime);
 }
 /* 這個 key 是不是屬於這一筆申請。認領時每一個 photoRef 都要過這一關。 */
 function keyBelongsToPid(key, pid){
@@ -1284,12 +1292,16 @@ async function handlePendingPhoto(request, env){
     return json(env, { ok:false, error:"pending_image_corrupt", reason:"bad_mime" }, 502);
   }
   const buf = await obj.arrayBuffer();
-  /* 回的是圖片位元組,不是 JSON。
-     ・Content-Type 取自申請記錄裡的 mime,而且只認白名單內的三種 —— 不採用物件上
-       任何可能被寫壞的值,也就不會回出一個 text/html 讓瀏覽器當網頁執行。
-     ・no-store:未認領者的照片不該留在瀏覽器快取或任何中間層。
+  return privateImageResponse(env, buf, ref.mime);
+}
+
+/* 私有照片的預覽回應(/pending-photo 與 /member-update-photo 共用,兩邊的標頭不可以漂移)。
+   回的是圖片位元組,不是 JSON。
+     ・Content-Type 取自**記錄**裡的 mime,呼叫端要先確認它在白名單內(imgExtOf)——
+       不採用物件上任何可能被寫壞的值,也就不會回出一個 text/html 讓瀏覽器當網頁執行。
+     ・no-store:還沒審核/認領的照片不該留在瀏覽器快取或任何中間層。
      ・nosniff + attachment 以外的 inline 是刻意的:要能直接顯示在 <img> 裡。 */
-  const mime = ref.mime;
+function privateImageResponse(env, buf, mime){
   return new Response(buf, {
     status: 200,
     headers: Object.assign({
@@ -1955,9 +1967,9 @@ async function commitWithVersionCheck(env, headers, opts){
 
 /* ══ 夥伴資料更新(Google 表單 → 私有 R2 待審核 → 組長在後台逐欄確認後套用)════════
    已上架的夥伴用「夥伴資料更新表單」選自己的名字、只填要改的格子。表單不驗證是不是本人
-   (要驗證就得強制登入,而 LINE 內建瀏覽器登不進 Google),所以送出的內容**不直接上線**:
-   一筆一個物件存進私有 R2 的 updates/req/,等那一組的組長或總管理員逐欄確認,
-   再由這裡用伺服器端交易寫進 data/<組>.json。
+   (表單為了能上傳照片要登入 Google,但任何 Google 帳號都能選任何人的名字),所以送出的
+   內容**不直接上線**:一筆一個物件存進私有 R2 的 updates/req/(照片在 updates/img/<uid>/),
+   等那一組的組長或總管理員逐欄確認,再由這裡用伺服器端交易寫進 images/ 與 data/<組>.json。
 
    為什麼不存進公開 repo、也不併進 _pending.json:
      ・沒審核過的內容(包括冒名送件、私人備註)一旦進了 git 歷史就刪不掉,還會掛在真實會員名下
@@ -1966,7 +1978,7 @@ async function commitWithVersionCheck(env, headers, opts){
      ・收件不產生 commit,也不會觸發 sync.yml
 
    ★ 收件(/member-update)只讀**公開網站**(GitHub Pages),不用 GH_TOKEN。
-     表單不必登入,拿到網址的人可以用程式大量送件;收件若打 GitHub API,灌單會吃光權杖
+     任何 Google 帳號都能送這份表單,拿到網址的人也可以用程式大量送件;收件若打 GitHub API,灌單會吃光權杖
      每小時 5,000 次的額度,連後台的讀取、發布、認領都一起失敗。收件只需要拿到 memberId
      與當下的值(base),套用時會用 API 重讀並逐欄比對審核者看到的值,Pages 晚幾分鐘無妨。 */
 const UPDATE_REQ_PREFIX = "updates/req/";
@@ -1984,8 +1996,8 @@ const UPDATE_NOTE_MAX = 1000;
 const MAX_OPEN_UPDATES = 100;
 const MAX_OPEN_UPDATES_PER_MEMBER = 3;
 const UPDATE_LIST_MAX_PAGES = 5;
-const UPDATE_APPLY_ROUNDS = 3;                // 套用最多 3 輪,每輪只提交一次(見 handleMemberUpdateApply)
-const UPDATE_LOCK_MS = 10 * 60 * 1000;        // > 最壞耗時:約 36 個 GitHub 請求 × 15 秒
+const UPDATE_APPLY_ROUNDS = 3;                // 套用最多 3 輪,每輪只提交一次;照片多時依預算減少(見 handleMemberUpdateApply)
+const UPDATE_LOCK_MS = 10 * 60 * 1000;        // > 最壞耗時:約 39 個 GitHub 請求(7 張照片、總管理員 3 輪)× 15 秒 ≈ 9.75 分
 const UPDATE_META_MAX_BYTES = 2048;
 const MAX_UPDATE_REQ_BYTES = 192 * 1024;      // changes + base 各約 75 KB 上限
 const UPDATE_SAT_MAX_AGE_MS = 180 * 86400 * 1000;
@@ -1993,6 +2005,13 @@ const MAX_DROP_BATCH = 100;
 const SITE_TIMEOUT_MS = 10000;
 const UPDATE_FAIL_KEY = "mupd-fail:";         // KV:只記密碼錯誤
 const UPDATE_PLACEHOLDERS = new Set(["無","沒有","不變","不用改","同上","同原本","維持原樣","一樣","照舊","略","n/a","na","-","—","/","無變更","不變更"]);
+
+/* 照片。和文字一起進同一筆待審核,但物件分開放在 updates/img/<uid>/ —— 請求 JSON 只留引用
+   (key 由伺服器從 uid 推出,與 pending/ 的待認領照片同一套規則)。
+   欄位鍵 image/card/products 是套用的 choices、metadata 的 fields、錯誤回應共用的名字。 */
+const UPDATE_IMG_PREFIX = "updates/img/";
+const UPDATE_PHOTO_FIELDS = ["image","card","products"];
+const UPDATE_PRODUCTS_MAX = 5;                // 商品照上限(與後台、認領一致)
 
 const hasOwnKey = (o, k) => !!o && typeof o === "object" && Object.prototype.hasOwnProperty.call(o, k);
 const isUpdateListField = f => UPDATE_LIST_FIELDS.indexOf(f) >= 0;
@@ -2100,9 +2119,15 @@ function normalizeWebsite(v){
 
 /* 內容雜湊:擋「Apps Script 重送、補送、提交其他回應」造成的重複送件。
    crypto.subtle 是 Worker 內建的運算,不算子請求。 */
+/* photos:["<欄位><索引>:<sha256>", …](image、card 沒有索引;商品照是 product0…product4)。
+   同一段文字配上不同的照片是**不同**的一筆;同一批照片重送仍然會被認出來。
+   ★ 沒有照片時連 photos 鍵都不放:雜湊必須和加照片之前**逐位元組相同**,
+     否則部署當下還在待審核區的那些請求,補送時就不會被認成重複。 */
 async function updateContentHash(o){
-  const text = JSON.stringify({ changes:o.changes, note:o.note, invalid:o.invalid,
-                                cleared:o.cleared, confirmOnly:o.confirmOnly });
+  const h = { changes:o.changes, note:o.note, invalid:o.invalid,
+              cleared:o.cleared, confirmOnly:o.confirmOnly };
+  if(Array.isArray(o.photos) && o.photos.length) h.photos = o.photos;
+  const text = JSON.stringify(h);
   return (await sha256Hex(new TextEncoder().encode(text))).slice(0, 16);
 }
 
@@ -2110,14 +2135,87 @@ async function updateContentHash(o){
    "../pending/…" 這種值就能讀寫到待認領照片。 */
 function updateKey(uid){ return UPDATE_REQ_PREFIX + uid + ".json"; }
 
+/* 照片的 R2 key:updates/img/<uid>/<欄位>[-<索引>]-<sha256 前 16>.<副檔名>。
+   和 updateKey 一樣完全由伺服器決定(uid 是收件時產生的),呼叫端的檔名一個字都進不來。 */
+function updatePhotoKeyFor(uid, field, index, sha256, mime){
+  return UPDATE_IMG_PREFIX + uid + "/" + photoObjectName(field, index, sha256, mime);
+}
+/* 這個 key 是不是屬於這一筆請求。預覽、套用、刪除前每一個引用都要過這一關 ——
+   請求 JSON 被寫壞(或被動過手腳)時,不能拿它去讀、寫或刪別筆請求甚至 pending/ 的照片。 */
+function keyBelongsToUid(key, uid){
+  return typeof key === "string" && key.startsWith(UPDATE_IMG_PREFIX + uid + "/") && !key.includes("..");
+}
+
+/* 收件:update.photos → parsePendingPhotos 的結果。
+   ★ 只收字串。parseOnePhoto 會 String() 它拿到的值,{toString:null} 這種物件會讓它丟例外
+     變成 500;數字之類的則會被轉成字串再判成格式錯誤。所以先在這裡換成「一定不合格的字串」,
+     讓它走正常的 invalid_pending_image —— 不可以當成沒傳(那就是靜默丟掉一張照片)。
+   ★ 商品照超過 5 張要**擋下**。parsePendingPhotos 自己會 slice(0, 5),那是靜默丟掉第 6 張。
+     空值先剔除再數,索引才會和請求 JSON 裡 products 陣列的位置一致(預覽端點靠它取圖)。
+   update.photos 不是物件就當成沒有照片。 */
+async function parseUpdatePhotos(raw){
+  if(!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok:true, photos:[] };
+  const one = v => v == null ? "" : (typeof v === "string" ? v : "\u0000not-a-data-url");
+  const image = hasOwnKey(raw, "image") ? one(raw.image) : "";
+  const card  = hasOwnKey(raw, "card")  ? one(raw.card)  : "";
+  let prods = hasOwnKey(raw, "products") ? raw.products : null;
+  if(prods == null || prods === "") prods = [];
+  if(!Array.isArray(prods)) return { ok:false, error:"invalid_pending_image", field:"products", reason:"bad_format" };
+  prods = prods.map(one).filter(Boolean);
+  if(prods.length > UPDATE_PRODUCTS_MAX){
+    return { ok:false, error:"invalid_pending_image", field:"products", reason:"too_many", max:UPDATE_PRODUCTS_MAX };
+  }
+  return parsePendingPhotos({ image, card, products: prods });
+}
+
+/* 請求 JSON 裡的照片 → 固定形狀 { image:ref|null, card:ref|null, products:[ref, …] }。
+   ref 只要是物件就保留,形狀(key 歸屬、mime、bytes、sha256)由使用的地方各自驗。
+   讀取、預覽、套用、刪除都走這一支,同一個索引在每個地方指到的必然是同一張。 */
+function updatePhotosOf(req){
+  const isRef = r => !!r && typeof r === "object" && !Array.isArray(r);
+  const p = hasOwnKey(req, "photos") ? req.photos : null;
+  if(!isRef(p)) return { image:null, card:null, products:[] };
+  return {
+    image: hasOwnKey(p, "image") && isRef(p.image) ? p.image : null,
+    card:  hasOwnKey(p, "card")  && isRef(p.card)  ? p.card  : null,
+    products: hasOwnKey(p, "products") && Array.isArray(p.products)
+      ? p.products.slice(0, UPDATE_PRODUCTS_MAX).filter(isRef) : [],
+  };
+}
+/* 這一筆有照片的欄位鍵,固定依 image、card、products 的順序。 */
+function updatePhotoFieldsOf(ph){
+  return UPDATE_PHOTO_FIELDS.filter(f => f === "products" ? ph.products.length > 0 : !!ph[f]);
+}
+/* 這一筆在 R2 佔用的照片 key(只收通過 keyBelongsToUid 的)。 */
+function updatePhotoKeys(ph, uid){
+  return [ph.image, ph.card].concat(ph.products)
+    .filter(r => r && keyBelongsToUid(r.key, uid)).map(r => r.key);
+}
+/* 刪掉一筆請求與它的照片:R2 的 delete 吃 key 陣列,只算一個子請求。
+   只有一個 key(沒有照片)時照舊傳字串。丟例外由呼叫端處理。 */
+async function deleteUpdateObjects(env, keys){
+  await env.PENDING_IMAGES.delete(keys.length === 1 ? keys[0] : keys);
+}
+
+/* 套用時判斷照片欄位「一樣不一樣」:image/card 比檔名字串,products 比去掉空值後的檔名陣列。
+   只認字串 —— 組檔被寫壞成 {toString:null} 這種值時 str() 會丟例外,而套用的迴圈裡丟出去的
+   例外會被當成「不確定有沒有寫入」(apply_uncertain),那是錯的訊息。 */
+const photoName = v => typeof v === "string" ? str(v, 200) : "";
+const photoNames = v => (Array.isArray(v) ? v : []).map(photoName).filter(Boolean);
+function samePhotoValue(f, a, b){
+  if(f === "products") return JSON.stringify(photoNames(a)) === JSON.stringify(photoNames(b));
+  return photoName(a) === photoName(b);
+}
+
 /* 列表用的 customMetadata。全部是字串、直接存 UTF-8(不做 encodeURIComponent)。
    ★ R2 的 put 會**整份取代**舊的 metadata,所以收件、上鎖、解鎖的每一次 put 都要帶完整的一份。
-   lockBy 不在規格列出的鍵裡,但後台清單的「處理中（{lockBy}）」要靠它,所以一起放(≤32 字)。 */
+   lockBy 不在規格列出的鍵裡,但後台清單的「處理中（{lockBy}）」要靠它,所以一起放(≤32 字)。
+   fields:文字欄位鍵後面接上有照片的欄位鍵(image、card、products),清單上看得到「這筆有照片」。 */
 function updateMeta(req){
   return {
     v:"1", name: str(req.name, 80), memberId: str(req.memberId, 64), gid: str(req.gid, 64),
     code: str(req.code, 16), at: str(req.at, 40), sat: str(req.sat || req.at, 40),
-    fields: Object.keys(req.changes || {}).join(","),
+    fields: Object.keys(req.changes || {}).concat(updatePhotoFieldsOf(updatePhotosOf(req))).join(","),
     hasNote: req.note ? "1" : "0", confirm: req.confirmOnly ? "1" : "0",
     state: str(req.state || "open", 16), lockAt: str(req.lockAt, 40), lockBy: str(req.lockBy, 32),
     rid: str(req.responseId, 128), h: str(req.h, 32),
@@ -2281,8 +2379,10 @@ async function requireOwnGroup(env, sess, gid){
 }
 
 /* ── POST /member-update:Apps Script 收件 ────────────────────────────────────
-   只認 INTAKE_SECRET,不接受 session;只寫 updates/req/,不寫任何 git 檔案,也不用 GH_TOKEN。
-   子請求最多 10:KV 1、公開網站 2、R2 list ≤5、put 1、回滾 delete 1(GitHub API 0)。 */
+   只認 INTAKE_SECRET,不接受 session;只寫 updates/req/ 與 updates/img/,不寫任何 git 檔案,也不用 GH_TOKEN。
+   子請求最多 18:KV 1、公開網站 2、R2 list ≤5、照片 put ≤7、請求 put 1、回滾 delete ≤2
+   (實際上回滾只會有一次 delete —— 已寫入的照片與請求放在同一個陣列;GitHub API 0)。
+   沒有照片的送件和以前一樣最多 10。 */
 async function handleMemberUpdate(request, env){
   const secret = env.INTAKE_SECRET;
   if(!secret) return json(env, { ok:false, error:"intake_disabled" }, 503);
@@ -2377,7 +2477,19 @@ async function handleMemberUpdate(request, env){
     if(over) truncatedCandidates[f] = over;
     cand[f] = canonUpdateValue(f, val);
   }
-  if(!Object.keys(cand).length && !invalid.length && !note && !clearedCandidates.length && !untouched.length){
+
+  /* 照片:格式與 /intake 的申請照片完全相同(data URL,jpeg/png/webp,解碼後 ≤200KB)。
+     任何一張不合格就整筆退回 —— 不靜默丟掉照片。Apps Script 會把這兩個碼記成「需人工」,
+     請組長聯絡本人改傳。擋在讀公開網站之前:壞照片不必花任何子請求。 */
+  const parsedPhotos = await parseUpdatePhotos(u.photos);
+  if(!parsedPhotos.ok){
+    return json(env, { ok:false, error:parsedPhotos.error, field:parsedPhotos.field, reason:parsedPhotos.reason,
+                       bytes:parsedPhotos.bytes, max:parsedPhotos.max },
+                parsedPhotos.error === "pending_image_too_large" ? 413 : 400);
+  }
+  const photos = parsedPhotos.photos;
+
+  if(!Object.keys(cand).length && !invalid.length && !note && !clearedCandidates.length && !untouched.length && !photos.length){
     return json(env, { ok:false, error:"nothing_to_update", ignored }, 400);
   }
 
@@ -2426,15 +2538,18 @@ async function handleMemberUpdate(request, env){
   }
 
   /* 什麼都沒改。被標「資料需確認」的夥伴例外:他確認資料正確也要留一筆,
-     組長跟本人確認之後才能用它取消提示(表單不驗證本人,不能自動取消)。 */
+     組長跟本人確認之後才能用它取消提示(表單不驗證本人,不能自動取消)。
+     有照片就一定建一筆:不和網站上現在的照片比對(要比得先把網站的圖檔抓回來算雜湊,
+     而那些子請求在收件時花不起;一樣的照片在套用時會被判成沒有實際變化)。 */
   let confirmOnly = false;
-  if(!Object.keys(changes).length && !note && !invalid.length && !cleared.length){
+  if(!Object.keys(changes).length && !note && !invalid.length && !cleared.length && !photos.length){
     if(m.dataIssue === true) confirmOnly = true;
     else return json(env, { ok:true, unchanged:true, memberId:m.id, name: str(m.name, 80), code, ignored, untouched });
   }
 
   /* 去重排在計數之前:這位已經有 3 筆、其中一筆就是這次重送的,要回 duplicate 而不是 too_many。 */
-  const h = await updateContentHash({ changes, note, invalid, cleared: cleared.map(c => c.field), confirmOnly });
+  const h = await updateContentHash({ changes, note, invalid, cleared: cleared.map(c => c.field), confirmOnly,
+    photos: photos.map(p => p.field + (p.index >= 0 ? p.index : "") + ":" + p.sha256) });
   let listed;
   try{ listed = await listUpdateMeta(env); }
   catch(e){ return json(env, { ok:false, error:"update_store_failed" }, 502); }
@@ -2460,6 +2575,19 @@ async function handleMemberUpdate(request, env){
     changes, base, untouched, stalePrefill, cleared, truncated, ignored, invalid,
     confirmOnly, note, responseId, h,
   };
+  /* 照片的引用(key 由 uid 推出,還沒寫進 R2)。只有至少一張時才放 photos 鍵 ——
+     沒有照片的請求和以前長得一模一樣,舊版後台讀得懂。 */
+  if(photos.length){
+    const refs = { image:null, card:null, products:[] };
+    for(const p of photos){
+      p.key = updatePhotoKeyFor(uid, p.field, p.index, p.sha256, p.mime);
+      const ref = { key:p.key, mime:p.mime, bytes:p.bytes.length, sha256:p.sha256 };
+      if(p.field === "image") refs.image = ref;
+      else if(p.field === "card") refs.card = ref;
+      else refs.products.push(ref);
+    }
+    req.photos = refs;
+  }
   const reqBytes = new TextEncoder().encode(JSON.stringify(req)).length;
   if(reqBytes > MAX_UPDATE_REQ_BYTES){
     return json(env, { ok:false, error:"update_too_large", size:reqBytes, max:MAX_UPDATE_REQ_BYTES }, 413);
@@ -2469,10 +2597,24 @@ async function handleMemberUpdate(request, env){
     return json(env, { ok:false, error:"update_too_large", reason:"metadata", size:metaBytes, max:UPDATE_META_MAX_BYTES }, 413);
   }
 
+  /* 先寫照片、再寫請求:請求一出現在清單上,它引用的照片就必須已經在了。
+     任何一張失敗就把這次寫過的全部刪掉(一次 delete),不留沒有請求指向的孤兒。
+     ★ put 丟例外不代表沒寫進去(可能只是回應掉了),所以失敗的那一張也一起刪。 */
+  const written = [];
+  for(const p of photos){
+    try{ await env.PENDING_IMAGES.put(p.key, p.bytes, { httpMetadata:{ contentType:p.mime } }); }
+    catch(e){
+      try{ await env.PENDING_IMAGES.delete(written.concat([p.key])); }catch(e2){ /* lifecycle 會清 */ }
+      return json(env, { ok:false, error:"update_store_failed", field: p.field + (p.index >= 0 ? "[" + p.index + "]" : "") }, 502);
+    }
+    written.push(p.key);
+  }
+
   try{ await putUpdate(env, req); }
   catch(e){
-    // put 丟例外不代表沒寫進去(可能只是回應掉了),試著刪掉,不留一筆「回報失敗卻存在」的請求
-    try{ await env.PENDING_IMAGES.delete(updateKey(uid)); }catch(e2){ /* lifecycle 會清 */ }
+    // put 丟例外不代表沒寫進去(可能只是回應掉了),試著刪掉,不留一筆「回報失敗卻存在」的請求;
+    // 照片和請求放在同一次 delete
+    try{ await deleteUpdateObjects(env, [updateKey(uid)].concat(written)); }catch(e2){ /* lifecycle 會清 */ }
     return json(env, { ok:false, error:"update_store_failed" }, 502);
   }
 
@@ -2484,7 +2626,7 @@ async function handleMemberUpdate(request, env){
     ok:true, uid, memberId:m.id, name: str(m.name, 80), code,
     fields: Object.keys(changes), ignored, invalid, untouched, stalePrefill,
     cleared: cleared.map(c => c.field), truncated: truncated.map(t => t.field),
-    confirmOnly, hasNote: !!note,
+    confirmOnly, hasNote: !!note, photos: photos.length,
     open: listed.items.length + 1,
     groupOpen: listed.items.filter(it => it.gid === gid).length + 1,
     oldestAt: new Date(oldestMs).toISOString(),
@@ -2531,7 +2673,10 @@ async function handleMemberUpdates(request, env){
 }
 
 /* ── POST /member-update-get:讀一筆的完整內容 ───────────────────────────────
-   子請求最多 3:R2 1、GitHub 0–2(只有組長要讀 _index)。 */
+   子請求最多 3:R2 1、GitHub 0–2(只有組長要讀 _index)。
+   照片只回摘要 { image:{mime,bytes}|null, card:…, products:[{mime,bytes}, …] }:
+   **不回 key、不回 sha256**。預覽一律走 /member-update-photo(用 uid + 欄位 + 索引),
+   key 不出 Worker,就沒有「拿到 key 再去試別的 key」這條路。沒有照片時不放 photos 鍵。 */
 async function handleMemberUpdateGet(request, env){
   const a = await memberUpdateAuth(request, env);
   if(a.resp) return a.resp;
@@ -2543,23 +2688,136 @@ async function handleMemberUpdateGet(request, env){
   if(rd.error) return json(env, { ok:false, error:rd.error }, 502);
   const deny = await requireOwnGroup(env, sess, rd.req.gid);
   if(deny) return deny;
-  return json(env, { ok:true, request: rd.req });
+  // 展開(不是 Object.assign):逐鍵「定義」而不是「賦值」,鍵名是 __proto__ 也不會改到原型
+  const out = { ...rd.req };
+  delete out.photos;
+  const ph = updatePhotosOf(rd.req);
+  if(updatePhotoFieldsOf(ph).length){
+    const brief = r => r ? { mime: typeof r.mime === "string" ? r.mime : "",
+                             bytes: typeof r.bytes === "number" ? r.bytes : 0 } : null;
+    out.photos = { image: brief(ph.image), card: brief(ph.card), products: ph.products.map(brief) };
+  }
+  return json(env, { ok:true, request: out });
 }
 
-/* ── POST /member-update-apply:伺服器端交易,寫進 data/<組>.json ────────────
+/* ── POST /member-update-photo:待審核照片的授權預覽(後台「更新後」那一欄)──────────
+   輸入 { session, uid, field:"image"|"card"|"product", index }(商品照 index 0–4,其他不看)。
+   權限和 /member-update-get 一樣:唯讀帳號 403、組長只看得到自己那組。
+   做法照 /pending-photo:不簽任何網址、每次預覽都當場驗 session、當場把位元組串回去。
+   ★ key 一定從**請求 JSON** 查出來,呼叫端不能指定 —— bucket 裡放的是還沒審核過的照片,
+     猜得到 key 就讀得到的話,任何登入者都能把別組(甚至待認領區)的照片讀一遍。
+   子請求最多 4:R2 get 請求 1、GitHub 0–2(組長讀 _index)、R2 get 照片 1。 */
+async function handleMemberUpdatePhoto(request, env){
+  const a = await memberUpdateAuth(request, env);
+  if(a.resp) return a.resp;
+  const { body, sess } = a;
+  const uid = typeof body.uid === "string" ? body.uid : "";   // 只收字串:怪物件直接 String() 會丟例外變 500
+  if(!UPDATE_UID_RE.test(uid)) return json(env, { ok:false, error:"bad_request" }, 400);
+  const field = typeof body.field === "string" ? body.field : "";
+  if(field !== "image" && field !== "card" && field !== "product") return json(env, { ok:false, error:"bad_request" }, 400);
+  const rawIndex = body.index;
+  const index = typeof rawIndex === "number" && Number.isInteger(rawIndex) ? rawIndex : -1;
+  if(field === "product" && (index < 0 || index >= UPDATE_PRODUCTS_MAX)) return json(env, { ok:false, error:"bad_request" }, 400);
+
+  const rd = await readUpdate(env, uid);
+  if(rd.gone) return json(env, { ok:false, error:"update_gone" }, 409);
+  if(rd.error) return json(env, { ok:false, error:rd.error }, 502);
+  const deny = await requireOwnGroup(env, sess, rd.req.gid);
+  if(deny) return deny;
+
+  const ph = updatePhotosOf(rd.req);
+  const ref = field === "image" ? ph.image : field === "card" ? ph.card : (ph.products[index] || null);
+  if(!ref) return json(env, { ok:false, error:"update_image_missing" }, 404);
+  // 與套用走同一道關卡:key 必須落在這一筆請求自己的前綴底下
+  if(!keyBelongsToUid(ref.key, uid)) return json(env, { ok:false, error:"update_image_forbidden" }, 403);
+  /* mime 不在白名單內就**擋下**(先擋,省一個子請求),不要降級成 octet-stream 送出去 ——
+     理由同 /pending-photo:記錄被寫壞是要修的事,不是要繞過的事。 */
+  if(typeof ref.mime !== "string" || !imgExtOf(ref.mime)){
+    return json(env, { ok:false, error:"update_image_corrupt", reason:"bad_mime" }, 502);
+  }
+  /* 「讀不到」(暫時性故障,值得重試)與「不存在」(超過 90 天被 lifecycle 清掉)分開回報。 */
+  let buf = null;
+  try{
+    const obj = await env.PENDING_IMAGES.get(ref.key);
+    if(obj) buf = await obj.arrayBuffer();
+  }catch(e){ return json(env, { ok:false, error:"update_store_failed" }, 502); }
+  if(!buf) return json(env, { ok:false, error:"update_image_missing" }, 404);
+  return privateImageResponse(env, buf, ref.mime);
+}
+
+/* 套用前把要寫進名錄的照片從 R2 取回並驗證(做法照認領的 resolvePendingPhotos):
+   key 必須屬於這一筆請求、mime 在白名單內、位元組數與 sha256 都和收件時記下的一樣。
+   ★ 這一步在**動 Git 之前**全部做完。先 commit 再拿圖的話,拿不到就會留下「成員卡指向
+     一個不存在的圖檔」—— 前台那位夥伴的照片永久 404,而套用回報成功。
+   檔名帶內容雜湊:<memberId>_x_<sha10>.<ext>(形象照)、_card_(名片)、_p<n>_(商品照,
+   n = 這一筆裡的第幾張 + 1)。不同照片必然是不同檔,不會互相覆蓋;images/ 沒有版本鎖,
+   靠的就是這一點。
+   回傳 { ok:true, files:[{path, name, contentB64}], names:{image, card, products} } 或
+        { ok:false, status, body }:
+     不存在 → 409 update_image_missing {fields}(超過 90 天被 lifecycle 清掉,請審核者取消勾選照片)
+     get 丟例外 → 502 update_store_failed(暫時性,值得重試)
+     驗證不過 → 502 update_image_corrupt {field, reason}(要人工處理,不能重試解決) */
+async function loadUpdatePhotos(env, uid, memberId, slots){
+  const files = [], names = { image:"", card:"", products:[] }, missing = [];
+  const corrupt = (s, reason) => ({ ok:false, status:502, body:{ ok:false, error:"update_image_corrupt",
+    field:s.field, index: s.index >= 0 ? s.index : undefined, reason } });
+  /* memberId 會變成檔名的開頭。收件時已經過 MEMBER_ID_RE,這裡再擋一次 —— 不合格的話連
+     R2 都不必讀。 */
+  const mid = typeof memberId === "string" && MEMBER_ID_RE.test(memberId) ? memberId : "";
+  if(slots.length && !mid) return corrupt(slots[0], "name");
+  for(const s of slots){
+    const ref = s.ref;
+    // key 歸屬:請求 JSON 被寫壞(或被動過手腳)時,不能拿它去讀別筆請求或 pending/ 的物件
+    if(!ref || !keyBelongsToUid(ref.key, uid)) return corrupt(s, "key");
+    // mime 決定副檔名:白名單以外的值一律擋下,不降級(理由同 resolvePendingPhotos)
+    const ext = typeof ref.mime === "string" ? imgExtOf(ref.mime) : "";
+    if(!ext) return corrupt(s, "bad_mime");
+    if(typeof ref.sha256 !== "string" || !SHA256_RE.test(ref.sha256)) return corrupt(s, "sha256");
+    if(typeof ref.bytes !== "number" || !(ref.bytes > 0) || ref.bytes > PENDING_IMG_BYTES_MAX) return corrupt(s, "bytes");
+    /* 「讀不到」與「不存在」是兩件事:前者是暫時性故障,不可以當成缺圖處理。 */
+    let bytes = null;
+    try{
+      const obj = await env.PENDING_IMAGES.get(ref.key);
+      if(obj) bytes = new Uint8Array(await obj.arrayBuffer());
+    }catch(e){ return { ok:false, status:502, body:{ ok:false, error:"update_store_failed", field:s.field } }; }
+    if(!bytes){ if(missing.indexOf(s.field) < 0) missing.push(s.field); continue; }
+    if(bytes.length !== ref.bytes) return corrupt(s, "bytes");
+    const h = await sha256Hex(bytes);
+    if(h !== ref.sha256) return corrupt(s, "sha256");
+    const suffix = s.field === "products" ? "p" + (s.index + 1) : (s.field === "card" ? "card" : "x");
+    const name = mid + "_" + suffix + "_" + h.slice(0, 10) + "." + ext;
+    const path = "images/" + name;
+    // 與 /publish 的附件同一條路徑規則(成員 id 過長或開頭不是英數字時,寧可擋下也不寫出怪檔名)
+    if(!FILE_PATH_RE.test(path)) return corrupt(s, "name");
+    files.push({ path, name, contentB64: bytesToB64(bytes) });
+    if(s.field === "products") names.products.push(name);
+    else if(s.field === "card") names.card = name;
+    else names.image = name;
+  }
+  if(missing.length) return { ok:false, status:409, body:{ ok:false, error:"update_image_missing", fields: missing } };
+  return { ok:true, files, names };
+}
+
+/* ── POST /member-update-apply:伺服器端交易,寫進 images/ 與 data/<組>.json ────────
    輸入 { session, uid, choices:{欄位:"replace"|"append"|"skip"}, expect:{欄位:審核者畫面上的目前值},
          clearDataIssue }
+   照片欄位只在這一筆有那一類照片時才收:image、card 是 replace|skip,products 是 replace|append|skip;
+   它們的 expect 是檔名字串(原本沒有照片時 "")與檔名陣列。
 
    並行控制:
      ・上鎖用 etag 做 CAS:兩個分頁同時按「套用」、或「套用」撞上「不採用」,只有一方拿得到鎖
      ・expect:審核者看到的值和 GitHub 上的現值逐欄比對,不同就停下(member_changed),
        不會把別人剛改好的欄位蓋回去;只有同一欄真的被改過才會擋,改到其他欄不受影響
+       (照片欄位用 samePhotoValue 比:別人剛換過的照片不會被這裡蓋回去)
      ・lastUpdateFrom = uid:同一筆不會被套用兩次(commit 成功但清除失敗、ref 更新逾時之後再按)
 
-   子請求有靜態上限(Cloudflare 免費方案單次 50):每一輪只提交一次(maxTries:1)、最多 3 輪。
-     固定:R2 get 1 + _index 1–2 + 上鎖 1 + 刪除或解鎖 1(清除失敗時再加解鎖 1)= 最多 6
-     每輪:組檔 ≤2 + 提交一次(組長 ≤10、總管理員 ≤8)
-     合計:組長 6 + 3 × 12 = 42、總管理員 6 + 3 × 10 = 36 */
+   子請求有靜態上限(Cloudflare 免費方案單次 50):每一輪只提交一次(maxTries:1),輪數依預算決定。
+     固定:R2 get 1 + _index 1–2 + 上鎖 1 + 刪除或解鎖 1(清除失敗時再加解鎖 1)= 最多 6,
+           再加 照片 get N + 照片 blob N(blob 只建一次:blobCache 在各輪之間共用)
+     每輪:組檔 ≤2 + 提交一次(組長 ≤10、總管理員 ≤8)= 組長 12、總管理員 10
+     輪數:clamp(floor((50 − 固定) / 每輪), 1, 3)
+     合計:沒有照片 組長 6 + 3 × 12 = 42、總管理員 6 + 3 × 10 = 36;
+           7 張照片(固定 20)組長 20 + 2 × 12 = 44(2 輪)、總管理員 20 + 3 × 10 = 50(3 輪) */
 async function handleMemberUpdateApply(request, env){
   const a = await memberUpdateAuth(request, env);
   if(a.resp) return a.resp;
@@ -2575,12 +2833,23 @@ async function handleMemberUpdateApply(request, env){
   if(rd.error) return json(env, { ok:false, error:rd.error }, 502);
   const req = rd.req;
   const changes = (req.changes && typeof req.changes === "object" && !Array.isArray(req.changes)) ? req.changes : {};
+  const photos = updatePhotosOf(req);
+  const photoFields = updatePhotoFieldsOf(photos);          // 這一筆有照片的欄位
 
   /* choices 的鍵必須同時在白名單與這筆的 changes 裡;append 只給清單欄位。
+     照片欄位(image、card、products)只收這一筆真的有的那幾類;append 只給商品照。
      不在 choices 裡的欄位就是不套用。 */
   const choices = {};
   for(const k of Object.keys(choicesIn)){
     const c = choicesIn[k];
+    if(UPDATE_PHOTO_FIELDS.indexOf(k) >= 0){
+      if(photoFields.indexOf(k) < 0) return json(env, { ok:false, error:"bad_choice", field:k }, 400);
+      if(!(c === "replace" || c === "skip" || (c === "append" && k === "products"))){
+        return json(env, { ok:false, error:"bad_choice", field:k }, 400);
+      }
+      choices[k] = c;
+      continue;
+    }
     if(UPDATE_FIELDS.indexOf(k) < 0 || !hasOwnKey(changes, k)) return json(env, { ok:false, error:"bad_choice", field:k }, 400);
     if(!(c === "replace" || c === "skip" || (c === "append" && isUpdateListField(k)))){
       return json(env, { ok:false, error:"bad_choice", field:k }, 400);
@@ -2588,6 +2857,7 @@ async function handleMemberUpdateApply(request, env){
     choices[k] = c;
   }
   const active = UPDATE_FIELDS.filter(f => hasOwnKey(choices, f) && choices[f] !== "skip");
+  const activePhotos = UPDATE_PHOTO_FIELDS.filter(f => hasOwnKey(choices, f) && choices[f] !== "skip");
   const expect = (body.expect && typeof body.expect === "object" && !Array.isArray(body.expect)) ? body.expect : {};
   for(const f of active){
     // 審核者畫面上那一欄的「目前」值。沒送就無從判斷他看到的是不是現值 → 不套用
@@ -2595,8 +2865,21 @@ async function handleMemberUpdateApply(request, env){
     const okType = v === null || typeof v === "string" || (Array.isArray(v) && v.every(x => typeof x === "string"));
     if(!okType) return json(env, { ok:false, error:"bad_choice", field:f, reason:"expect" }, 400);
   }
+  for(const f of activePhotos){
+    // 照片欄位的「目前」值:image/card 是檔名字串(原本沒有照片時是 ""),products 是檔名陣列
+    const v = hasOwnKey(expect, f) ? expect[f] : undefined;
+    const okType = f === "products" ? (Array.isArray(v) && v.every(x => typeof x === "string")) : typeof v === "string";
+    if(!okType) return json(env, { ok:false, error:"bad_choice", field:f, reason:"expect" }, 400);
+  }
   const clearDataIssue = body.clearDataIssue === true;
-  if(!active.length && !clearDataIssue) return json(env, { ok:false, error:"nothing_selected" }, 400);
+  if(!active.length && !activePhotos.length && !clearDataIssue) return json(env, { ok:false, error:"nothing_selected" }, 400);
+
+  /* 要寫進名錄的照片(上鎖之後才去 R2 取回)。只取這次真的要套用的那幾類。 */
+  const slots = [];
+  for(const f of activePhotos){
+    if(f === "products") photos.products.forEach((ref, i) => slots.push({ field:f, index:i, ref }));
+    else slots.push({ field:f, index:-1, ref: f === "card" ? photos.card : photos.image });
+  }
 
   /* 權限與路徑:請求記的是 gid,用 _index 換成當下的代號(總管理員改過代號也找得到新檔)。
      組長有三道:這裡比 gid、canWriteDataFile 比路徑、commitWithVersionCheck 再用同一個快照
@@ -2611,6 +2894,13 @@ async function handleMemberUpdateApply(request, env){
   const code = grp.code;
   const dataPath = "data/" + code.toLowerCase() + ".json";
   if(!canWriteDataFile(sess, dataPath)) return json(env, { ok:false, error:"forbidden_path", path:dataPath }, 403);
+
+  /* 輪數依子請求預算決定(算式見上方):照片越多,固定成本越高,能重試的輪數就越少。
+     寧可少一輪、回 stale_base 請審核者再按一次,也不要在第三輪中途越過 50 個子請求 ——
+     那種失敗的表現是 Worker 被砍掉,連解鎖都來不及做。 */
+  const fixedCost = 6 + slots.length * 2;
+  const perRound = sessionRole(sess) === "leader" ? 12 : 10;
+  const rounds = Math.max(1, Math.min(UPDATE_APPLY_ROUNDS, Math.floor((50 - fixedCost) / perRound)));
 
   const now = Date.now();
   if(isLocked(req, now)){
@@ -2630,10 +2920,20 @@ async function handleMemberUpdateApply(request, env){
     catch(e){ /* best-effort */ }
   };
   const key = updateKey(uid);
+  /* 成功(或發現已經套用過)之後一次刪掉:請求 + 這一筆**所有**的照片(沒勾的那幾張也是 ——
+     請求不在了,就沒有人會再用到它們)。 */
+  const cleanupKeys = [key].concat(updatePhotoKeys(photos, uid));
   let committed = null, released = false;
   try{
+    /* 照片在動 Git 之前全部取回並驗證,只做一次:我們拿著鎖,各輪之間請求 JSON 不會變,
+       照片物件也不會變。失敗就停下(finally 會解鎖),什麼都沒有寫入。 */
+    const got = await loadUpdatePhotos(env, uid, req.memberId, slots);
+    if(!got.ok) return json(env, got.body, got.status);
+    /* blob 快取在各輪之間共用(以內容雜湊為 key),照片的 blob 只建一次。
+       每輪各開一個的話,7 張照片每一輪都要重建 7 個 blob,三輪就超過 50 個子請求。 */
+    const blobCache = {};
     let last = null;
-    for(let round = 0; round < UPDATE_APPLY_ROUNDS; round++){
+    for(let round = 0; round < rounds; round++){
       /* a. 每一輪都重讀組檔(不帶 ref = 當下的 main)。上一輪被判 stale_base 時,
             多半是別人剛發布了同組的其他成員 —— 重讀之後 expect 仍然相符,就照常套用。 */
       const read = await ghReadFile(env, headers, dataPath);
@@ -2651,11 +2951,12 @@ async function handleMemberUpdateApply(request, env){
       const member = groupBody.members[mi];
       // c. 這一筆已經寫進去過了(上次 commit 成功但清除失敗,或 ref 更新逾時其實已生效)
       if(member.lastUpdateFrom === uid){
-        try{ await env.PENDING_IMAGES.delete(key); released = true; }catch(e){ /* 下次再清 */ }
+        try{ await deleteUpdateObjects(env, cleanupKeys); released = true; }catch(e){ /* 下次再清 */ }
         return json(env, { ok:false, error:"update_already_applied", memberId:req.memberId, code }, 409);
       }
-      // d. 審核者看到的值必須還是現值
-      const moved = active.filter(f => !sameUpdateValue(f, expect[f], member[f]));
+      // d. 審核者看到的值必須還是現值(照片欄位也一樣:別人剛換過的照片不會被蓋回去)
+      const moved = active.filter(f => !sameUpdateValue(f, expect[f], member[f]))
+        .concat(activePhotos.filter(f => !samePhotoValue(f, expect[f], member[f])));
       if(moved.length) return json(env, { ok:false, error:"member_changed", fields:moved }, 409);
 
       // e. 組新的成員卡。值一律再清理一次;apply 沒有「清空」的語意,也永遠不會把 dataIssue 設成 true
@@ -2683,6 +2984,26 @@ async function handleMemberUpdateApply(request, env){
         }
         if(!sameUpdateValue(f, nv, member[f])){ next[f] = nv; effective = true; }
       }
+      /* 照片:image/card 換成新檔名;products「整組換成新的」或「加在原本後面」(去重、最多 5 張,
+         超過的截掉並記進 warnings —— 和文字清單的 list_truncated 同一個形狀)。 */
+      for(const f of activePhotos){
+        let nv;
+        if(f !== "products") nv = got.names[f === "card" ? "card" : "image"];
+        else if(choices[f] === "append"){
+          const merged = photoNames(member.products);
+          const seen = new Set(merged);
+          for(const n of got.names.products){
+            if(!seen.has(n)){ seen.add(n); merged.push(n); }
+          }
+          if(merged.length > UPDATE_PRODUCTS_MAX){
+            warnings.push({ field:f, reason:"list_truncated", dropped: merged.length - UPDATE_PRODUCTS_MAX });
+          }
+          nv = merged.slice(0, UPDATE_PRODUCTS_MAX);
+        } else {
+          nv = got.names.products.slice();
+        }
+        if(!samePhotoValue(f, nv, member[f])){ next[f] = nv; effective = true; }
+      }
       let dataIssueCleared = false;
       if(clearDataIssue && member.dataIssue === true){ next.dataIssue = false; dataIssueCleared = true; effective = true; }
       if(!effective) return json(env, { ok:false, error:"no_effective_change" }, 409);
@@ -2698,10 +3019,15 @@ async function handleMemberUpdateApply(request, env){
       const bytes = new TextEncoder().encode(text);
       if(bytes.length > MAX_DATA_BYTES) return json(env, { ok:false, error:"data_too_large", size:bytes.length, max:MAX_DATA_BYTES }, 413);
 
-      // g. 每一輪只提交一次。版本基準是這一輪讀到的 blob sha
+      /* g. 每一輪只提交一次。版本基準是這一輪讀到的 blob sha。
+            照片檔和組檔在同一個 commit 裡(全成功或全失敗)。只寫成員卡真的會引用的那幾張 ——
+            「加在原本後面」被截掉的商品照寫進 repo 也沒有人會用。
+            assetPaths 交給 commitWithVersionCheck 用同一個快照檢查:組長只能寫自己那組的檔名前綴。 */
+      const used = new Set([next.image, next.card].concat(Array.isArray(next.products) ? next.products : []));
+      const imgFiles = got.files.filter(x => used.has(x.name)).map(x => ({ path:x.path, contentB64:x.contentB64 }));
       const r = await commitWithVersionCheck(env, headers, {
-        files: [{ path:dataPath, contentB64: bytesToB64(bytes) }], remove: [],
-        baseHashes:{}, baseBlobShas:{ [dataPath]: read.sha }, blobCache:{}, assetPaths: [], sess,
+        files: imgFiles.concat([{ path:dataPath, contentB64: bytesToB64(bytes) }]), remove: [],
+        baseHashes:{}, baseBlobShas:{ [dataPath]: read.sha }, blobCache, assetPaths: imgFiles.map(x => x.path), sess,
         maxTries: 1,
         message: "夥伴資料更新：" + str(member.name, 80) + "（" + code + "・" + who + "）",
       });
@@ -2718,7 +3044,7 @@ async function handleMemberUpdateApply(request, env){
       // 都發生在寫入 ref 之前,確定沒有寫入
       return json(env, r.body, r.status);
     }
-    // 3 輪都被搶先
+    // 每一輪都被搶先
     if(!committed) return json(env, last.body, last.status);
   }catch(e){
     // ghCommitFiles 的 ref PATCH 逾時會丟 AbortError,此時 ref 可能已經更新 → 不確定
@@ -2728,13 +3054,13 @@ async function handleMemberUpdateApply(request, env){
     if(!committed && !released) await unlock();
   }
 
-  /* commit 成功之後才刪請求。刪除失敗**不回滾**(網站資料是對的),回 cleanupFailed;
+  /* commit 成功之後才刪請求與照片(一次 delete)。刪除失敗**不回滾**(網站資料是對的),回 cleanupFailed;
      同時把鎖解開 —— 否則這一筆要卡 10 分鐘,後台按「已處理」或再按「套用」都只會看到「處理中」。
      解開之後再按套用,會在 7c 被 lastUpdateFrom 攔下並清掉。 */
   let cleanupFailed = false;
-  try{ await env.PENDING_IMAGES.delete(key); }
+  try{ await deleteUpdateObjects(env, cleanupKeys); }
   catch(e){ cleanupFailed = true; await unlock(); }
-  const out = { ok:true, memberId:req.memberId, code, commit: committed.r.commitSha, applied: active,
+  const out = { ok:true, memberId:req.memberId, code, commit: committed.r.commitSha, applied: active.concat(activePhotos),
                 dataIssueCleared: committed.dataIssueCleared, warnings: committed.warnings };
   if(cleanupFailed) out.cleanupFailed = true;
   return json(env, out);
@@ -2742,6 +3068,7 @@ async function handleMemberUpdateApply(request, env){
 
 /* ── POST /member-update-drop:「不採用」與「已處理」共用 ─────────────────────
    只動 R2,不動網站。先用 CAS 改成 dropping(和「套用」互斥),再刪。
+   請求和它的照片放在同一次 delete(陣列只算一個子請求)。
    子請求最多 5:R2 get 1、GitHub 0–2、put 1、delete 1。 */
 async function handleMemberUpdateDrop(request, env){
   const a = await memberUpdateAuth(request, env);
@@ -2766,7 +3093,7 @@ async function handleMemberUpdateDrop(request, env){
   }catch(e){ return json(env, { ok:false, error:"update_store_failed" }, 502); }
   if(!lockObj) return json(env, { ok:false, error:"update_busy" }, 409);
   // 刪除失敗時物件停在 dropping,10 分鐘後可以再操作
-  try{ await env.PENDING_IMAGES.delete(updateKey(uid)); }
+  try{ await deleteUpdateObjects(env, [updateKey(uid)].concat(updatePhotoKeys(updatePhotosOf(req), uid))); }
   catch(e){ return json(env, { ok:false, error:"update_store_failed" }, 502); }
   return json(env, { ok:true });
 }
@@ -2776,7 +3103,9 @@ async function handleMemberUpdateDrop(request, env){
    ★ 競態:列表之後、刪除之前剛好有人對其中一筆上鎖套用,套用照樣會 commit,
      請求被這裡刪掉 —— 結果是「資料已套用、請求不見了」,不會損壞資料。單筆的
      /member-update-drop 仍然用 CAS,只有批次這條路接受這個競態(逐筆 CAS 要 2N 個子請求)。
-   子請求最多 6:R2 list ≤5、delete 1。 */
+   照片:另外列一次 updates/img/(不帶 metadata),把屬於這次刪除名單的照片放進同一次 delete。
+   不逐筆讀請求 JSON 拿 key —— 那要 N 個子請求;照片 key 的第三段就是 uid,列一次就對得起來。
+   子請求最多 11:R2 list ≤5(請求)、list ≤5(照片)、delete 1。 */
 async function handleMemberUpdateDropBatch(request, env){
   let body; try{ body = await request.json(); }catch(e){ return json(env, { ok:false, error:"bad_request" }, 400); }
   const sess = await verifySession(body && body.session, env.SESSION_SECRET);
@@ -2799,7 +3128,27 @@ async function handleMemberUpdateDropBatch(request, env){
     if(it && !isLocked(it, now)) drop.push(uid); else skipped.push(uid);
   }
   if(drop.length){
-    try{ await env.PENDING_IMAGES.delete(drop.map(updateKey)); }
+    const keys = drop.map(updateKey);
+    /* 這一步失敗(丟例外)就只刪請求:被灌單時要的是「清單先清乾淨」,照片沒有任何請求指向,
+       留給 bucket 的 lifecycle(updates/ 90 天)清。不讓它擋住整批不採用。 */
+    try{
+      const dropSet = new Set(drop);
+      const imgKeys = [];
+      let cursor;
+      for(let page = 0; page < UPDATE_LIST_MAX_PAGES; page++){
+        const res = await env.PENDING_IMAGES.list({ prefix: UPDATE_IMG_PREFIX, cursor });
+        for(const o of (res && res.objects) || []){
+          const k = String(o && o.key || "");
+          const u = k.split("/")[2] || "";          // updates/img/<uid>/<檔名>
+          if(dropSet.has(u) && keyBelongsToUid(k, u)) imgKeys.push(k);
+        }
+        if(!res || !res.truncated) break;
+        cursor = res.cursor;
+      }
+      // R2 的 delete 一次最多 1,000 個 key;超過的照片(不會發生在正常資料上)留給 lifecycle
+      keys.push(...imgKeys.slice(0, Math.max(0, 1000 - keys.length)));
+    }catch(e){ /* 只刪請求 */ }
+    try{ await env.PENDING_IMAGES.delete(keys); }
     catch(e){ return json(env, { ok:false, error:"update_store_failed" }, 502); }
   }
   return json(env, { ok:true, dropped: drop.length, skipped });
@@ -3015,6 +3364,7 @@ export default {
       if(pathname === "/member-update") return await handleMemberUpdate(request, env);
       if(pathname === "/member-updates") return await handleMemberUpdates(request, env);
       if(pathname === "/member-update-get") return await handleMemberUpdateGet(request, env);
+      if(pathname === "/member-update-photo") return await handleMemberUpdatePhoto(request, env);
       if(pathname === "/member-update-apply") return await handleMemberUpdateApply(request, env);
       if(pathname === "/member-update-drop") return await handleMemberUpdateDrop(request, env);
       if(pathname === "/member-update-drop-batch") return await handleMemberUpdateDropBatch(request, env);
