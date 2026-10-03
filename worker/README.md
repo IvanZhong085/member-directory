@@ -152,12 +152,13 @@ Worker 因此會比對「這份草稿是根據哪個版本改的」：不符就*
 | `/drop-pending` | 刪掉一筆待認領申請。先原子移除記錄，ref 更新成功之後才刪 R2 物件 —— 順序與 `/claim` 相同，所以不會留下孤兒。 |
 | `/pending-photo` | **待認領照片的授權預覽**。輸入 `pid` + 欄位（`image`／`card`／`product` + `index`），回傳圖片位元組本身（不是 JSON），標頭帶 `Cache-Control: private, no-store`。<br>刻意**不簽任何網址**：簽出去的 URL 就是一條公開連結，只是難猜而已，一旦被複製、被貼進聊天室就收不回來。改成每次預覽都當場驗 session。<br>R2 的 key 一律從 `data/_pending.json` 查出來，呼叫端指定的 key 完全無效 —— 否則任何登入者都能拿猜的 key 把整個 bucket 讀一遍，而 bucket 裡放的正是還沒被認領的人的名片。唯讀帳號一律 403。 |
 | `/pending-audit` | **孤兒物件的唯讀盤點**（僅總管理員）。把 bucket 裡 `pending/` 的物件與 `_pending.json` 引用的 key 對起來，回報物件數、孤兒數與佔用空間、最舊的孤兒放了幾天，以及反向的 `missingRefs`（被引用但物件已不存在 —— 那是「認領會失敗」的預告）。<br>**它不刪任何東西。** 盤點與刪除混在同一支工具裡，最後總會有人在不確定的情況下按下去。<br>列舉超過頁數上限時回 `truncated: true` 且 `missingRefs: null` —— 沒看完整份清單就不下那個結論。 |
-| `/member-update` | **夥伴資料更新表單的收件口**（Apps Script 用）。只認 `INTAKE_SECRET`，不接受登入；只寫 R2 的 `updates/req/`，不寫任何 git 檔案。找人時讀的是**公開網站**（GitHub Pages），**不用 `GH_TOKEN`** —— 表單不必登入，被灌單也不會吃光權杖額度、連累後台。同一筆回應或同一位同內容的重送只會建一筆。 |
+| `/member-update` | **夥伴資料更新表單的收件口**（Apps Script 用）。只認 `INTAKE_SECRET`，不接受登入；只寫 R2 的 `updates/req/`（照片在 `updates/img/<編號>/`），不寫任何 git 檔案。找人時讀的是**公開網站**（GitHub Pages），**不用 `GH_TOKEN`** —— 任何 Google 帳號都能填表，被灌單也不會吃光權杖額度、連累後台。同一筆回應或同一位同內容（含同一批照片）的重送只會建一筆。<br>**照片**（`update.photos`：形象照 1、名片 1、商品照最多 5）和新夥伴表單的格式相同（jpeg／png／webp，每張 ≤200KB）。任何一張不合格就整筆退回（`pending_image_too_large` 413、`invalid_pending_image` 400），不會靜默丟掉照片。 |
 | `/member-updates` | 後台的待審核清單（只回摘要，不回內容）。組長只看到自己那組，唯讀帳號 403。 |
-| `/member-update-get` | 讀一筆待審核的完整內容。組長只讀得到自己那組。 |
-| `/member-update-apply` | **套用夥伴更新的伺服器端交易**。逐欄比對審核者畫面上看到的值，和網站上現在的值不同就停下（`member_changed`），不會蓋掉別人剛改好的欄位；寫入後幾分鐘前台就會更新，不必再按發布。同一筆不會被寫兩次。 |
-| `/member-update-drop` | 「不採用」與「已處理」：只刪掉那一筆待審核，網站上的資料不動。和「套用」互斥，不會一邊套用、一邊被刪。 |
-| `/member-update-drop-batch` | **只限總管理員**：被灌單時勾選多筆一次不採用。 |
+| `/member-update-get` | 讀一筆待審核的完整內容。組長只讀得到自己那組。照片只回張數、格式與大小，不回 R2 的位置。 |
+| `/member-update-photo` | **待審核照片的授權預覽**（後台「更新後」那一欄）。輸入編號 + 欄位（`image`／`card`／`product` + `index`），回傳圖片位元組本身，標頭和 `/pending-photo` 相同（`private, no-store`）。R2 的位置一律從那一筆的內容查出來，呼叫端指定的無效。權限和 `/member-update-get` 一樣：唯讀帳號 403、組長只看得到自己那組。照片不在了（超過 90 天被清掉）回 `update_image_missing`。 |
+| `/member-update-apply` | **套用夥伴更新的伺服器端交易**。逐欄比對審核者畫面上看到的值，和網站上現在的值不同就停下（`member_changed`），不會蓋掉別人剛改好的欄位；寫入後幾分鐘前台就會更新，不必再按發布。同一筆不會被寫兩次。<br>勾選的**照片**會先從 R2 取回並驗證（大小、內容雜湊），再和成員卡寫進**同一個 commit**（`images/<成員>_x_…`、`_card_`、`_p1_…`）；商品照可以「整組換成新的」或「加在原本後面」（最多 5 張）。照片已經不在 → `update_image_missing`，照片檔有問題 → `update_image_corrupt`，兩者都不會寫入任何東西。成功後請求與照片一起刪掉。 |
+| `/member-update-drop` | 「不採用」與「已處理」：只刪掉那一筆待審核（連同它的照片），網站上的資料不動。和「套用」互斥，不會一邊套用、一邊被刪。 |
+| `/member-update-drop-batch` | **只限總管理員**：被灌單時勾選多筆一次不採用（照片一起刪；列不出照片時只刪請求，照片留給 lifecycle 清）。 |
 
 > 待審核的 R2 key 一律由 Worker 產生的編號推出，呼叫端不能指定 —— 所以這幾支端點讀不到、也刪不到 `pending/` 底下的待認領照片。
 
@@ -291,11 +292,12 @@ curl -s -X POST https://你的Worker網址/ping
 2. **部署新版 `publish-relay.js`**。不需要新增 Secret，沿用原本的 `INTAKE_SECRET` 與 `PENDING_IMAGES`。
 3. **打 `/ping` 確認**（要用 **POST**：在終端機執行 `curl -s -X POST https://你的Worker網址/ping`，Windows 請打 `curl.exe`。用瀏覽器直接開網址只會看到 `method_not_allowed`，那是正常的，不代表沒部署好）：
    - `caps.memberUpdate` 是 `true`（`false` 代表 `PENDING_IMAGES` 沒綁好，先回 4-2）；
+   - `caps.memberUpdatePhotos` 是 `true`：這一版 Worker 收得下更新表單的照片。表單加了上傳題之後這一項一定要是 `true` —— 舊版 Worker 會把照片整個忽略（只傳照片的人被退件，照片和文字一起傳的人照片會不見）；
    - `memberUpdateSite` 等於公開網站的網址。不同的話（例如網站改用自訂網域），在 Worker 的一般變數加 `SITE_BASE`，值填網站網址。
 
    沒辦法用終端機的話，主 README「八」部署步驟第 5 步 `checkMemberUpdateForm` 的「Worker」那一行會核對同樣兩項；那一行不是 ✅ 就不要往下做第 6 步。
 
-> **子請求預算**：Cloudflare 免費方案每次呼叫最多 50 個子請求，呼叫 R2、KV 也算。套用一筆更新最壞約 42 個（每次只提交一次、最多 3 輪），其他端點都在 10 個以內。
+> **子請求預算**：Cloudflare 免費方案每次呼叫最多 50 個子請求，呼叫 R2、KV 也算。套用一筆更新最壞 50 個（每次只提交一次、最多 3 輪；照片越多輪數越少，7 張照片時組長 2 輪），收件帶 7 張照片最壞 18 個，批次不採用最壞 11 個，其他端點都在 10 個以內。
 >
 > 套用時如果 GitHub 回應逾時，Worker 會回 `apply_uncertain`（不確定有沒有寫進網站），而不是說「沒有寫入」。再按一次套用是安全的：已經寫進去的那一筆會被認出來，不會重複寫入。
 
