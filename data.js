@@ -1439,7 +1439,7 @@ const GROUPS = [
         "company": "立洋國際教育顧問有限公司",
         "business_items": "顧問服務",
         "website": "",
-        "dataIssue": true,
+        "dataIssue": false,
         "claimedFrom": "p_mtiouthdee3z",
         "updatedAt": "2026-09-02T14:03:48.397Z"
       }
@@ -2770,7 +2770,7 @@ const GROUPS = [
         "company": "良記造機工廠有限公司",
         "business_items": "廢氣處理設備、熱風烘乾爐、工業用燃燒機、工業用烘乾爐、工業用輸送帶",
         "website": "https://www.lianggi.com",
-        "dataIssue": true,
+        "dataIssue": false,
         "claimedFrom": "p_mtww26uec28",
         "updatedAt": "2026-09-11T14:00:53.476Z"
       }
