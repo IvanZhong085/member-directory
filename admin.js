@@ -1156,7 +1156,8 @@
     const general = head.concat([
       "📝 文字資料（公司、主要營業項目、我有／我要…）：",
       "點下面的連結 → 選自己的名字 → 只填缺的那幾格，其他空著就好（不會被清掉）。送出後組長確認就會上線。",
-      formUrl,
+      // 帶 openExternalBrowser=1:表單要登入 Google,LINE 內建瀏覽器登不進去(見 AdminLogic.withExternalBrowser)
+      AdminLogic.withExternalBrowser(formUrl),
     ], photo, items.map(it => "・" + it.m.name + "（" + (it.g.code || "?") + "）：缺 " + it.miss.join("、"))).join("\n");
     if(!isLeader() || !updateLinkEnabled()) return general;
     const personal = head.concat([
@@ -1903,7 +1904,8 @@
       // 新夥伴自填表單:把網址發給新夥伴,他填完就會出現在上方待認領區
       if(SITE.MEMBER_FORM_URL) h += '<a class="dtool" href="' + esc(SITE.MEMBER_FORM_URL) + '" target="_blank" rel="noopener">🙋 新夥伴填寫表單</a>';
       // 夥伴資料更新表單:已上架的夥伴自己更新文字資料,送出後進下方「夥伴資料更新(待審核)」
-      if(SITE.UPDATE_FORM_URL) h += '<a class="dtool" href="' + esc(SITE.UPDATE_FORM_URL) + '" target="_blank" rel="noopener">✏️ 夥伴資料更新表單</a>';
+      // 帶 openExternalBrowser=1:這條常被複製去貼 LINE,表單要登入 Google,LINE 內建瀏覽器登不進去
+      if(SITE.UPDATE_FORM_URL) h += '<a class="dtool" href="' + esc(AdminLogic.withExternalBrowser(SITE.UPDATE_FORM_URL)) + '" target="_blank" rel="noopener">✏️ 夥伴資料更新表單</a>';
       if(SHEET_URL) h += '<a class="dtool" href="' + esc(SHEET_URL) + '" target="_blank" rel="noopener">📊 名冊試算表</a>';
       tools.innerHTML = h;
     }
@@ -2326,8 +2328,9 @@
      由那一組的組長或總管理員在這裡逐欄確認;按「套用」是 Worker 端的交易,直接寫進
      data/<組>.json,不必再按發布。唯讀帳號整塊看不到(伺服器也會回 403)。
 
-     為什麼要逐欄確認、而且好幾種情況預設不勾:表單不必登入,只靠「選自己的名字」辨識身分,
-     任何拿到網址的人都能選別人的名字。預設勾選與警示的規則都在
+     為什麼要逐欄確認、而且好幾種情況預設不勾:表單只靠「選自己的名字」辨識身分,
+     任何拿到網址的人都能選別人的名字(要登入 Google 只是因為能上傳照片,Google 帳號和
+     名錄上的人沒有任何對應)。照片也一樣逐欄確認,預設勾選與警示的規則都在
      AdminLogic.memberUpdateRows / memberUpdateHeader(有測試),這裡只負責畫出來、
      收集勾選、呼叫 Worker、把錯誤碼翻成看得懂的話。 */
 
@@ -2363,6 +2366,60 @@
   let mupdAfter = null;            // 套用後常駐的備註提醒 { memberId, name, note, cleared }
 
   function mupdSupported(){ return workerCaps.memberUpdate === true; }
+
+  /* 夥伴更新裡的新照片預覽。做法和待認領照片(fetchPendPhoto)一樣:照片在私有 R2,
+     每一張都經過 /member-update-photo 當場驗 session(組長只看得到自己那組)取回位元組,
+     包成 blob URL 給 <img> 用。
+     ★ 快取:展開的卡片在勾選、重抓清單時會整張重畫,沒有快取就每次重抓一輪(一筆最多 7 張)。
+     ★ 撤銷:這些是還沒審過的照片(可能是冒名送的),不該在分頁裡留得比需要更久。
+       卡片收起、這筆被套用/不採用、重抓清單後已經不在、登出,都撤掉(revokeMupdPhotos)。
+     ★ 失敗不做負向快取、合流器用 AdminLogic.makeSingleFlight —— 理由和 fetchPendPhoto 相同
+       (session 過期、Worker 冷啟動都是等一下就會好的暫時狀態)。 */
+  const mupdPhotoUrls = new Map();     // "uid|field|index" → blob URL
+  const mupdPhotoFlight = AdminLogic.makeSingleFlight();
+  function mupdPhotoKey(uid, field, index){ return uid + "|" + field + "|" + (index == null ? -1 : index); }
+  /* uids:要撤掉的請求 uid(字串或可迭代);null = 全部撤掉,連進行中的請求一起作廢 */
+  function revokeMupdPhotos(uids){
+    const only = uids == null ? null : new Set(typeof uids === "string" ? [uids] : uids);
+    for(const [k, url] of [...mupdPhotoUrls]){
+      if(only && !only.has(k.slice(0, k.indexOf("|")))) continue;
+      try{ URL.revokeObjectURL(url); }catch(e){}
+      mupdPhotoUrls.delete(k);
+    }
+    if(!only) mupdPhotoFlight.clear();
+  }
+  /* 回傳 blob URL,或 null(沒權限、照片不在了、Worker 太舊、網路不通)。一律不丟例外 ——
+     預覽失敗頂多那一格顯示「看不到」,不能讓審核卡畫不出來。 */
+  function fetchMupdPhoto(uid, field, index){
+    const key = mupdPhotoKey(uid, field, index);
+    if(mupdPhotoUrls.has(key)) return Promise.resolve(mupdPhotoUrls.get(key));
+    return mupdPhotoFlight.run(key, async () => {
+      const session = loadSession();
+      if(!session || isViewer() || workerCaps.memberUpdatePhotos !== true) return null;
+      const url = loadWorkerUrl();
+      if(!url) return null;
+      const epoch = mupdEpoch;
+      try{
+        const r = await fetch(url + "/member-update-photo", {
+          method:"POST",
+          headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify({ session, uid, field, index: index == null ? -1 : index }),
+        });
+        // 成功回的是圖片位元組。非 2xx 一律當成「這張看不到」(組長能做的只有不勾它)
+        if(!r.ok) return null;
+        const type = String(r.headers.get("Content-Type") || "");
+        if(!/^image\/(jpeg|png|webp)$/.test(type)) return null;
+        const blob = await r.blob();
+        /* ★ 路上這段時間卡片可能已經收起、被處理掉,或登出了。這時候再建 blob URL,
+             撤銷的時機已經過了,它會一直留到關掉分頁 —— 所以直接丟掉。 */
+        if(epoch !== mupdEpoch || !mupdOpen.has(uid)) return null;
+        const obj = URL.createObjectURL(blob);
+        mupdPhotoUrls.set(key, obj);
+        return obj;
+      }catch(e){ return null; }
+    });
+  }
+
   /* 每個動作之前都再問一次:/ping 可能剛好失敗過(ensureCaps 會重問),
      Worker 也可能在這段時間被換成舊版。 */
   async function mupdReady(){
@@ -2385,7 +2442,8 @@
   const mupdCode = res => String((res && res.error) || (res && res.httpStatus ? "HTTP " + res.httpStatus : "unknown"));
   const mupdKey = c => c.memberId ? "m:" + c.memberId : "u:" + c.items[0].uid;
   const mupdCardBusy = c => c.items.some(it => it.busy === true);
-  const mupdLabel = f => Object.prototype.hasOwnProperty.call(AdminLogic.FIELD_LABELS, f) ? AdminLogic.FIELD_LABELS[f] : String(f);
+  // 文字 9 欄 + 照片 3 欄(形象照、名片照片、商品照片)
+  const mupdLabel = f => AdminLogic.fieldLabel(f);
   function findMemberById(id){
     if(!id) return null;
     for(const g of DATA){
@@ -2395,9 +2453,13 @@
     return null;
   }
   /* 原始值(不正規化)。expect 要送「審核者畫面上那一欄的目前值」,Worker 會拿它跟
-     線上的成員逐欄比對 —— 送正規化過的值也比得過,但原樣送最不會出意外。 */
+     線上的成員逐欄比對 —— 送正規化過的值也比得過,但原樣送最不會出意外。
+     照片欄位的型別 Worker 會檢查:形象照、名片是字串(沒有照片是 ""),商品照是字串陣列
+     —— 成員卡上沒有 products 時送 "" 會被整筆打回 bad_choice。 */
   function mupdRawValue(m, f){
     const v = m ? m[f] : undefined;
+    if(f === "products") return Array.isArray(v) ? v.filter(x => typeof x === "string") : [];
+    if(f === "image" || f === "card") return typeof v === "string" ? v : "";
     if(v == null) return AdminLogic.LIST_FIELDS.indexOf(f) >= 0 ? [] : "";
     return v;
   }
@@ -2484,6 +2546,7 @@
     const sub = byId("mupd-sub"), notice = byId("mupd-notice"), errEl = byId("mupd-error"), batch = byId("mupd-batch");
     if(!loadSession() || isViewer() || !mupdSupported()){
       wrap.hidden = true; list.innerHTML = ""; mupdCards = []; mupdView.clear();
+      revokeMupdPhotos(null);
       return;
     }
     const items = mupdList && Array.isArray(mupdList.items) ? mupdList.items : [];
@@ -2503,6 +2566,8 @@
     const live = new Set(items.map(it => it.uid));
     for(const u of [...mupdReqs.keys()]) if(!live.has(u)) mupdReqs.delete(u);
     for(const u of [...mupdOpen]) if(!live.has(u)) mupdOpen.delete(u);
+    // 照片預覽只留給還展開著的卡;已經不在清單上(被別人處理掉)的一起撤掉
+    revokeMupdPhotos([...mupdPhotoUrls.keys()].map(k => k.slice(0, k.indexOf("|"))).filter(u => !mupdOpen.has(u)));
     const keys = new Set(cards.map(mupdKey));
     for(const k of [...mupdChecked]) if(!keys.has(k)) mupdChecked.delete(k);
     mupdView.clear();
@@ -2628,7 +2693,9 @@
     const newer = new Set();
     card.items.slice(1).forEach(it => (Array.isArray(it.fields) ? it.fields : []).forEach(f => newer.add(f)));
     const confirmOnly = req.confirmOnly === true;
-    const rows = confirmOnly ? [] : AdminLogic.memberUpdateRows(m, req, newer, head.allSkip);
+    /* 「本人確認資料正確」的那筆不列文字欄位;但如果他同時傳了照片,照片列照樣要出現 ——
+       只傳照片的人,Worker 也一定會建一筆,不能讓照片在審核畫面上看不到。 */
+    const rows = AdminLogic.memberUpdateRows(m, confirmOnly ? Object.assign({}, req, { changes:{} }) : req, newer, head.allSkip);
     const extras = AdminLogic.memberUpdateExtras(req, m);
     const allSame = !confirmOnly && rows.length > 0 && rows.every(r => r.identical);
     mupdView.set(req.uid, { req, rows, member: m, group: g, allSame, confirmOnly });
@@ -2650,12 +2717,11 @@
     }
     h += mupdExtrasHTML(extras, req);
 
-    if(confirmOnly){
-      h += '<div class="mupd-line">' + esc(MUPD_CONFIRM_ONLY) + '</div>';
-    } else if(allSame){
+    if(confirmOnly) h += '<div class="mupd-line">' + esc(MUPD_CONFIRM_ONLY) + '</div>';
+    if(allSame){
       h += '<div class="mupd-line">這筆的內容和網站上目前一樣，看起來已經套用過了。</div>';
     } else if(!rows.length){
-      h += '<div class="mupd-line">這筆沒有可以直接套用的欄位，請看上面的備註與系統註記。</div>';
+      if(!confirmOnly) h += '<div class="mupd-line">這筆沒有可以直接套用的欄位，請看上面的備註與系統註記。</div>';
     } else {
       h += '<table class="mupd-diff"><thead><tr><th>欄位</th><th>目前（網站上）</th><th>更新後</th><th>怎麼套用</th></tr></thead><tbody>' +
            rows.map(r => mupdRowHTML(req.uid, r)).join("") + '</tbody></table>';
@@ -2715,11 +2781,99 @@
     if(choice === "replace") return { html, count: "套用後共 " + r.after.length + " 項" };
     return { html, count: "不套用（維持原本 " + r.before.length + " 項）" };
   }
+  /* ---- 照片列 ----
+     「目前」是成員卡上的照片(公開的 images/ 檔,imgSrc 直接顯示);「更新後」是暫存區的新照片,
+     先畫成佔位,再由 hydrateMupdPhotos 補上 —— 審核卡不能等網路。已經抓過的(快取裡有)直接畫成
+     <img>,勾選變動時整格重畫才不會閃一下「載入中」。點縮圖放大(名片上的字在縮圖裡讀不出來)。 */
+  const MUPD_PHOTO_OPT = { replace:"整組換成新的", append:"加在原本後面", skip:"不套用" };
+  function mupdCurThumb(name, label, cls){
+    return '<img class="mupd-ph' + (cls ? " " + cls : "") + '" src="' + esc(imgSrc(name)) + '" alt="' + esc("目前的" + label) +
+           '" data-mupd-zoom="' + esc("目前的" + label) + '" loading="lazy">';
+  }
+  function mupdNewThumb(uid, s, label, cls){
+    const key = mupdPhotoKey(uid, s.field, s.index);
+    const cached = mupdPhotoUrls.get(key);
+    const alt = "新的" + label + (s.field === "product" ? " " + (s.index + 1) : "");
+    return cached
+      ? '<img class="mupd-ph new' + (cls ? " " + cls : "") + '" src="' + esc(cached) + '" alt="' + esc(alt) + '" data-mupd-zoom="' + esc(alt) + '">'
+      : '<span class="mupd-ph mupd-ph-wait new' + (cls ? " " + cls : "") + '" data-mupd-ph="' + esc(key) + '" data-alt="' + esc(alt) + '">載入中…</span>';
+  }
+  function mupdThumbs(html){ return '<div class="mupd-phs">' + html + '</div>'; }
+  /* 商品照「更新後」那一格跟著三選一改寫,和清單欄位的 mupdListPreview 同一個想法 */
+  function mupdProductsPreview(uid, r, choice){
+    const n = r.before.length, k = r.incoming.length, max = AdminLogic.UPDATE_PRODUCTS_MAX;
+    if(choice === "append"){
+      const room = Math.max(0, max - n);
+      const html = mupdThumbs(r.before.map(name => mupdCurThumb(name, r.label, "")).join("") +
+                              r.incoming.map((s, i) => mupdNewThumb(uid, s, r.label, i < room ? "" : "dropped")).join(""));
+      const drop = Math.max(0, k - room);
+      return { html, count: "套用後共 " + Math.min(max, n + k) + " 張" +
+               (drop ? "　⚠ 超過 " + max + " 張，最後 " + drop + " 張不會放進去" : "") };
+    }
+    const html = mupdThumbs(r.incoming.map(s => mupdNewThumb(uid, s, r.label, "")).join(""));
+    if(choice === "replace") return { html, count: "套用後共 " + k + " 張" + (n ? "（原本 " + n + " 張會拿掉）" : "") };
+    return { html, count: "不套用（維持原本 " + n + " 張）" };
+  }
+  function mupdPhotoCells(uid, r){
+    const f = esc(r.field);
+    const before = r.before.length ? mupdThumbs(r.before.map(name => mupdCurThumb(name, r.label, "")).join("")) : mupdEmpty;
+    if(r.field === "products"){
+      const pv = mupdProductsPreview(uid, r, r.defaultChoice);
+      return { before, after: '<div data-mupd-preview="' + f + '">' + pv.html + '</div>',
+        how: r.options.map(o =>
+          '<label class="mupd-opt"><input type="radio" name="' + esc("mupd-" + uid + "-" + r.field) + '" value="' + o + '" data-mupd-choice="' + f + '"' +
+          (o === r.defaultChoice ? " checked" : "") + '><span>' + MUPD_PHOTO_OPT[o] + '</span></label>').join("") +
+          '<div class="mupd-count" data-mupd-count="' + f + '">' + esc(pv.count) + '</div>' };
+    }
+    return { before, after: mupdThumbs(r.incoming.map(s => mupdNewThumb(uid, s, r.label, "")).join("")),
+      how: '<label class="mupd-opt"><input type="checkbox" data-mupd-choice="' + f + '"' +
+           (r.defaultChoice === "replace" ? " checked" : "") + '><span>' + (r.before.length ? "換成新的" : "套用") + '</span></label>' };
+  }
+  /* 把畫面上還是佔位的新照片補上。找的是「當下」DOM 裡的佔位(這段時間可能已經重畫過),
+     而不是抓著舊節點不放。抓不到的那格寫「看不到這張照片」;下次重畫會再試(沒有負向快取)。 */
+  function hydrateMupdPhotos(root, uid){
+    if(!root) return;
+    root.querySelectorAll("[data-mupd-ph]").forEach(ph => {
+      const key = ph.dataset.mupdPh;
+      const parts = key.split("|");
+      if(parts[0] !== uid) return;
+      fetchMupdPhoto(uid, parts[1], Number(parts[2])).then(url => {
+        document.querySelectorAll('[data-mupd-ph="' + cssq(key) + '"]').forEach(cur => {
+          if(!url){
+            cur.textContent = "看不到這張照片";
+            cur.title = "照片可能已經不在暫存區，或暫時連不上發布服務。重新整理後會再試一次。";
+            cur.classList.add("mupd-ph-fail");
+            return;
+          }
+          const img = document.createElement("img");
+          img.className = cur.className.replace(/\bmupd-ph-wait\b/, "").trim();
+          img.src = url;
+          img.alt = cur.dataset.alt || "";
+          img.dataset.mupdZoom = cur.dataset.alt || "";
+          cur.replaceWith(img);
+        });
+      });
+    });
+  }
+  /* 點縮圖放大。借用待認領區的照片燈箱(同一組 DOM)—— pvSeq +1 讓待認領那邊還在路上的
+     那一批作廢,不會在這張的位置畫回別人的照片。 */
+  function openMupdPhotoZoom(src, caption, who){
+    const overlay = byId("pv-overlay"), body = byId("pv-body"), title = byId("pv-title");
+    if(!overlay || !body || !src) return;
+    pvSeq++;
+    title.textContent = (who ? who + "　" : "") + caption;
+    body.innerHTML = '<figure class="pv-item"><img src="' + esc(src) + '" alt="' + esc(caption) + '">' +
+                     '<figcaption>' + esc(caption) + '（長按或右鍵可以另存）</figcaption></figure>';
+    overlay.hidden = false;
+  }
+
   function mupdRowHTML(uid, r){
     const f = esc(r.field);
     const dis = r.identical ? " disabled" : "";      // 和目前一樣:沒有東西可套用
     let before, after, how;
-    if(r.kind === "list"){
+    if(r.kind === "photo"){
+      ({ before, after, how } = mupdPhotoCells(uid, r));
+    } else if(r.kind === "list"){
       before = mupdItemsHTML(r.before, "");
       const pv = mupdListPreview(r, r.defaultChoice);
       after = '<div data-mupd-preview="' + f + '">' + pv.html + '</div>';
@@ -2761,6 +2915,13 @@
       const v = Array.isArray(c) ? mupdItemsHTML(c, "") : (c ? esc(c) : mupdEmpty);
       return '<div class="mupd-ro-row"><div class="mupd-ro-f">' + esc(mupdLabel(f)) + '</div><div>' + v + '</div></div>';
     });
+    /* 照片:沒有成員卡可以套用,只能唯讀顯示,讓組長另存下來,再到他現在的成員卡上傳 */
+    const photos = AdminLogic.memberUpdatePhotos(req);
+    photos.forEach(p => {
+      rows.push('<div class="mupd-ro-row"><div class="mupd-ro-f">' + esc(p.label) + '</div><div>' +
+                mupdThumbs(p.incoming.map(s => mupdNewThumb(req.uid, s, p.label, "")).join("")) + '</div></div>');
+    });
+    if(photos.length) rows.push('<div class="mupd-wi">照片可以長按或右鍵另存，再到他現在的成員卡上傳。</div>');
     if(req.confirmOnly === true) rows.push('<div class="mupd-line">' + esc(MUPD_CONFIRM_ONLY) + '</div>');
     if(rows.length) h += '<div class="mupd-ro">' + rows.join("") + '</div>';
     const note = String(req.note == null ? "" : req.note).trim();
@@ -2798,6 +2959,12 @@
     };
     const view = mupdView.get(uid);
     if(!view || !el.querySelector(".mupd-detail")) return;
+    // 縮圖放大:掛在卡片上(事件委派),勾選變動時「更新後」那格整格重畫也照樣有效
+    el.querySelector(".mupd-detail").onclick = e => {
+      const img = e.target && e.target.closest ? e.target.closest("img[data-mupd-zoom]") : null;
+      if(img) openMupdPhotoZoom(img.src, img.dataset.mupdZoom, (view.member && view.member.name) || view.req.name || "");
+    };
+    hydrateMupdPhotos(el, uid);
     el.querySelectorAll("[data-mupd-choice]").forEach(inp => {
       inp.onchange = () => { mupdSyncRow(el, view, inp.dataset.mupdChoice); mupdSyncApply(el, view); };
     });
@@ -2817,11 +2984,12 @@
     mupdSyncApply(el, view);
   }
 
+  /* 三選一(清單欄位、商品照)用 radio;其他(文字、網站、形象照、名片)一個勾選框 */
   function mupdReadChoices(el, view){
     const out = {};
     for(const r of view.rows){
       const sel = '[data-mupd-choice="' + cssq(r.field) + '"]';
-      if(r.kind === "list"){
+      if(r.options.length > 2){
         const c = el.querySelector('input' + sel + ':checked');
         out[r.field] = c && r.options.indexOf(c.value) >= 0 ? c.value : "skip";
       } else {
@@ -2837,12 +3005,14 @@
     const choice = mupdReadChoices(el, view)[field];
     const tr = el.querySelector('tr[data-mupd-row="' + cssq(field) + '"]');
     if(tr) tr.classList.toggle("off", choice === "skip");
-    if(r.kind !== "list") return;
-    const pv = mupdListPreview(r, choice);
+    if(r.kind !== "list" && !(r.kind === "photo" && field === "products")) return;
+    const pv = r.kind === "list" ? mupdListPreview(r, choice) : mupdProductsPreview(view.req.uid, r, choice);
     const box = el.querySelector('[data-mupd-preview="' + cssq(field) + '"]');
     const cnt = el.querySelector('[data-mupd-count="' + cssq(field) + '"]');
     if(box) box.innerHTML = pv.html;
     if(cnt) cnt.textContent = pv.count;
+    // 照片還沒抓回來就改了選項:新畫的那幾格又是佔位,要再補一次(合流器保證不會重複發請求)
+    if(r.kind === "photo") hydrateMupdPhotos(box, view.req.uid);
   }
   /* 「套用」只有在至少一欄要套用、或勾了「已經跟本人確認過」時才按得下去 */
   function mupdSyncApply(el, view){
@@ -2903,6 +3073,7 @@
   function mupdForget(uids){
     const gone = new Set([].concat(uids));
     gone.forEach(u => { mupdOpen.delete(u); mupdReqs.delete(u); });
+    revokeMupdPhotos(gone);          // 處理掉的那筆,新照片的預覽也一起撤掉
     if(mupdList && Array.isArray(mupdList.items)){
       const before = mupdList.items.length;
       mupdList.items = mupdList.items.filter(it => !gone.has(it.uid));
@@ -2913,7 +3084,7 @@
 
   /* ---- 查看(展開)---- */
   async function mupdToggle(uid, btn){
-    if(mupdOpen.has(uid)){ mupdOpen.delete(uid); rerenderMupdCard(uid); return; }
+    if(mupdOpen.has(uid)){ mupdOpen.delete(uid); revokeMupdPhotos(uid); rerenderMupdCard(uid); return; }
     if(mupdReqs.has(uid)){ mupdOpen.add(uid); rerenderMupdCard(uid); return; }
     if(!(await mupdReady())) return;
     const session = mupdSession();
@@ -2960,7 +3131,15 @@
     if(!applied.length && !clearDataIssue){ toast(MUPD_APPLY_OFF, { warn:true, duration:7000 }); return; }
     const name = m.name || req.name || "這位夥伴";
     const lines = ["要把「" + name + "」的更新寫進網站嗎？", ""];
-    if(applied.length) lines.push("會更新：" + applied.map(r => r.label + (choices[r.field] === "append" ? "（加在原本後面）" : "")).join("、"));
+    /* 照片要講清楚是「換掉」還是「加上去」:換掉的舊照片不會留在任何地方 */
+    const how = r => {
+      const c = choices[r.field];
+      if(c === "append") return "（加在原本後面）";
+      if(r.kind !== "photo") return "";
+      if(r.field === "products") return r.before && r.before.length ? "（整組換成新的）" : "（新增）";
+      return r.before && r.before.length ? "（換成新的）" : "（新增）";
+    };
+    if(applied.length) lines.push("會更新：" + applied.map(r => r.label + how(r)).join("、"));
     const skipped = view.rows.filter(r => choices[r.field] === "skip").map(r => r.label);
     if(skipped.length) lines.push("不套用：" + skipped.join("、"));
     if(clearDataIssue) lines.push("同時取消「資料需確認」（你已經跟本人確認過）");
@@ -2994,7 +3173,9 @@
       mupdForget(req.uid);
       const extra = (Array.isArray(res.warnings) ? res.warnings : [])
         .filter(w => w && w.reason === "list_truncated")
-        .map(w => "「" + mupdLabel(w.field) + "」超過 12 項，最後 " + (Number(w.dropped) || 0) + " 項沒有放進去。").join("");
+        .map(w => w.field === "products"
+          ? "「" + mupdLabel(w.field) + "」超過 " + AdminLogic.UPDATE_PRODUCTS_MAX + " 張，最後 " + (Number(w.dropped) || 0) + " 張沒有放進去。"
+          : "「" + mupdLabel(w.field) + "」超過 12 項，最後 " + (Number(w.dropped) || 0) + " 項沒有放進去。").join("");
       const thanks = name + " 你好，你在 " + (AdminLogic.updateMonthDay(req.sat || req.at) || "?") +
                      " 送出的名錄資料已經更新上線了，謝謝你！\n" +
                      SITE.SITE_BASE + "m/" + encodeURIComponent(req.memberId) + ".html";
@@ -3041,6 +3222,20 @@
     if(err === "stale_base" || err === "busy_retry_later"){ W("剛好有人同時在發布，這次沒有寫入。請等幾秒再按一次。"); return; }
     if(err === "bad_choice" || err === "nothing_selected"){ W("套用的設定不正確（" + err + "），請重新整理後再試。"); return; }
     if(err === "pending_image_store_unavailable"){ W("發布服務還沒接上暫存空間（R2），暫時無法處理更新。請聯繫總管理員。"); return; }
+    /* 下面三種都發生在寫入網站之前:Worker 上鎖失敗,或上鎖之後、提交之前把要套用的照片
+       從暫存區取回驗證時出錯 —— 所以可以明確說「沒有寫入」。卡片留著不收,組長取消勾選照片
+       就能先套用文字。(Worker 回的欄位可能是 product 單數,一樣翻成「商品照片」) */
+    const photoLabel = f => mupdLabel(f === "product" ? "products" : f);
+    if(err === "update_image_missing"){
+      const labels = (Array.isArray(res.fields) ? res.fields : []).map(photoLabel).join("、");
+      W("照片已經不在暫存區（可能超過 90 天被清掉）" + (labels ? "：" + labels : "") + "。請取消勾選照片再套用，或請本人重新上傳。", 12000);
+      return;
+    }
+    if(err === "update_image_corrupt"){
+      W("照片檔有問題" + (res.field ? "（" + photoLabel(res.field) + "）" : "") + "，這次沒有寫入。請取消勾選照片再套用，並聯繫總管理員。", 12000);
+      return;
+    }
+    if(err === "update_store_failed"){ W("暫存區暫時讀不到，這次沒有寫入。請等幾秒再按一次「套用」。"); return; }
     /* apply_uncertain、5xx、網路錯誤、沒列到的錯誤碼:不能說「沒有寫入」——
        ref 更新逾時的時候,GitHub 那邊可能其實已經寫進去了。教他怎麼判斷,
        並且保證再按一次不會重複寫入(Worker 用 lastUpdateFrom 擋)。 */
@@ -3169,6 +3364,7 @@
     mupdFlight.clear();
     mupdList = null; mupdError = ""; mupdCards = [];
     mupdReqs.clear(); mupdOpen.clear(); mupdView.clear(); mupdChecked.clear();
+    revokeMupdPhotos(null);          // 還沒審過的照片:登出之後這個分頁不該還打得開
     mupdNudged = ""; mupdNudgedRank = -1; mupdAfter = null;
     mupdToastQueue.length = 0;
     clearTimeout(mupdToastTimer); mupdToastTimer = null;

@@ -394,6 +394,19 @@
   .mupd-ro{display:flex; flex-direction:column; gap:6px;}
   .mupd-ro-row{display:grid; grid-template-columns:108px minmax(0,1fr); gap:8px; border-bottom:1px solid var(--border); padding-bottom:6px;}
   .mupd-ro-f{font-weight:800;}
+  /* 照片列的縮圖。高度固定、寬度跟著比例走(名片是橫的、形象照是直的),max-width:100%
+     讓窄格子裡的大圖縮小而不是撐破表格 —— 手機上差異表是一欄一欄往下排,一格約 300px 寬,
+     5 張商品照會自動折成兩排,不會出現水平捲動。點縮圖放大(名片上的字在縮圖裡讀不出來)。 */
+  .mupd-phs{display:flex; flex-wrap:wrap; gap:6px; align-items:flex-start;}
+  .mupd-ph{display:block; height:88px; width:auto; max-width:100%; object-fit:contain; border-radius:6px;
+           border:1px solid var(--border); background:#f4f4f5; cursor:zoom-in;}
+  [data-mupd-row="products"] .mupd-ph{height:64px;}
+  .mupd-ph.new{border:2px solid #7cc79a;}
+  .mupd-ph.dropped{opacity:.35; border-style:dashed;}
+  .mupd-ph-wait{width:64px; display:flex; align-items:center; justify-content:center; text-align:center;
+                font-size:11px; font-weight:700; color:var(--muted); cursor:default; padding:4px;}
+  .mupd-ph-fail{color:#8a5a00; background:#fff6e0; border-color:#f0d089;}
+  .mupd-ro .mupd-wi{font-size:12px;}
   .mupd-same{display:flex; flex-wrap:wrap; align-items:center; gap:4px 10px;}
   .mupd-linkbtn{font:inherit; font-size:12.5px; font-weight:700; color:var(--red); background:none; border:none; padding:0; text-decoration:underline; cursor:pointer;}
   /* 從審核區按「開啟成員卡」跳過去時閃一下,手機上才找得到是哪一張 */
@@ -653,7 +666,7 @@
 
 <script src="site-config.js?v=2"></script>
 <script src="csv-schema.js?v=2"></script>
-<script src="admin-logic.js?v=2"></script>
-<script src="admin.js?v=11"></script>
+<script src="admin-logic.js?v=3"></script>
+<script src="admin.js?v=12"></script>
 </body>
 </html>
