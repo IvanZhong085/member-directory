@@ -1884,8 +1884,8 @@
 
   /* 發布成功後才呼叫。失敗重試一次(只重送還沒寫進去的那幾筆);還是不行就明講,
      而且要講「已發布」—— 這則會蓋掉發布成功的 toast,不講的話會以為發布失敗而再發一次。
-     Worker 會擋下格式不合的整批:id 不合格、不是這一組開頭的 id(舊資料)、太大的(內嵌照片)
-     先在這裡挑掉,算進「沒有記進去」的人數,其他人照常記。 */
+     Worker 會擋下格式不合的整批:id 不合格、不是這一組開頭的 id(舊資料)、太大的(內嵌照片)、
+     代號不合格的,先在這裡挑掉,算進「沒有記進去」的人,其他人照常記。 */
   async function recordDeleted(items){
     const session = loadSession();
     const ok = [], miss = [];
@@ -1893,7 +1893,8 @@
       const id = String(it.member && it.member.id || "");
       let bytes = Infinity;
       try{ bytes = new TextEncoder().encode(JSON.stringify(it.member)).length; }catch(e){}
-      if(RECYCLE_MEMBER_ID_RE.test(id) && id.indexOf(it.gid + "_") === 0 && bytes <= RECYCLE_MEMBER_MAX_BYTES) ok.push(it);
+      if(RECYCLE_MEMBER_ID_RE.test(id) && id.indexOf(it.gid + "_") === 0 && bytes <= RECYCLE_MEMBER_MAX_BYTES &&
+         GROUPCODE_RE.test(String(it.code || "").trim())) ok.push(it);
       else miss.push(it);
     }
     const put = list => Promise.race([
@@ -2271,6 +2272,7 @@
   let rcyOpen = false;
   let rcyItems = null;        // 最近一次成功讀到的清單(還沒讀過是 null)
   let rcyTruncated = false;
+  let rcyUnknown = 0;         // 回收區裡格式不對、被 Worker 略過的筆數
   let rcyError = "";
   let rcyLoading = false;
   let rcyBusy = false;        // 有救回/永久刪除在路上時,其他按鈕先停用
@@ -2294,12 +2296,13 @@
       h += rcyItems.length ? '<div class="rcy-list">' + rcyItems.map(rcyRowHTML).join("") + '</div>'
                            : '<div class="rcy-msg">最近沒有刪除的夥伴。</div>';
       if(rcyTruncated) h += '<div class="rcy-msg">筆數太多，只列出最近的一部分。</div>';
+      if(rcyUnknown > 0) h += '<div class="rcy-msg">另有 ' + rcyUnknown + ' 筆紀錄看不懂（格式不對），沒有列出來。</div>';
     }
     h += '<div class="rcy-foot"><span>發布時刪掉的夥伴會自動記在這裡' + (isLeader() ? '（只列出你這一組的）' : '') + '。</span>' +
          '<button class="btn btn-sm" type="button" data-rcy-reload' + (rcyLoading || rcyBusy ? " disabled" : "") + '>重新整理</button></div>';
     body.innerHTML = h;
     const reload = body.querySelector("[data-rcy-reload]");
-    if(reload) reload.onclick = loadRecycle;
+    if(reload) reload.onclick = reloadRecycleAll;
     body.querySelectorAll("[data-rcy-restore]").forEach(b => { b.onclick = () => restoreRecycled(b.dataset.rcyRestore); });
     body.querySelectorAll("[data-rcy-drop]").forEach(b => { b.onclick = () => dropRecycled(b.dataset.rcyDrop); });
   }
@@ -2312,9 +2315,13 @@
     const when = AdminLogic.updateTimeText(it.at);
     const meta = (when ? when + " 刪除" : "刪除時間不明") + (it.by ? "・" + it.by : "");
     const off = rcyBusy ? " disabled" : "";
+    /* 原本那一組已經不在了(總管理員刪了整組):救回會被伺服器擋 group_missing,
+       不給按鈕,直接講要找誰 */
     const acts = (findMemberById(it.id)
         ? '<span class="rcy-here">已經在名錄上</span>'
-        : '<button class="btn btn-sm btn-primary" type="button" data-rcy-restore="' + esc(it.rid) + '"' + off + '>救回</button>') +
+        : it.groupMissing === true
+          ? '<span class="rcy-gone">原本的分組已經不在了，請總管理員手動加回</span>'
+          : '<button class="btn btn-sm btn-primary" type="button" data-rcy-restore="' + esc(it.rid) + '"' + off + '>救回</button>') +
       (!isLeader() && !isViewer()
         ? '<button class="btn btn-sm" type="button" data-rcy-drop="' + esc(it.rid) + '"' + off + '>永久刪除</button>' : "");
     return '<div class="rcy-row">' +
@@ -2337,7 +2344,13 @@
       case "admin_only": return "只有總管理員可以永久刪除。";
       case "read_only": return "唯讀帳號不能使用回收區。";
       case "stale_base": case "busy_retry_later": return "剛好有人同時在發布，這次沒有寫入。請等幾秒再按一次。";
-      case "bad_data_file": case "data_file_too_large": return "救回之後的資料不符合規則（" + code + "），這次沒有寫入。請聯絡網管。";
+      case "bad_data_file": case "data_too_large": case "data_file_too_large":
+        return "救回之後的資料不符合規則（" + code + "），這次沒有寫入。請聯絡網管。";
+      case "forbidden_path": return "你沒有修改這一組的權限，這次沒有寫入。";
+      case "update_store_failed": return "回收區的儲存空間暫時讀寫失敗，請稍後再試一次（再按一次不會重複）。";
+      case "restore_uncertain":
+        return "GitHub 沒有回應，不確定" + who + "有沒有救回。請按這裡的「重新整理」：名單上顯示「已經在名錄上」就是救回了；" +
+               "還沒有的話再按一次「救回」—— 再按是安全的，已經救回的話系統會擋下，不會變成兩個人。";
       case "pending_image_store_unavailable": return "發布服務還沒接上回收區的儲存空間（Cloudflare R2），暫時無法使用。請聯絡總管理員。";
       case "network": return "連不到發布服務，請檢查網路後再試一次。";
       default: return "沒有成功（" + code + "），請稍後再試。";
@@ -2360,11 +2373,23 @@
     if(res.ok){
       rcyItems = (Array.isArray(res.items) ? res.items : []).filter(x => x && typeof x.rid === "string" && x.rid);
       rcyTruncated = res.truncated === true;
+      rcyUnknown = Math.max(0, Number(res.unknown) || 0);
       rcyError = "";
     }else if(!recycleSessionExpired(res)){
       rcyError = "讀不到回收區：" + recycleErrorText(res);
     }
     renderRecycle();
+  }
+
+  /* 「重新整理」:手上沒有未發布的修改時,連網站資料一起重讀 —— 「已經在名錄上」是拿 DATA 比的,
+     救回結果不確定(restore_uncertain)時,使用者就是靠這一顆確認有沒有救回來。
+     有未發布的修改時只重抓清單,不動畫面上的資料(同審核區的重新整理)。 */
+  async function reloadRecycleAll(){
+    if(!hasUnpublishedChanges()){
+      try{ await loadData(); resetHistory(); renderAll(); validate(); }
+      catch(e){ toast("重新載入網站資料失敗，請重新整理頁面。", { warn:true, duration:7000 }); }
+    }
+    await loadRecycle();
   }
 
   /* 救回 = Worker 端交易,直接寫進網站。和認領一樣,手上不能有還沒發布的修改:
@@ -2404,9 +2429,15 @@
     if(err === "already_present"){
       try{ await loadData(); resetHistory(); renderAll(); validate(); }catch(e){}
     }
-    if(err === "already_present" || err === "recycle_gone" || err === "group_missing" || err === "forbidden_group" ||
+    if(err === "restore_uncertain"){
+      /* 寫入可能已經落地:先把網站資料重讀一次,名單上的「已經在名錄上」才對得上;
+         讀不到也沒關係,說明裡教他按「重新整理」再看。 */
+      try{ await loadData(); resetHistory(); renderAll(); validate(); }catch(e){}
+      toast(recycleErrorText(res, name), { warn:true, duration:16000 });
+    }else if(err === "already_present" || err === "recycle_gone" || err === "group_missing" || err === "forbidden_group" ||
        err === "group_renamed" || err === "stale_base" || err === "busy_retry_later" || err === "bad_data_file" ||
-       err === "data_file_too_large" || err === "pending_image_store_unavailable" || err === "read_only"){
+       err === "data_too_large" || err === "data_file_too_large" || err === "forbidden_path" || err === "update_store_failed" ||
+       err === "pending_image_store_unavailable" || err === "read_only"){
       toast(recycleErrorText(res, name), { warn:true, duration:10000 });
     }else{
       /* 網路斷掉、GitHub 逾時、沒列到的碼:不能說「沒有寫入」—— 寫入可能其實成功了。
@@ -2446,7 +2477,7 @@
   /* 登出:清單(含姓名與刪除者)從畫面拿掉,路上的回應作廢 */
   function resetRecycle(){
     rcySeq++;
-    rcyOpen = false; rcyItems = null; rcyTruncated = false; rcyError = ""; rcyLoading = false; rcyBusy = false;
+    rcyOpen = false; rcyItems = null; rcyTruncated = false; rcyUnknown = 0; rcyError = ""; rcyLoading = false; rcyBusy = false;
     renderRecycle();
   }
 
@@ -2787,7 +2818,10 @@
     }
 
     if(res.ok){
-      await loadData();
+      await loadData(); resetHistory();
+      /* 認領／刪除是伺服器端直接寫進網站;重讀之後畫面換成線上資料,舊的「上一步」紀錄
+         還停在認領前的待認領清單。按上一步再發布,會把舊清單送回去、而且不會跳出任何衝突提示。
+         這兩個動作本來就只在沒有未發布修改時才能做,清掉歷史不會丟掉任何東西。 */
       /* 先把選取切到目標組再畫面重繪 —— 反過來的話這一輪畫的還是舊的選取。
          loadData() 之後 DATA 是全新的物件,gid 不一定還在(例如同時被改名),
          所以要用 fixSelected() 兜底。 */
@@ -2797,7 +2831,7 @@
       return;
     }
     if(res.error === "already_claimed"){
-      await loadData(); renderAll();
+      await loadData(); resetHistory(); renderAll();
       toast(`「${name}」已經被其他組長認領走了，清單已更新。`, { warn:true, duration: 8000 });
       return;
     }
@@ -2848,12 +2882,12 @@
     toast("刪除中…");
     const res = await workerFetch("/drop-pending", { session, pid });
     if(res.ok){
-      await loadData(); renderAll();
+      await loadData(); resetHistory(); renderAll();
       toast("已刪除「" + (a.name || "這筆申請") + "」，照片也一併清掉了。", { duration:7000 });
       return;
     }
     if(res.error === "already_claimed"){
-      await loadData(); renderAll();
+      await loadData(); resetHistory(); renderAll();
       toast("這筆申請已經被別人處理掉了，清單已更新。", { warn:true, duration:7000 });
       return;
     }
