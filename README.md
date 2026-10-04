@@ -691,3 +691,17 @@ setupPhotoCleanupTrigger()   // 確認沒問題再排定，每月 1 號凌晨執
 
 - **鐘文成**（A1・205）原始投影片沒有照片，顯示「照片待補」。
 - **蕭淑芬**（F・000）原始投影片內容與另一位成員重複，已標記 `dataIssue`，待本人確認。
+
+## 產業小組表的圖片版（groups.jpg）
+
+`groups.html` 是用程式即時畫出來的海報,沒有瀏覽器的外部系統(例如 LINE bot 的 Apps Script)拿不到畫面。
+所以由 `.github/workflows/render-groups.yml` 在「同步網站資料」跑完後,用無頭瀏覽器把 `.sheet` 區塊截成實體檔:
+
+| 檔案 | 內容 |
+|------|------|
+| `groups.jpg` | 16:9 海報,約 2245×1263,跟網頁 100% 一致(同一份 HTML/CSS/字體/底圖) |
+| `groups.json` | `{ dataVersion, renderedAt, image, width, height, groups }`;`dataVersion` 就是 `data-version.txt` 的值,外部系統比對它就知道名錄有沒有變,不用下載圖 |
+
+- 名錄版本沒變時不重畫、不提交(海報上印的是渲染日期,否則每次跑都會多一筆只差日期的提交)。
+- `groups.html`、底圖、`site-config.js` 被直接修改,或手動觸發 workflow 時,會強制重畫。
+- 本機測試:`python3 -m http.server 8000 &` 後執行 `node tools/render-groups.mjs`(需先 `npm i playwright` 並 `npx playwright install chromium`)。

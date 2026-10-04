@@ -1,0 +1,85 @@
+# 產業小組表(groups.html)渲染成 groups.jpg,給 LINE bot 等外部系統直接取用。
+#
+# 觸發時機:
+#   • 「同步網站資料」跑完 —— data.js 是那個 workflow 用 GITHUB_TOKEN 提交的,
+#     那種提交**不會**觸發 on.push,所以這裡用 workflow_run 接在它後面。
+#   • groups.html / 底圖 / 站台設定 被人直接修改(版面變了,圖也要跟著變)。
+#   • 手動(workflow_dispatch),會強制重畫。
+#
+# 產出 groups.jpg + groups.json 由 GITHUB_TOKEN 提交,不會再觸發其他 workflow。
+# 名錄版本沒變時工具會自己跳過,不會只因為日期不同就多一筆提交。
+name: 渲染產業小組表
+
+on:
+  workflow_run:
+    workflows: ["同步網站資料"]
+    types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - groups.html
+      - group-sheet-bg.svg
+      - site-config.js
+      - tools/render-groups.mjs
+      - .github/workflows/render-groups.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  # 連續發布時只需要最後一次的結果;正在跑的砍掉重來,永遠畫最新的 main。
+  group: render-groups
+  cancel-in-progress: true
+
+jobs:
+  render:
+    # workflow_run 只在同步成功時才接著畫;其他觸發方式一律跑。
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main   # workflow_run 預設 checkout 的是觸發當下的 sha,一律改抓最新的 main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安裝無頭瀏覽器
+        run: |
+          npm init -y >/dev/null
+          npm install --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+
+      - name: 渲染並提交(推送被拒就重抓 main 重畫再試)
+        env:
+          # 版面檔被改或手動觸發 → 強制重畫;同步完成 → 版本沒變就跳過
+          FORCE: ${{ github.event_name == 'workflow_run' && '0' || '1' }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          python3 -m http.server 8000 --bind 127.0.0.1 >/dev/null 2>&1 &
+          sleep 1
+
+          for attempt in 1 2 3; do
+            node tools/render-groups.mjs
+            git add groups.jpg groups.json
+            if git diff --cached --quiet; then
+              echo "沒有變更,不需提交。"
+              exit 0
+            fi
+            git commit -m "自動渲染:產業小組表 groups.jpg"
+            if git push origin HEAD:main; then
+              echo "已提交(第 $attempt 次嘗試)。"
+              exit 0
+            fi
+            echo "::warning::推送被拒(第 $attempt 次)——main 已前進,重抓後重畫再試"
+            git fetch origin main
+            git reset --hard origin/main
+            sleep $((attempt * 3))
+          done
+          echo "::error::推送重試 3 次仍失敗。"
+          exit 1
