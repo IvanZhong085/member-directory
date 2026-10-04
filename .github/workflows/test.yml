@@ -45,6 +45,9 @@ jobs:
       - name: 夥伴資料更新測試
         run: node tests/member-update.test.mjs
 
+      - name: 最近刪除的夥伴（回收區）測試
+        run: node tests/recycle.test.mjs
+
       - name: 前端純邏輯測試
         run: node tests/logic.test.mjs
 

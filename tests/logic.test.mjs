@@ -6,6 +6,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import * as CASES from "./member-update-cases.mjs";
 
@@ -1132,6 +1133,352 @@ hr("㉑ 照片列(memberUpdateRows 的照片、memberUpdatePhotos、fieldLabel�
       L.memberUpdateCopyText({ label:"A1・x", sat, changes:{}, photos:{ image:PH, card:PH, products:[PH] } })
         .indexOf("另外傳了照片：形象照 1 張、名片 1 張、商品照 1 張（照片請在後台查看、另存）。") > 0);
   chk("沒有照片 → 沒有這一行", L.memberUpdateCopyText({ label:"A1・x", sat, changes:{ company:"y" } }).indexOf("另外傳了照片") < 0);
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   舊草稿 × 線上版本的三方合併(10/1 事故)
+   ══════════════════════════════════════════════════════════════════════
+   一台電腦上留著 8 月初的草稿,後台自動載入;發布時衝突確認按了「繼續 = 覆蓋」,
+   6 個組檔被整檔換回 8 月的版本:刪掉 9 月才加入的紀宜伶、魏宛柔,復活已刪的徐玉真、
+   林岳達,清掉王薇 9/11 補的公司名稱、李聖漳 9/2 換的照片。那份草稿一個字都沒改過。 */
+const AUG = "2026-08-04T03:00:00.000Z", SEP2 = "2026-09-02T05:00:00.000Z", SEP11 = "2026-09-11T06:00:00.000Z";
+const mem = (id, name, extra = {}) => Object.assign({ number:"", name, title:"", company:"", image:"", id, updatedAt: AUG }, extra);
+const augGroup = () => ({ leader:"王薇", room:"大廳", recruiting:["室內設計"], members:[
+  mem("g3_m1", "王薇"),
+  mem("g3_m2", "李聖漳", { image:"g3_m2_x_old.jpg" }),
+  mem("g3_m3", "徐玉真"),
+  mem("g3_m4", "林岳達"),
+  mem("g3_m5", "陳一"),
+] });
+const octGroup = () => ({ leader:"王薇", room:"大廳", recruiting:["室內設計"], members:[
+  mem("g3_m1", "王薇", { company:"薇薇設計", updatedAt: SEP11 }),
+  mem("g3_m2", "李聖漳", { image:"g3_m2_x_new.jpg", updatedAt: SEP2 }),
+  mem("g3_m5", "陳一"),
+  mem("g3_m6", "紀宜伶", { updatedAt: "2026-09-20T01:00:00.000Z" }),
+  mem("g3_m7", "魏宛柔", { updatedAt: "2026-09-21T01:00:00.000Z" }),
+] });
+const ids = g => g.members.map(m => m.id);
+const byIdIn = (g, id) => g.members.find(m => m.id === id);
+
+hr("㉑ 舊草稿三方合併(mergeGroupThreeWay)");
+{
+  /* ★ 本次事故:base = 8 月、draft = 8 月沒改、live = 10 月 */
+  const live = octGroup();
+  const r = L.mergeGroupThreeWay(augGroup(), augGroup(), live);
+  chk("★ 事故情境:合併結果逐字等於線上(連鍵的順序都一樣,發布時不會送出任何組檔)",
+      JSON.stringify(r.group) === JSON.stringify({ leader: live.leader, room: live.room, recruiting: live.recruiting, members: live.members }));
+  chk("★ 事故情境:report.untouched,沒有 applied、沒有 conflicts",
+      r.report.untouched === true && r.report.applied.length === 0 && r.report.conflicts.length === 0, JSON.stringify(r.report));
+  chk("事故情境:紀宜伶、魏宛柔還在,徐玉真、林岳達沒有復活",
+      eq(ids(r.group), ["g3_m1", "g3_m2", "g3_m5", "g3_m6", "g3_m7"]));
+  chk("事故情境:王薇的公司、李聖漳的照片保留線上的",
+      byIdIn(r.group, "g3_m1").company === "薇薇設計" && byIdIn(r.group, "g3_m2").image === "g3_m2_x_new.jpg");
+
+  // 草稿內容沒改、只是鍵的順序不一樣(經過別的程式寫出來)→ 仍然算沒改
+  const shuffled = augGroup();
+  shuffled.members = shuffled.members.map(m => { const o = {}; Object.keys(m).reverse().forEach(k => { o[k] = m[k]; }); return o; });
+  chk("★ 深度相等不受鍵的順序影響(穩定 JSON)", L.mergeGroupThreeWay(augGroup(), shuffled, octGroup()).report.untouched === true);
+
+  // 草稿刪一人、線上沒改他 → 刪除
+  const d1 = augGroup(); d1.members = d1.members.filter(m => m.id !== "g3_m5");
+  const r1 = L.mergeGroupThreeWay(augGroup(), d1, octGroup());
+  chk("★ 草稿刪掉陳一、線上沒改他 → 合併結果沒有陳一", !byIdIn(r1.group, "g3_m5") && r1.group.members.length === 4);
+  chk("  report.applied 記一筆 removed", eq(r1.report.applied, [{ id:"g3_m5", name:"陳一", kind:"removed", fields:[] }]), JSON.stringify(r1.report.applied));
+  chk("  其他線上的修改都還在(新加入的兩位、公司、照片)",
+      !!byIdIn(r1.group, "g3_m6") && !!byIdIn(r1.group, "g3_m7") && byIdIn(r1.group, "g3_m1").company === "薇薇設計" &&
+      byIdIn(r1.group, "g3_m2").image === "g3_m2_x_new.jpg");
+
+  // 草稿改公司、線上改照片 → 兩欄都在,updatedAt 取比較晚的
+  const d2 = augGroup(); Object.assign(byIdIn(d2, "g3_m2"), { company:"聖漳攝影", updatedAt:"2026-10-01T02:00:00.000Z" });
+  const r2 = L.mergeGroupThreeWay(augGroup(), d2, octGroup());
+  const m2 = byIdIn(r2.group, "g3_m2");
+  chk("★ 草稿改公司、線上改照片 → 兩欄都在", m2.company === "聖漳攝影" && m2.image === "g3_m2_x_new.jpg", JSON.stringify(m2));
+  chk("  兩邊都改了 updatedAt → 取比較晚的(不是衝突)", m2.updatedAt === "2026-10-01T02:00:00.000Z" && r2.report.conflicts.length === 0);
+  chk("  applied 只列這一位、只列公司", eq(r2.report.applied, [{ id:"g3_m2", name:"李聖漳", kind:"changed", fields:["company"] }]), JSON.stringify(r2.report.applied));
+  chk("  鍵的順序跟線上一樣", eq(Object.keys(m2), Object.keys(byIdIn(octGroup(), "g3_m2"))));
+
+  // 兩邊改同一欄、改成不一樣 → 用線上並記衝突
+  const d3 = augGroup(); Object.assign(byIdIn(d3, "g3_m1"), { company:"舊草稿寫的公司", updatedAt:"2026-08-05T00:00:00.000Z" });
+  const r3 = L.mergeGroupThreeWay(augGroup(), d3, octGroup());
+  chk("★ 兩邊改同一欄 → 用線上的", byIdIn(r3.group, "g3_m1").company === "薇薇設計");
+  chk("  並記一筆 field 衝突", eq(r3.report.conflicts, [{ id:"g3_m1", name:"王薇", kind:"field", field:"company" }]), JSON.stringify(r3.report.conflicts));
+  chk("  這一位最後跟線上一樣 → 不算 applied、整組 untouched", r3.report.applied.length === 0 && r3.report.untouched === true);
+  chk("  updatedAt 也是線上的(比較晚)", byIdIn(r3.group, "g3_m1").updatedAt === SEP11);
+
+  // 兩邊改同一欄、改成一樣 → 不是衝突
+  const d4 = augGroup(); Object.assign(byIdIn(d4, "g3_m1"), { company:"薇薇設計", updatedAt:"2026-09-12T00:00:00.000Z" });
+  const r4 = L.mergeGroupThreeWay(augGroup(), d4, octGroup());
+  chk("兩邊改成一樣 → 沒有衝突;只差修改時間的人用線上那一份(不寫檔)",
+      r4.report.conflicts.length === 0 && r4.report.untouched === true && byIdIn(r4.group, "g3_m1").updatedAt === SEP11);
+
+  // 草稿新增的人:線上沒改順序 → 草稿順序,新人就在草稿裡的位置
+  const d5 = augGroup(); d5.members.splice(2, 0, mem("g3_mN", "新朋友"));      // 李聖漳後面
+  const r5 = L.mergeGroupThreeWay(augGroup(), d5, octGroup());
+  chk("★ 草稿新增的人插在「草稿裡他前一位、合併後也存在的人」後面",
+      eq(ids(r5.group), ["g3_m1", "g3_m2", "g3_mN", "g3_m5", "g3_m6", "g3_m7"]), JSON.stringify(ids(r5.group)));
+  chk("  applied 記 added", eq(r5.report.applied, [{ id:"g3_mN", name:"新朋友", kind:"added", fields:[] }]));
+
+  // 草稿新增在徐玉真後面(徐玉真線上已刪)→ 往前找到李聖漳
+  const d6 = augGroup(); d6.members.splice(3, 0, mem("g3_mN", "新朋友"));      // 徐玉真後面
+  chk("前一位在合併後不存在 → 再往前找",
+      eq(ids(L.mergeGroupThreeWay(augGroup(), d6, octGroup()).group), ["g3_m1", "g3_m2", "g3_mN", "g3_m5", "g3_m6", "g3_m7"]));
+  const d7 = augGroup(); d7.members.unshift(mem("g3_mN", "新朋友"));
+  const liveRe = octGroup(); liveRe.members.reverse();                          // 線上調整過順序 → 用線上的順序
+  chk("線上改過順序 → 用線上順序;草稿新增的人在最前面(前面沒有人)時放最前面",
+      eq(ids(L.mergeGroupThreeWay(augGroup(), d7, liveRe).group), ["g3_mN", "g3_m7", "g3_m6", "g3_m5", "g3_m2", "g3_m1"]));
+  const d8 = augGroup(); d8.members.splice(1, 0, mem("g3_mN", "新朋友"));      // 王薇後面
+  chk("線上改過順序 → 草稿新增的人插在草稿裡他前一位(王薇)後面",
+      eq(ids(L.mergeGroupThreeWay(augGroup(), d8, liveRe).group), ["g3_m7", "g3_m6", "g3_m5", "g3_m2", "g3_m1", "g3_mN"]));
+
+  // 草稿改順序而線上沒改順序 → 用草稿順序
+  const d9 = augGroup(); d9.members.reverse();
+  const r9 = L.mergeGroupThreeWay(augGroup(), d9, octGroup());
+  chk("★ 草稿改順序、線上沒改 → 用草稿的順序(線上新加的人接在他線上的前一位後面)",
+      eq(ids(r9.group), ["g3_m5", "g3_m6", "g3_m7", "g3_m2", "g3_m1"]), JSON.stringify(ids(r9.group)));
+  chk("  report.reordered,不是 untouched", r9.report.reordered === true && r9.report.untouched === false && r9.report.applied.length === 0);
+  const d10 = augGroup(); d10.members.reverse();
+  chk("兩邊都改順序 → 用線上的順序", eq(ids(L.mergeGroupThreeWay(augGroup(), d10, liveRe).group), ids(liveRe)));
+
+  // 草稿刪、線上改 → 保留;草稿改、線上刪 → 維持刪除
+  const d11 = augGroup(); d11.members = d11.members.filter(m => m.id !== "g3_m1");
+  const r11 = L.mergeGroupThreeWay(augGroup(), d11, octGroup());
+  chk("★ 草稿刪掉王薇、線上之後改過她 → 保留線上,記 kept_deleted_edited",
+      byIdIn(r11.group, "g3_m1") && byIdIn(r11.group, "g3_m1").company === "薇薇設計" &&
+      eq(r11.report.conflicts, [{ id:"g3_m1", name:"王薇", kind:"kept_deleted_edited" }]), JSON.stringify(r11.report.conflicts));
+  chk("  保留的人放回線上的位置(草稿順序裡沒有他)", eq(ids(r11.group), ids(octGroup())));
+  const d12 = augGroup(); byIdIn(d12, "g3_m3").company = "草稿補的公司";
+  const r12 = L.mergeGroupThreeWay(augGroup(), d12, octGroup());
+  chk("★ 草稿改了徐玉真、線上已刪她 → 維持刪除,記 edited_but_deleted",
+      !byIdIn(r12.group, "g3_m3") && eq(r12.report.conflicts, [{ id:"g3_m3", name:"徐玉真", kind:"edited_but_deleted" }]));
+  const d13 = augGroup(); d13.members = d13.members.filter(m => m.id !== "g3_m3");
+  chk("兩邊都刪 → 不存在,也不算衝突",
+      (r => !byIdIn(r.group, "g3_m3") && r.report.conflicts.length === 0 && r.report.untouched)(L.mergeGroupThreeWay(augGroup(), d13, octGroup())));
+  const d14 = augGroup(); d14.members.push(mem("g3_m6", "紀宜伶(草稿版)"));
+  const r14 = L.mergeGroupThreeWay(augGroup(), d14, octGroup());
+  chk("base 沒有、兩邊各自新增同一個 id → 用線上的(記 both_added)",
+      byIdIn(r14.group, "g3_m6").name === "紀宜伶" && r14.report.conflicts.some(c => c.kind === "both_added"));
+
+  // 組層級欄位
+  const d15 = augGroup(); d15.leader = "陳一";
+  const r15 = L.mergeGroupThreeWay(augGroup(), d15, octGroup());
+  chk("組長只有草稿改 → 用草稿,applied 記 group", r15.group.leader === "陳一" &&
+      eq(r15.report.applied, [{ id:"", name:"", kind:"group", fields:["leader"] }]), JSON.stringify(r15.report.applied));
+  const l16 = octGroup(); l16.recruiting = ["室內設計", "水電"];
+  const d16 = augGroup(); d16.recruiting = ["會計師"];
+  const r16 = L.mergeGroupThreeWay(augGroup(), d16, l16);
+  chk("招募席位兩邊都改 → 用線上,記 group_field 衝突",
+      eq(r16.group.recruiting, ["室內設計", "水電"]) && eq(r16.report.conflicts, [{ id:"", name:"", kind:"group_field", field:"recruiting" }]));
+
+  const b0 = augGroup(), dd = augGroup(), ll = octGroup();
+  const snap = JSON.stringify([b0, dd, ll]);
+  const r17 = L.mergeGroupThreeWay(b0, dd, ll);
+  r17.group.members[0].company = "改結果不該影響輸入";
+  chk("不會改到傳進來的三個物件(結果是複本)", JSON.stringify([b0, dd, ll]) === snap);
+}
+
+hr("㉒ 這次發布刪掉了誰(removedMembers)");
+{
+  const liveA = { gid:"g3", code:"A1", members:[ mem("g3_m1", "王薇"), mem("g3_m2", "李聖漳"), mem("g3_m3", "徐玉真") ] };
+  const liveB = { gid:"g7", code:"B2", members:[ mem("g7_m1", "張三") ] };
+  const sentA = { id:"g3", code:"A1", members:[ mem("g3_m1", "王薇"), mem("g3_m3", "徐玉真") ] };
+  const sentB = { id:"g7", code:"B2", members:[ mem("g7_m1", "張三") ] };
+  const r = L.removedMembers([liveA, liveB], [sentA, sentB]);
+  chk("★ 刪掉李聖漳 → 回傳他的 gid、code、在線上那組的 index、完整資料",
+      r.length === 1 && r[0].gid === "g3" && r[0].code === "A1" && r[0].index === 1 && r[0].member.name === "李聖漳" &&
+      r[0].member.id === "g3_m2", JSON.stringify(r));
+  const sentA2 = { id:"g3", code:"A1", members:[ mem("g3_m1", "王薇"), mem("g3_m3", "徐玉真") ] };
+  const sentB2 = { id:"g7", code:"B2", members:[ mem("g7_m1", "張三"), mem("g3_m2", "李聖漳") ] };
+  chk("★ 同一個 id 搬到別組 → 不算刪除", eq(L.removedMembers([liveA, liveB], [sentA2, sentB2]), []));
+  /* 改名:A1 → A9。舊檔 data/a1.json 會被刪掉,線上那一份要算進來;新檔裡還在的人不算刪除 */
+  const sentRenamed = { id:"g3", code:"A9", members:[ mem("g3_m1", "王薇"), mem("g3_m2", "李聖漳") ] };
+  const rr = L.removedMembers([liveA], [sentRenamed]);
+  chk("★ 改名分組的舊檔要算進來:舊檔裡有、改名後的組裡沒有的人 → 刪除",
+      rr.length === 1 && rr[0].member.id === "g3_m3" && rr[0].gid === "g3" && rr[0].index === 2, JSON.stringify(rr));
+  chk("沒有刪任何人 → 空陣列", eq(L.removedMembers([liveA], [{ members: liveA.members }]), []));
+  chk("沒有 id 的成員不列(救不回來,Worker 也收不下)",
+      eq(L.removedMembers([{ gid:"g3", code:"A1", members:[ { name:"沒有 id" } ] }], []), []));
+  chk("整組被清空 → 每一位都列,index 依線上順序",
+      eq(L.removedMembers([liveA], [{ members:[] }]).map(x => x.index), [0, 1, 2]));
+  chk("傳入 null → 空陣列", eq(L.removedMembers(null, null), []));
+}
+
+/* ══ tryLoadDraft:事故的完整流程 ══
+   admin.js 的 tryLoadDraft / mergeStaleDraft / draftMatchesLive / staleBlockedPaths 原樣切出來,
+   放進 vm 跑(同 ⑳ 的做法)。要守住的是使用者看得到的結果:
+     ・舊草稿沒有任何修改 → 手上的資料等於線上、草稿清掉、發布時沒有任何組檔要送
+     ・舊草稿有一處修改 → 只有那一處跟線上不一樣
+     ・舊草稿沒有來源版本 → 那一組鎖住,發布擋下;存檔、重新整理之後還是鎖住 */
+hr("㉓ 載入舊草稿(tryLoadDraft):只寫上真的改過的地方,合併不了的擋下");
+{
+  const asrc = fs.readFileSync(path.join(ROOT, "admin.js"), "utf8");
+  const fnSrc = (s, name) => {
+    const m = new RegExp("^([ \\t]*)(?:async )?function " + name + "\\([\\s\\S]*?\\n\\1\\}", "m").exec(s);
+    return m ? m[0] : "";
+  };
+  const constSrc = (s, name) => (new RegExp("^[ \\t]*const " + name + " = [^\\n]*;$", "m").exec(s) || [""])[0];
+  const FNS = ["groupBody", "tryLoadDraft", "reconcileWithLive", "mergeStaleDraft", "draftMatchesLive", "staleBlockedPaths"];
+  const CONSTS = ["clone", "dataPathOf", "DATA_PATH_RE", "PENDING_PATH", "INDEX_PATH", "isGroupPath", "GROUP_BODY_KEYS", "serializeBody"];
+  const missing = FNS.filter(n => !fnSrc(asrc, n)).concat(CONSTS.filter(n => !constSrc(asrc, n)));
+  chk("admin.js 切得出要測的函式", !missing.length, missing.length ? "缺 " + missing.join("、") : "");
+
+  const ser = body => JSON.stringify(body, null, 2) + "\n";
+  const body = g => ({ leader: g.leader, room: g.room, members: g.members, recruiting: g.recruiting });
+  const INDEX = [{ code:"A1", name:"肉品海鮮批發組", id:"g3" }, { code:"B2", name:"健康美味饗宴組", id:"g7" }];
+  const bGroup = () => ({ leader:"張三", room:"小房間", recruiting:[], members:[ mem("g7_m1", "張三") ] });
+  const PEND = [{ pid:"p_aaaaaa1", name:"申請人甲" }];
+
+  /* o.base / o.live:{ index, groups:{ code → body }, pending };o.draft(data → 要怎麼改)
+     o.oldFormat:草稿沒有 loadedBody;o.noBase:連 baseHashes 都沒有 */
+  function makeCtx(o){
+    const files = s => {
+      const out = { "data/_index.json": ser(s.index) };
+      for(const e of s.index) out["data/" + e.code.toLowerCase() + ".json"] = ser(body(s.groups[e.code]));
+      out["data/_pending.json"] = ser(s.pending);
+      return out;
+    };
+    const hashOf = (tag, files) => Object.fromEntries(Object.keys(files).map(p => [p, crypto.createHash("sha256").update(files[p]).digest("hex")]));
+    const baseFiles = files(o.base), liveFiles = files(o.live);
+    const store = new Map();
+    const draftData = o.base.index.map(e => Object.assign({ code:e.code, name:e.name, id:e.id }, JSON.parse(JSON.stringify(o.base.groups[e.code]))));
+    if(o.edit) o.edit(draftData);
+    const draft = { savedAt: Date.parse("2026-08-05T09:00:00+08:00"), data: draftData, pending: JSON.parse(JSON.stringify(o.base.pending)),
+                    sentBody: {} };
+    if(!o.noBase) draft.baseHashes = hashOf("h", baseFiles);
+    if(!o.oldFormat && !o.noBase) draft.loadedBody = baseFiles;
+    if(o.extra) Object.assign(draft, o.extra);
+    store.set("k", JSON.stringify(draft));
+    const log = [];
+    const c = {
+      AdminLogic: L, localStorage: { getItem: k => store.has(k) ? store.get(k) : null, setItem: (k, v) => store.set(k, v), removeItem: k => store.delete(k) },
+      draftKey: () => "k", isViewer: () => false, isLeader: () => false, tabIsSecondary: false,
+      DATA: o.live.index.map(e => Object.assign({ code:e.code, name:e.name, id:e.id }, JSON.parse(JSON.stringify(o.live.groups[e.code])))),
+      PENDING: JSON.parse(JSON.stringify(o.live.pending)),
+      baseHashes: hashOf("h", liveFiles), loadedBody: Object.assign({}, liveFiles), baseBlobShas: {},
+      originalPathByGroupId: Object.fromEntries(o.live.index.map(e => [e.id, "data/" + e.code.toLowerCase() + ".json"])),
+      sentBody: {}, conflictPaths: new Set(), conflictMupd: new Map(), unmergeablePaths: new Set(),
+      mergeNotice: null, selected: "g3", hasDraft: false, recoveredPaths: [],
+      saveDraft(){ log.push("save"); store.set("k", JSON.stringify({ savedAt: Date.now(), data: c.DATA, pending: c.PENDING,
+        baseHashes: c.baseHashes, loadedBody: c.loadedBody, sentBody: c.sentBody, unmergeable: [...c.unmergeablePaths],
+        conflicts: [...c.conflictPaths].filter(p => p === "data/_index.json" || p === "data/_pending.json"), mergeNotice: c.mergeNotice })); },
+    };
+    vm.createContext(c);
+    vm.runInContext(CONSTS.map(n => constSrc(asrc, n)).join("\n") + "\n" + FNS.map(n => fnSrc(asrc, n)).join("\n"), c,
+                    { filename: "admin.js(切片)" });
+    c.log = log; c.store = store;
+    /* 跟 buildPublishPayload 同一套比法:會被送出去的檔(照片轉檔不算) */
+    c.sends = () => {
+      const out = [];
+      for(const g of c.DATA){ const p = "data/" + g.code.toLowerCase() + ".json";
+        if(ser(body({ leader:g.leader ?? "", room:g.room ?? "", members:g.members ?? [], recruiting:g.recruiting ?? [] })) !== c.loadedBody[p]) out.push(p); }
+      if(ser(c.PENDING) !== c.loadedBody["data/_pending.json"]) out.push("data/_pending.json");
+      if(ser(c.DATA.map(g => ({ code:g.code, name:g.name, id:g.id }))) !== c.loadedBody["data/_index.json"]) out.push("data/_index.json");
+      return out;
+    };
+    return c;
+  }
+  const AUGUST = { index: INDEX, groups: { A1: augGroup(), B2: bGroup() }, pending: PEND };
+  const liveB2 = bGroup(); liveB2.members.push(mem("g7_m2", "李四"));
+  const OCTOBER = { index: INDEX, groups: { A1: octGroup(), B2: liveB2 }, pending: [] };   // 申請人甲 9 月被認領走了
+
+  {
+    const c = makeCtx({ base: AUGUST, live: OCTOBER });
+    c.tryLoadDraft();
+    chk("★ 事故情境:舊草稿沒有任何修改 → 手上的資料就是線上的,發布時沒有任何檔要送",
+        eq(c.sends(), []), JSON.stringify(c.sends()));
+    chk("★ 事故情境:A1 組的內容逐字等於線上(紀宜伶、魏宛柔在,徐玉真、林岳達沒有復活)",
+        ser(body(c.DATA[0])) === c.loadedBody["data/a1.json"] && eq(ids(c.DATA[0]), ids(octGroup())));
+    chk("  待認領區用線上的(草稿沒改過它)", eq(c.PENDING, []) && !c.conflictPaths.has("data/_pending.json"));
+    chk("  沒有衝突、沒有鎖住的組", c.conflictPaths.size === 0 && c.unmergeablePaths.size === 0);
+    chk("  這份草稿已經沒有用 → 清掉,也不顯示「尚未發布」", c.hasDraft === false && !c.store.has("k"));
+    chk("  說明:草稿沒有要套用的修改(cleared),日期是原本草稿的",
+        !!c.mergeNotice && c.mergeNotice.cleared === true && L.updateMonthDay(c.mergeNotice.savedAt) === "8/5" &&
+        c.mergeNotice.groups.every(g => !g.applied.length), JSON.stringify(c.mergeNotice));
+  }
+  {
+    // 舊草稿有一處真的修改:陳一的公司
+    const c = makeCtx({ base: AUGUST, live: OCTOBER,
+                        edit: d => { const m = d[0].members.find(x => x.id === "g3_m5"); m.company = "陳一工作室"; m.updatedAt = "2026-08-05T01:00:00.000Z"; } });
+    c.tryLoadDraft();
+    const a1 = c.DATA[0];
+    const expect = octGroup(); Object.assign(byIdIn(expect, "g3_m5"), { company:"陳一工作室", updatedAt:"2026-08-05T01:00:00.000Z" });
+    chk("★ 舊草稿有一處修改 → 只有 A1 組要送,內容 = 線上 + 陳一的公司", eq(c.sends(), ["data/a1.json"]) &&
+        ser(body(a1)) === ser(body(expect)), JSON.stringify(c.sends()));
+    chk("  B2 組(草稿沒改)= 線上,李四還在", ser(body(c.DATA[1])) === c.loadedBody["data/b2.json"]);
+    chk("  說明列出那一處", eq(c.mergeNotice.groups.find(g => g.code === "A1").applied,
+        [{ id:"g3_m5", name:"陳一", kind:"changed", fields:["company"] }]));
+    chk("  合併後馬上存草稿(新的來源版本 = 線上)", c.log.indexOf("save") >= 0 && c.hasDraft === true &&
+        JSON.parse(c.store.get("k")).loadedBody["data/a1.json"] === c.loadedBody["data/a1.json"]);
+    chk("  沒有衝突、沒有鎖住的組(發布時不會跳「繼續 = 覆蓋」)", c.conflictPaths.size === 0 && c.unmergeablePaths.size === 0);
+  }
+  for(const [label, opt] of [["沒有 loadedBody 的舊格式草稿", { oldFormat:true }], ["連 baseHashes 都沒有的更舊草稿", { noBase:true }]]){
+    const c = makeCtx(Object.assign({ base: AUGUST, live: OCTOBER }, opt));
+    c.tryLoadDraft();
+    chk("★ " + label + " → A1、B2 都鎖住", c.unmergeablePaths.has("data/a1.json") && c.unmergeablePaths.has("data/b2.json"),
+        JSON.stringify([...c.unmergeablePaths]));
+    chk("  發布閘門:寫 A1 會被擋下", eq(c.staleBlockedPaths({ files:[{ path:"data/a1.json" }, { path:"images/x.jpg" }], remove:[] }), ["data/a1.json"]));
+    chk("  改名時要刪掉的舊檔也擋", eq(c.staleBlockedPaths({ files:[{ path:"data/a9.json" }], remove:["data/b2.json"] }), ["data/b2.json"]));
+    chk("  草稿的內容沒有被改動(使用者還能下載備份)", eq(ids(c.DATA[0]), ids(augGroup())));
+    chk("  說明列出鎖住的組", !!c.mergeNotice && eq(c.mergeNotice.unmergeable, ["A1", "B2"]));
+  }
+  {
+    // 鎖住之後存檔(來源版本變成線上值)→ 重新整理還是鎖住
+    const c = makeCtx({ base: AUGUST, live: OCTOBER, oldFormat:true });
+    c.tryLoadDraft();
+    c.saveDraft();
+    const saved = c.store.get("k");
+    const c2 = makeCtx({ base: AUGUST, live: OCTOBER });
+    c2.store.set("k", saved);
+    c2.tryLoadDraft();
+    chk("★ 鎖住之後存檔、重新整理 → 雜湊看起來沒衝突,但仍然鎖住", c2.unmergeablePaths.has("data/a1.json") &&
+        eq(c2.staleBlockedPaths({ files:[{ path:"data/a1.json" }], remove:[] }), ["data/a1.json"]));
+  }
+  {
+    // 線上把 A1 改名成 A5,草稿沒動結構 → 結構照線上,內容照樣合併
+    const idx5 = [{ code:"A5", name:"肉品海鮮批發組", id:"g3" }, INDEX[1]];
+    const c = makeCtx({ base: AUGUST, live: { index: idx5, groups: { A5: octGroup(), B2: liveB2 }, pending: [] },
+                        edit: d => { d[0].members.find(x => x.id === "g3_m5").company = "陳一工作室"; } });
+    c.tryLoadDraft();
+    chk("線上改了代號、草稿沒動結構 → 用線上的代號,不會把 A5 改回 A1(也不會刪掉 a5.json)",
+        c.DATA[0].code === "A5" && !c.conflictPaths.has("data/_index.json") && eq(c.sends(), ["data/a5.json"]), JSON.stringify(c.sends()));
+    chk("  內容照樣只寫上陳一的公司", byIdIn(c.DATA[0], "g3_m5").company === "陳一工作室" && eq(ids(c.DATA[0]), ids(octGroup())));
+  }
+  {
+    // 草稿沒有過期 → 什麼都不做(既有行為不變)
+    const c = makeCtx({ base: OCTOBER, live: OCTOBER, edit: d => { d[0].leader = "陳一"; } });
+    c.tryLoadDraft();
+    chk("草稿沒有過期 → 不合併、不存檔、沒有說明,照常接續", c.mergeNotice === null && c.log.length === 0 &&
+        c.hasDraft === true && c.DATA[0].leader === "陳一" && eq(c.sends(), ["data/a1.json"]));
+  }
+}
+
+/* 救回的錯誤碼:契約裡 /recycle-restore、/recycle-drop 會回的 409/403,後台都要有看得懂的話 */
+hr("㉔ 回收區:後台對每個錯誤碼都有專屬說明");
+{
+  const asrc = fs.readFileSync(path.join(ROOT, "admin.js"), "utf8");
+  const m = /function recycleErrorText\([\s\S]*?\n  \}/.exec(asrc);
+  const body = m ? m[0] : "";
+  const codes = ["already_present", "recycle_gone", "group_missing", "forbidden_group", "admin_only", "read_only",
+                 "pending_image_store_unavailable", "stale_base", "busy_retry_later", "restore_uncertain", "update_store_failed"];
+  const miss = codes.filter(c => body.indexOf('"' + c + '"') < 0);
+  chk("★ " + codes.join("、") + " 都有專屬訊息", body.length > 200 && !miss.length, miss.length ? "缺 " + miss.join("、") : "");
+  /* Worker 的救回/永久刪除會回的 409/403(人要照著做的情況),後台都要有專屬訊息 —— 同 ⑲ 的做法 */
+  const wsrc = fs.readFileSync(path.join(ROOT, "worker/publish-relay.js"), "utf8");
+  const fnSrc = (s, name) => {
+    const m = new RegExp("^([ \\t]*)(?:async )?function " + name + "\\([\\s\\S]*?\\n\\1\\}", "m").exec(s);
+    return m ? m[0] : "";
+  };
+  const wcodes = new Set();
+  for(const n of ["handleRecycleRestore", "handleRecycleDrop", "handleRecycleList", "leaderGroupDenied", "memberUpdateAuth"]){
+    for(const mm of fnSrc(wsrc, n).matchAll(/error:\s*"([a-z_]+)"[^;]*?\},\s*(40[39])\)/g)) wcodes.add(mm[1]);
+  }
+  const wmiss = [...wcodes].filter(c => body.indexOf('"' + c + '"') < 0);
+  chk("★ Worker /recycle-* 會回的 409/403(" + [...wcodes].join("、") + ")後台都有專屬訊息",
+      wcodes.size >= 5 && !wmiss.length, wmiss.length ? "缺 " + wmiss.join("、") : "");
+  chk("restore_uncertain:Worker 確實會回,後台教使用者重新整理確認、再按一次救回",
+      /error:"restore_uncertain"/.test(wsrc) && /restore_uncertain[\s\S]{0,200}重新整理[\s\S]{0,120}再按一次「救回」/.test(body));
+  chk("發布成功才記錄刪除(/recycle-put 在 res.ok 之後)",
+      /if\(res\.ok\)\{[\s\S]*?recordDeleted\(removedNow\)[\s\S]*?\} else if\(res\.error === "read_only"\)/.test(asrc));
+  chk("沒有 caps.recycle 就不記錄", /workerCaps\.recycle === true \? deletedMembersOf\(payload\) : \[\]/.test(asrc));
 }
 
 console.log(`\n${fail===0 ? "✅ 全數通過" : "❌ 有失敗"}:${pass} 通過 / ${fail} 失敗\n`);

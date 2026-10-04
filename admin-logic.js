@@ -679,6 +679,261 @@ var AdminLogic = (function(){
     return out;
   }
 
+  /* ══════════════════════════════════════════════════════════════════════
+     舊草稿 × 線上版本的三方合併
+     ══════════════════════════════════════════════════════════════════════
+     10/1 事故:一台電腦的瀏覽器裡留著 8 月初的草稿,後台開起來就自動載入它;發布時衝突確認
+     只給「繼續 = 用你的版本覆蓋」這個選項,一按確定,6 個組檔被**整檔**換回 8 月的版本 ——
+     9 月才加入的夥伴被刪掉、已刪的人復活、別人補的公司名稱與照片全部消失。
+     那份草稿其實一個字都沒改過。
+
+     根本原因是「整檔覆蓋」:草稿裡只要有一組跟線上不一樣,整組就用草稿的。
+     這裡改成三方比較 —— base(草稿當初的來源版本)、draft(草稿)、live(線上現況)——
+     **只有草稿真的改過的人、改過的欄位**才寫上去,其他一律用線上的。草稿沒改過的東西,
+     就算它比線上舊,也不會蓋回去。 */
+
+  /* 穩定的 JSON:物件的鍵排序後才 stringify。深度相等一律用它比。
+     同一位夥伴的資料經過不同的路(後台編輯、Worker 套用更新、同步 Action)寫出來,鍵的順序
+     可能不一樣;直接比 JSON.stringify 會把「內容一樣、順序不同」判成改過,那個人就會被當成
+     草稿的修改寫回去 —— 正是這次要防的事。 */
+  function stableJson(v){
+    if(v === undefined) return undefined;
+    return JSON.stringify(v, (k, x) => {
+      if(!x || typeof x !== "object" || Array.isArray(x)) return x;
+      const o = {};
+      for(const key of Object.keys(x).sort()) o[key] = x[key];
+      return o;
+    });
+  }
+  const sameJson = (a, b) => stableJson(a) === stableJson(b);
+  const cloneJson = v => v === undefined ? undefined : JSON.parse(JSON.stringify(v));
+  const isPlainObj = v => !!v && typeof v === "object" && !Array.isArray(v);
+
+  /* 成員清單 → 依 id 對應的鍵。沒有 id 的(理論上不會有)用整筆內容當鍵:沒改就對得上,
+     改了就是「刪一筆、加一筆」,一樣走得通。同一個 id 出現兩次(發布前的檢查會擋,但草稿裡
+     可能有)第二筆加上序號,不會把其中一筆吃掉。 */
+  function keyMembers(list){
+    const keys = [], map = new Map(), seen = new Map();
+    for(const m of (Array.isArray(list) ? list : [])){
+      let k = isPlainObj(m) && typeof m.id === "string" && m.id ? "id:" + m.id : "raw:" + stableJson(m);
+      const n = (seen.get(k) || 0) + 1;
+      seen.set(k, n);
+      if(n > 1) k += "#" + n;
+      keys.push(k);
+      map.set(k, m);
+    }
+    return { keys, map };
+  }
+  const memberIdOf = m => isPlainObj(m) && typeof m.id === "string" ? m.id : "";
+  const memberNameOf = m => isPlainObj(m) && m.name != null ? String(m.name) : "";
+
+  /* 兩個時間戳取比較晚的那個;看不懂的那個輸。兩個都看不懂 → 用線上的(b)。 */
+  function laterStamp(a, b){
+    const ta = Date.parse(a == null ? "" : a), tb = Date.parse(b == null ? "" : b);
+    if(isFinite(ta) && isFinite(tb)) return ta > tb ? a : b;
+    if(isFinite(ta)) return a;
+    return b;
+  }
+
+  /* 兩個除了 updatedAt 以外完全一樣。合併出來只差修改時間的人不算「改過」——
+     否則一個「打了字又改回去」的欄位(touch() 會蓋章)也會讓整個組檔被重寫。 */
+  function sameExceptStamp(a, b){
+    if(!isPlainObj(a) || !isPlainObj(b)) return sameJson(a, b);
+    const strip = o => { const c = Object.assign({}, o); delete c.updatedAt; return c; };
+    return sameJson(strip(a), strip(b));
+  }
+
+  /* 同一位夥伴兩邊都改過:逐欄合併。
+     只有草稿改的欄位 → 草稿;只有線上改的 → 線上;兩邊改成一樣 → 那個值;
+     兩邊改成不一樣 → **線上**,記一筆衝突(寧可少寫一欄,也不要蓋掉別人後來的修改)。
+     updatedAt 例外:兩邊都改了就取比較晚的,那不是內容衝突。
+     輸出的鍵順序跟線上一樣(線上沒有的鍵接在後面),內容沒變的時候寫出來的檔才會逐字相同。 */
+  function mergeMemberFields(b, d, l, conflicts){
+    const keys = Object.keys(l);
+    for(const k of Object.keys(d)) if(keys.indexOf(k) < 0) keys.push(k);
+    for(const k of Object.keys(b)) if(keys.indexOf(k) < 0) keys.push(k);
+    const out = {};
+    for(const k of keys){
+      if(k === "__proto__") continue;
+      const fb = b[k], fd = d[k], fl = l[k];
+      let v;
+      if(sameJson(fb, fd)) v = fl;                 // 草稿沒改這一欄
+      else if(sameJson(fb, fl)) v = fd;            // 只有草稿改了
+      else if(sameJson(fd, fl)) v = fl;            // 兩邊改成一樣
+      else if(k === "updatedAt") v = laterStamp(fd, fl);
+      else {
+        v = fl;
+        conflicts.push({ id: memberIdOf(l) || memberIdOf(d), name: memberNameOf(l) || memberNameOf(d), kind:"field", field:k });
+      }
+      if(v !== undefined) out[k] = cloneJson(v);
+    }
+    return out;
+  }
+
+  /* 依「來源順序」把還沒放進去的鍵插進 out:插在來源裡它前一位、而且已經在 out 裡的人後面,
+     找不到就放最前面。依來源順序逐一處理,連續新增的幾個人會照原本的先後接在一起。 */
+  function weaveKeys(out, srcKeys, want){
+    for(let i = 0; i < srcKeys.length; i++){
+      const k = srcKeys[i];
+      if(!want.has(k) || out.indexOf(k) >= 0) continue;
+      let at = 0;
+      for(let j = i - 1; j >= 0; j--){
+        const p = out.indexOf(srcKeys[j]);
+        if(p >= 0){ at = p + 1; break; }
+      }
+      out.splice(at, 0, k);
+    }
+    return out;
+  }
+  const sameSeq = (x, y) => x.length === y.length && x.every((k, i) => k === y[i]);
+
+  const GROUP_MERGE_FIELDS = ["leader", "room", "recruiting"];
+
+  /* mergeGroupThreeWay(base, draft, live) → { group, report }
+     三個參數都是組物件 { leader, room, recruiting, members:[...] }(base 由呼叫端從草稿的
+     loadedBody parse 出來)。group 只有這四個鍵,代號、組名、id 由呼叫端保留。
+
+     成員(以 id 對應):
+       草稿沒改(base 與 draft 深度相等,含兩邊都不存在) → 用線上的(線上沒有就是不存在)
+       草稿改了、線上沒改 → 用草稿的(草稿沒有 = 刪除)
+       兩邊都改了:
+         兩邊都刪                → 不存在
+         草稿刪、線上改          → **保留線上**,衝突 kept_deleted_edited
+         草稿改、線上刪          → **維持刪除**,衝突 edited_but_deleted
+         base 沒有、兩邊各自新增 → 用線上的(內容不同時記衝突 both_added)
+         兩邊都改                → 逐欄合併(mergeMemberFields)
+     組層級欄位(組長、地點、招募席位)同樣三方逐欄判斷,衝突用線上並記 group_field。
+
+     成員順序:線上沒有調整順序(base 與 live 共有的人先後一樣)→ 用草稿的順序;否則用線上的。
+     另一邊才有的人插在「那一邊裡他前一位、而且合併後也存在的人」後面,找不到就放最前面。
+
+     report = { applied, conflicts, reordered, untouched }
+       applied   只列「因為草稿而跟線上不一樣」的地方:
+                 { id, name, kind:"added"|"removed"|"changed", fields } 成員;
+                 { id:"", name:"", kind:"group", fields } 組層級欄位
+       reordered 草稿調整了成員的先後(只有順序不同,沒有任何欄位不同時也會寫檔)
+       untouched 整組沒有要寫的 —— 這時 group 與 live 內容逐字相同 */
+  function mergeGroupThreeWay(base, draft, live){
+    const B0 = isPlainObj(base) ? base : {}, D0 = isPlainObj(draft) ? draft : {}, L0 = isPlainObj(live) ? live : {};
+    const B = keyMembers(B0.members), D = keyMembers(D0.members), L = keyMembers(L0.members);
+    const applied = [], conflicts = [];
+    const result = new Map();
+
+    const all = [];
+    for(const k of L.keys.concat(D.keys, B.keys)) if(all.indexOf(k) < 0) all.push(k);
+    for(const k of all){
+      const inB = B.map.has(k), inD = D.map.has(k), inL = L.map.has(k);
+      const b = B.map.get(k), d = D.map.get(k), l = L.map.get(k);
+      const draftChanged = inB !== inD || (inB && !sameJson(b, d));
+      if(!draftChanged){ if(inL) result.set(k, l); continue; }
+      const liveChanged = inB !== inL || (inB && !sameJson(b, l));
+      if(!liveChanged){ if(inD) result.set(k, d); continue; }
+      if(!inD && !inL) continue;                                         // 兩邊都刪了
+      if(!inD){                                                          // 草稿刪、線上改 → 保留線上
+        result.set(k, l);
+        conflicts.push({ id: memberIdOf(l), name: memberNameOf(l), kind:"kept_deleted_edited" });
+        continue;
+      }
+      if(!inL){                                                          // 草稿改、線上刪 → 維持刪除
+        conflicts.push({ id: memberIdOf(d), name: memberNameOf(d), kind:"edited_but_deleted" });
+        continue;
+      }
+      if(!inB){                                                          // 兩邊各自新增同一個 id
+        result.set(k, l);
+        if(!sameJson(d, l)) conflicts.push({ id: memberIdOf(l), name: memberNameOf(l), kind:"both_added" });
+        continue;
+      }
+      if(!isPlainObj(b) || !isPlainObj(d) || !isPlainObj(l)){            // 不是物件(壞資料):線上為準
+        result.set(k, l);
+        if(!sameJson(d, l)) conflicts.push({ id: memberIdOf(l), name: memberNameOf(l), kind:"field", field:"" });
+        continue;
+      }
+      result.set(k, mergeMemberFields(b, d, l, conflicts));
+    }
+
+    // 合併後只差修改時間的人,直接用線上那一份(見 sameExceptStamp)
+    for(const [k, v] of result){
+      if(L.map.has(k) && v !== L.map.get(k) && sameExceptStamp(v, L.map.get(k))) result.set(k, L.map.get(k));
+    }
+
+    // 成員順序
+    const want = new Set(result.keys());
+    const liveReordered = !sameSeq(B.keys.filter(k => L.map.has(k)), L.keys.filter(k => B.map.has(k)));
+    const order = liveReordered
+      ? weaveKeys(L.keys.filter(k => want.has(k)), D.keys, want)
+      : weaveKeys(D.keys.filter(k => want.has(k)), L.keys, want);
+    weaveKeys(order, all, want);      // 保險:任何還沒放進去的(理論上沒有)照出現順序補上
+
+    // applied:最後結果跟線上比
+    for(const k of order){
+      const v = result.get(k);
+      if(!L.map.has(k)){
+        applied.push({ id: memberIdOf(v), name: memberNameOf(v), kind:"added", fields:[] });
+      }else if(v !== L.map.get(k) && !sameJson(v, L.map.get(k))){
+        const l = L.map.get(k);
+        const keys = Object.keys(isPlainObj(v) ? v : {});
+        for(const f of Object.keys(isPlainObj(l) ? l : {})) if(keys.indexOf(f) < 0) keys.push(f);
+        applied.push({ id: memberIdOf(v), name: memberNameOf(v), kind:"changed",
+                       fields: keys.filter(f => f !== "updatedAt" && !sameJson(v[f], l[f])) });
+      }
+    }
+    for(const k of L.keys){
+      if(!want.has(k)){
+        const l = L.map.get(k);
+        applied.push({ id: memberIdOf(l), name: memberNameOf(l), kind:"removed", fields:[] });
+      }
+    }
+
+    // 組層級欄位
+    const group = {};
+    const groupFields = [];
+    for(const f of GROUP_MERGE_FIELDS){
+      const fb = B0[f], fd = D0[f], fl = L0[f];
+      let v;
+      if(sameJson(fb, fd)) v = fl;
+      else if(sameJson(fb, fl)) v = fd;
+      else if(sameJson(fd, fl)) v = fl;
+      else { v = fl; conflicts.push({ id:"", name:"", kind:"group_field", field:f }); }
+      if(!sameJson(v, fl)) groupFields.push(f);
+      if(v !== undefined) group[f] = cloneJson(v);
+    }
+    if(groupFields.length) applied.unshift({ id:"", name:"", kind:"group", fields: groupFields });
+    group.members = order.map(k => cloneJson(result.get(k)));
+
+    const common = order.filter(k => L.map.has(k));
+    const reordered = !sameSeq(common, L.keys.filter(k => want.has(k)));
+    return { group, report: { applied, conflicts, reordered, untouched: !applied.length && !reordered } };
+  }
+
+  /* 這次發布會刪掉哪些夥伴(要記進回收區,刪錯了可以一鍵救回)。
+     liveGroups:這次會寫到或刪掉的組檔,在線上的樣子 —— [{ gid, code, members }]。
+                 分組改代號時,舊檔(會被刪掉的那個)也要放進來,否則改名那一次刪掉的人不會被記到。
+     sentGroups:發布之後的所有分組(手上整份 DATA)。
+     回傳「線上有、發布之後哪一組都沒有」的人:[{ gid, code, index, member }],
+     index 是他在線上那組的位置(救回時放回原位用),member 是線上那一份完整資料。
+     同一個 id 搬到別組不算刪除 —— 他還在名錄上,救回反而會變成兩個人。 */
+  function removedMembers(liveGroups, sentGroups){
+    const kept = new Set();
+    for(const g of (Array.isArray(sentGroups) ? sentGroups : [])){
+      for(const m of (g && Array.isArray(g.members) ? g.members : [])){
+        const id = memberIdOf(m);
+        if(id) kept.add(id);
+      }
+    }
+    const out = [], seen = new Set();
+    for(const g of (Array.isArray(liveGroups) ? liveGroups : [])){
+      if(!g || !Array.isArray(g.members)) continue;
+      const gid = String(g.gid != null ? g.gid : (g.id != null ? g.id : ""));
+      g.members.forEach((m, index) => {
+        const id = memberIdOf(m);
+        if(!id || kept.has(id) || seen.has(id)) return;
+        seen.add(id);
+        out.push({ gid, code: String(g.code == null ? "" : g.code), index, member: m });
+      });
+    }
+    return out;
+  }
+
   return { computeConflicts, computeRenameRemovals, isPrimaryTab, pendingNotice, makeSingleFlight,
            FIELD_LABELS, PHOTO_LABELS, UPDATE_FIELD_ORDER, UPDATE_PHOTO_FIELDS, UPDATE_PRODUCTS_MAX,
            LIST_FIELDS, UPDATE_LATE_MS, UPDATE_HASH_EMPTY, fieldLabel,
@@ -686,6 +941,7 @@ var AdminLogic = (function(){
            memberPrefillValues, updatePrefillUrl, withExternalBrowser, listDiff, mergeList, websiteHost,
            updateTimeText, updateMonthDay, updateWaitDays,
            memberUpdateHeader, memberUpdateRows, memberUpdatePhotos, memberUpdateExtras, memberUpdateNotice,
-           groupMemberUpdates, findMembersByName, memberUpdateCopyText, overwrittenMemberUpdates };
+           groupMemberUpdates, findMembersByName, memberUpdateCopyText, overwrittenMemberUpdates,
+           stableJson, sameJson, mergeGroupThreeWay, removedMembers };
 })();
 if(typeof module !== "undefined" && module.exports) module.exports = AdminLogic;
