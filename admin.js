@@ -87,6 +87,15 @@
      上的舊草稿一旦蓋回去,更新就找不回來。發布前的衝突確認要把這些人點名出來。
      跟著 conflictPaths 一起增減:那邊刪掉一個路徑,這邊也要刪。 */
   const conflictMupd = new Map();
+  /* 舊草稿裡「沒辦法安全地只寫上修改」的分組檔路徑(見 mergeStaleDraft)。
+     沒有記錄當初的來源版本(舊格式草稿)、或對不起來(分組在線上被刪、代號被別組佔走)時,
+     我們不知道草稿裡哪些是使用者改的、哪些只是舊資料 —— 這種組在發布時**一律擋下**,
+     不再提供「繼續 = 覆蓋」(10/1 事故就是按了那個確定)。
+     會跟著草稿一起存:不存的話,下一次自動存檔就把來源版本換成線上值,重新整理之後
+     這幾組看起來就像「沒有衝突」,舊內容會被無聲送出去。 */
+  const unmergeablePaths = new Set();
+  /* 合併舊草稿之後的說明(常駐,要按「知道了」才收起)。見 renderMergeNotice。 */
+  let mergeNotice = null;
 
   const dataPathOf = code => "data/" + String(code).trim().toLowerCase() + ".json";
   /* 分組代號只能是英數字:它同時是檔名(data/<代號>.json)與權限的判定依據。
@@ -94,6 +103,9 @@
   const GROUPCODE_RE = /^[A-Za-z0-9]{1,8}$/;
   const DATA_PATH_RE = /^data\/(_index|_pending|[a-z0-9]{1,8})\.json$/;
   const PENDING_PATH = "data/_pending.json";
+  const INDEX_PATH = "data/_index.json";
+  /* 分組檔(data/<代號>.json),不含 _index、_pending */
+  const isGroupPath = p => DATA_PATH_RE.test(String(p)) && p !== INDEX_PATH && p !== PENDING_PATH;
   let PENDING = [];        // 新夥伴自填表單送來、還沒被任何組長認領的申請
   const GROUP_BODY_KEYS = ["leader", "room", "members", "recruiting"];
   /* 分組物件的鍵順序要與 tools/build-data.mjs 一致,否則合併出來的 data.js 會有無意義的差異 */
@@ -339,9 +351,15 @@
          「先載線上最新版(拿到新的雜湊)→ 再用舊草稿蓋掉資料」,發布時送出的就變成
          「舊內容 + 新雜湊」—— Worker 的版本落後偵測比對的是雜湊,完全看不出異常,
          於是別人在這期間發布的修改會被這份舊草稿無聲蓋回去。 */
+      /* unmergeable / conflicts:這幾個路徑的「來源版本」已經不在 loadedBody 裡了(那裡現在
+         是線上值),只有這兩份清單記得它們還沒解決。分組檔的衝突不存:能合併的已經合併掉了,
+         合併不了的在 unmergeable 裡。 */
       localStorage.setItem(draftKey(), JSON.stringify({
         savedAt: Date.now(), data: DATA, pending: PENDING,
         baseHashes: baseHashes, loadedBody: loadedBody, sentBody: sentBody,
+        unmergeable: [...unmergeablePaths],
+        conflicts: [...conflictPaths].filter(p => p === INDEX_PATH || p === PENDING_PATH),
+        mergeNotice: mergeNotice,
       }));
       saveState.textContent = "已自動儲存 " + new Date().toLocaleTimeString("zh-Hant",{hour:"2-digit",minute:"2-digit"});
       showDraftBanner(true);
@@ -365,7 +383,9 @@
     toast("已暫存到這台裝置（尚未發布到網站）");
   }
 
-  // Silently continue from any saved draft (no scary modal); a banner shows there are unpublished changes.
+  /* 自動接續這台裝置上的草稿(有橫幅提示「尚未發布」)。
+     草稿跟線上對不起來時(這段期間有人發布過)不再整份照搬:能合併的組只把使用者真的改過的
+     地方套到最新資料上,合併不了的組鎖住不准發布。見 mergeStaleDraft。 */
   function tryLoadDraft(){
     if(isViewer()) return;   // 唯讀帳號一律看線上的真實資料,不吃任何草稿(見 saveDraft)
     let raw; try{ raw = localStorage.getItem(draftKey()); }catch(e){ return; }
@@ -373,10 +393,12 @@
     let parsed; try{ parsed = JSON.parse(raw); }catch(e){ return; }
     if(!parsed || !Array.isArray(parsed.data) || !parsed.data.length) return;
     /* 先留住 loadData() 剛抓到的線上實況 —— 下面會被草稿蓋掉,但 reconcileWithLive()
-       需要拿它跟「上次送出去的內容」比對,才認得出「其實已經發布成功了」。 */
+       需要拿它跟「上次送出去的內容」比對,才認得出「其實已經發布成功了」;
+       合併舊草稿也需要它(線上那一份分組與待認領清單)。 */
     const liveHashes = Object.assign({}, baseHashes);
     const liveBody = Object.assign({}, loadedBody);
-    const liveData = DATA;      // 線上那一份分組,算「草稿會蓋掉哪些已套用的夥伴更新」用
+    const liveData = DATA;
+    const livePending = PENDING;
     DATA = parsed.data;
     // 舊版草稿沒有 pending 欄位,那時就沿用剛從伺服器載到的清單
     if(Array.isArray(parsed.pending)) PENDING = parsed.pending;
@@ -390,31 +412,171 @@
          版本檢查會**通過**,於是**靜默覆蓋**別人的修改,雙方都不會察覺。
 
        現在的做法:baseHashes 一律維持剛讀到的線上值(它才是 Worker 會拿來比對的東西),
-       草稿的內容照樣還原給使用者看;只有「草稿的來源版本 ≠ 線上現況」的那幾個路徑被
-       標成衝突並鎖住,發布前一定會問過人。既不會無聲覆蓋,也不會丟掉任何編輯。 */
+       草稿的內容照樣還原給使用者看;「草稿的來源版本 ≠ 線上現況」的那幾個路徑先被標成衝突,
+       接著由 mergeStaleDraft 處理:分組檔三方合併(只寫上真的改過的地方),合併不了的鎖住、
+       發布時擋下;分會結構與待認領區被草稿改過的,發布前一定會問過人。 */
     conflictPaths.clear();
     conflictMupd.clear();
+    unmergeablePaths.clear();
     const draftBase = (parsed.baseHashes && typeof parsed.baseHashes === "object") ? parsed.baseHashes : null;
     // 純邏輯抽在 admin-logic.js,才有辦法寫自動測試(見 tests/logic.test.mjs)
     AdminLogic.computeConflicts(draftBase, liveHashes).forEach(p => conflictPaths.add(p));
-    /* 衝突的分組檔裡,有沒有「夥伴自己送來、已經套用」的更新會被這份草稿蓋回舊內容。
-       原本的衝突確認只寫「A1 組被其他人發布過」,草稿主人看不出被蓋掉的是夥伴的更新,
-       而那筆待審核早就刪了,蓋掉之後找不回來(乙 4)。判斷規則在 overwrittenMemberUpdates。 */
-    for(const p of conflictPaths){
-      if(p === "data/_index.json" || p === PENDING_PATH) continue;
-      const live = liveData.find(g => dataPathOf(g.code) === p);
-      const draft = DATA.find(g => g && dataPathOf(g.code) === p);
-      if(!live || !draft) continue;
-      const names = AdminLogic.overwrittenMemberUpdates(live, draft);
-      if(names.length) conflictMupd.set(p, names);
-    }
+    /* 上一次存草稿時還沒解決的(見 saveDraft):那時已經把來源版本換成線上值,
+       單靠雜湊比對看不出來,要從清單接回來。 */
+    const listOf = v => Array.isArray(v) ? v.filter(p => typeof p === "string") : [];
+    listOf(parsed.conflicts).forEach(p => { if(liveHashes[p]) conflictPaths.add(p); });
+    listOf(parsed.unmergeable).forEach(p => unmergeablePaths.add(p));
+    mergeNotice = parsed.mergeNotice && typeof parsed.mergeNotice === "object" ? parsed.mergeNotice : null;
+
+    /* 先認「上次其實發布成功了」,再合併:那幾個檔的線上內容就是我們自己送出去的,
+       不是別人的修改 —— 先合併的話,照片(草稿裡是內嵌圖、線上已經是檔名)會被當成
+       兩邊都改過,說明裡多出一堆假的「保留網站上的版本」。 */
     if(parsed.sentBody && typeof parsed.sentBody === "object"){
       for(const k of Object.keys(sentBody)) delete sentBody[k];
       Object.assign(sentBody, parsed.sentBody);
     }
     recoveredPaths = reconcileWithLive(liveHashes, liveBody);
+
+    const merged = mergeStaleDraft(parsed, liveData, livePending);
+
+    /* 還留在衝突清單裡的分組檔(合併不了、或草稿裡沒有那一組),有沒有「夥伴自己送來、
+       已經套用」的更新會被這份草稿蓋回舊內容 —— 發布前的衝突確認要點名(乙 4)。
+       判斷規則在 overwrittenMemberUpdates。 */
+    for(const p of conflictPaths){
+      if(!isGroupPath(p)) continue;
+      const live = liveData.find(g => dataPathOf(g.code) === p);
+      const draft = live ? DATA.find(g => g && g.id === live.id) : null;
+      if(!live || !draft) continue;
+      const names = AdminLogic.overwrittenMemberUpdates(live, draft);
+      if(names.length) conflictMupd.set(p, names);
+    }
     if(!DATA.some(g => g.id === selected)) selected = DATA.length ? DATA[0].id : null;
     hasDraft = true;
+
+    if(merged){
+      /* 合併完的結果跟線上完全一樣(草稿其實沒改什麼):這份草稿已經沒有用了,清掉 ——
+         否則橫幅會一直說「有尚未發布的變更」,而認領、救回等功能也會因此被擋住。 */
+      if(draftMatchesLive()){
+        hasDraft = false;
+        if(mergeNotice === merged) merged.cleared = true;
+        if(!tabIsSecondary){ try{ localStorage.removeItem(draftKey()); }catch(e){} }
+      }else{
+        saveDraft();       // 新的來源版本 = 線上;下次開頁面不會再合併一次
+      }
+    }
+  }
+
+  /* 草稿跟線上對不起來時,逐組三方合併。草稿跟線上本來就一致時回傳 null(什麼都沒做);
+     否則回傳這次的合併紀錄 —— 有值得講的事(合併了分組、鎖住了分組、結構換成線上的)
+     時它同時成為 mergeNotice,畫面上會常駐一則說明。
+
+     base(草稿當初的來源版本)來自草稿裡存的 loadedBody;分組對應一律用分組 id,
+     不用路徑 —— 草稿裡改了代號、或線上改了代號,路徑都會不一樣,id 不會。
+
+     每一組的結果是三種之一:
+       不必處理 來源版本 = 線上(沒有人在這段期間發布過這一組)
+       合併     有來源版本 → AdminLogic.mergeGroupThreeWay,只寫上草稿改過的地方
+       鎖住     沒有來源版本(舊格式草稿)、分組在線上已經被刪、或代號被別組佔走
+                → unmergeablePaths,發布時擋下(見 publish)
+     分會結構(_index)與待認領區(_pending):草稿**沒改過**的話直接用線上的,
+     改過的話維持原本發布前的確認(不在這次的範圍)。 */
+  function mergeStaleDraft(parsed, liveData, livePending){
+    if(!conflictPaths.size && !unmergeablePaths.size) return null;
+    const lockedBefore = new Set(unmergeablePaths);    // 上次就鎖住的(已經講過了)
+    let newlyLocked = false;
+    const baseBodies = parsed.loadedBody && typeof parsed.loadedBody === "object" ? parsed.loadedBody : {};
+    const parseText = t => { if(typeof t !== "string") return null; try{ return JSON.parse(t); }catch(e){ return null; } };
+    const baseIndex = (() => { const j = parseText(baseBodies[INDEX_PATH]); return Array.isArray(j) ? j : null; })();
+    const baseCodeOf = id => {
+      const e = baseIndex && baseIndex.find(x => x && x.id === id);
+      return e && e.code != null ? String(e.code) : null;
+    };
+    const asBody = g => { const b = groupBody(g || {}); if(!Array.isArray(b.members)) b.members = []; return b; };
+    const report = { savedAt: parsed.savedAt || null, at: Date.now(), groups: [], lost: [], unmergeable: [], structure: false };
+
+    /* ① 分會結構:草稿沒動過(代號、組名、順序都跟來源版本一樣)→ 照線上的結構重排。
+       線上新增的組直接放進來;線上已經刪掉的組拿掉(草稿裡那組有改過的話,在說明裡講)。
+       只有總管理員握有結構;組長的草稿只有自己那一組。 */
+    if(!isLeader() && conflictPaths.has(INDEX_PATH) && baseIndex){
+      const shape = list => list.map(e => ({ code: String(e && e.code), name: String(e && e.name), id: String(e && e.id) }));
+      if(AdminLogic.sameJson(shape(DATA), shape(baseIndex))){
+        const next = [];
+        for(const L of liveData){
+          const D = DATA.find(g => g && g.id === L.id);
+          if(D){ D.code = L.code; D.name = L.name; next.push(D); }
+          else next.push(clone(L));          // 線上新增的組:內容就是線上的,不必合併
+        }
+        for(const D of DATA){
+          if(next.indexOf(D) >= 0) continue;
+          const bc = baseCodeOf(D.id);
+          const base = bc == null ? null : parseText(baseBodies[dataPathOf(bc)]);
+          if(!base || !AdminLogic.sameJson(asBody(D), asBody(base))) report.lost.push(String(D.code || ""));
+        }
+        DATA = next;
+        conflictPaths.delete(INDEX_PATH);
+        report.structure = true;
+      }
+    }
+
+    // ② 待認領區:現在認領、刪申請都是伺服器端交易,草稿正常情況下不會改它
+    if(conflictPaths.has(PENDING_PATH)){
+      const base = parseText(baseBodies[PENDING_PATH]);
+      if(Array.isArray(base) && AdminLogic.sameJson(base, PENDING)){
+        PENDING = livePending;
+        conflictPaths.delete(PENDING_PATH);
+      }
+    }
+
+    // ③ 分組內容
+    const lock = (code, paths) => {
+      if(!paths.some(p => lockedBefore.has(p))) newlyLocked = true;
+      paths.forEach(p => { if(p) unmergeablePaths.add(p); });
+      if(report.unmergeable.indexOf(code) < 0) report.unmergeable.push(code);
+    };
+    for(const D of DATA){
+      if(!D || typeof D !== "object") continue;
+      const pD = dataPathOf(D.code);
+      const L = liveData.find(g => g.id === D.id);
+      const occupant = liveData.find(g => g.id !== D.id && dataPathOf(g.code) === pD);
+      if(!L){
+        /* 線上沒有這一組:草稿新增的組沒事;來源版本裡有它 = 線上已經把它刪掉,
+           發布等於把整組救回來,而且是舊內容。路徑被別組佔走也一樣不能寫。 */
+        if(occupant || unmergeablePaths.has(pD) || baseCodeOf(D.id) != null) lock(String(D.code || ""), [pD]);
+        continue;
+      }
+      const pL = dataPathOf(L.code);
+      const bc = baseCodeOf(D.id);
+      const pB = bc != null ? dataPathOf(bc) : pL;
+      if(occupant || unmergeablePaths.has(pL) || unmergeablePaths.has(pD)){ lock(String(D.code || ""), [pL, pD]); continue; }
+      if(pB === pL && !conflictPaths.has(pL)) continue;            // 來源版本就是線上的
+      const base = parseText(baseBodies[pB]);
+      if(!base || typeof base !== "object" || Array.isArray(base)){ lock(String(D.code || ""), [pL, pD]); continue; }
+      const r = AdminLogic.mergeGroupThreeWay(asBody(base), asBody(D), asBody(L));
+      for(const k of GROUP_BODY_KEYS){ if(r.group[k] !== undefined) D[k] = r.group[k]; }
+      conflictPaths.delete(pL);
+      conflictMupd.delete(pL);
+      report.groups.push({ code: String(D.code || ""), applied: r.report.applied,
+                           conflicts: r.report.conflicts, reordered: r.report.reordered });
+    }
+    /* 只有「待認領區換成線上的」這種事不必講 —— 認領天天在發生,每次都跳說明只會變成雜訊。
+       上次就鎖住、而且說明還沒被收起的,沿用原本那則(日期是原本那份草稿的)。 */
+    if(report.groups.length || report.lost.length || report.structure || newlyLocked) mergeNotice = report;
+    return report;
+  }
+
+  /* 手上的資料跟線上一模一樣(不算照片轉檔):分組內容、待認領區、分會結構都沒有差異,
+     也沒有還沒解決的衝突。跟 buildPublishPayload 用同一套比法。 */
+  function draftMatchesLive(){
+    if(conflictPaths.size || unmergeablePaths.size) return false;
+    for(const g of DATA){
+      if(serializeBody(groupBody(g)) !== loadedBody[dataPathOf(g.code)]) return false;
+    }
+    if(loadedBody[PENDING_PATH] != null && JSON.stringify(PENDING, null, 2) + "\n" !== loadedBody[PENDING_PATH]) return false;
+    if(!isLeader()){
+      const idx = JSON.stringify(DATA.map(g => ({ code: g.code, name: g.name, id: g.id })), null, 2) + "\n";
+      if(idx !== loadedBody[INDEX_PATH]) return false;
+    }
+    return !AdminLogic.computeRenameRemovals(DATA, originalPathByGroupId, dataPathOf).length;
   }
   let recoveredPaths = [];
   /* 「上次其實已經發布成功了,只是這邊沒記到」的自我修復。
@@ -444,11 +606,104 @@
     clearTimeout(saveTimer);
     dirty = false;
     for(const k of Object.keys(sentBody)) delete sentBody[k];   // 草稿都不要了,復原線索一起清掉
+    /* 衝突與鎖住的清單是「這份草稿」的,草稿丟了就跟著清掉 —— 留著的話,之後在最新資料上
+       重新修改那一組,發布時還會被舊草稿的衝突擋下或問一次。合併說明也一起收起來。 */
+    conflictPaths.clear(); conflictMupd.clear(); unmergeablePaths.clear();
+    mergeNotice = null; renderMergeNotice();
     try{ localStorage.removeItem(draftKey()); }catch(e){}
     loadData().then(() => {
       showDraftBanner(false);
       renderAll(); validate(); toast("已捨棄變更，已重新載入目前線上的內容");
     }).catch(() => toast("重新載入失敗，請重新整理頁面", { warn: true }));
+  }
+
+  /* ---------- 合併舊草稿的說明 ----------
+     常駐在草稿橫幅下方,要按「知道了」才收起 —— 不是一閃而過的 toast。
+     使用者要知道「這份草稿是哪一天的、哪幾處被寫上去、哪幾處保留了網站上的版本」,
+     發布前才能再看一眼;10/1 那位使用者並不知道自己手上是一份 8 月的草稿。
+     說明跟著草稿一起存(saveDraft),重新整理之後還在,直到按「知道了」。 */
+  const MERGE_FIELD_LABELS = Object.assign({}, AdminLogic.FIELD_LABELS, {
+    name:"姓名", number:"編號", image:"形象照", card:"名片", products:"商品照",
+    dataIssue:"資料需確認", lastUpdateFrom:"夥伴更新紀錄",
+    leader:"組長", room:"分組地點", recruiting:"招募席位",
+  });
+  const mergeFieldLabel = f => Object.prototype.hasOwnProperty.call(MERGE_FIELD_LABELS, f) ? MERGE_FIELD_LABELS[f] : String(f);
+  const groupLabelOf = code => (String(code == null ? "" : code).toUpperCase() || "?") + " 組";
+  const STALE_BLOCK_MSG = "這份草稿太舊，沒辦法安全地只寫上你的修改。請按「下載備份」留一份，再按「捨棄變更」取得最新資料，然後重新修改。";
+  const MERGE_LIST_MAX = 12;     // 清單太長在手機上會佔滿整個畫面;多的只講還有幾處
+
+  /* 說明裡的條列:每一處一句話(純文字,畫的時候才 esc) */
+  function mergeNoticeItems(n){
+    const applied = [], conflicts = [];
+    const who = name => String(name || "") || "（未命名）";
+    const labels = fields => (fields || []).map(mergeFieldLabel).join("、");
+    for(const g of (Array.isArray(n.groups) ? n.groups : [])){
+      const gl = groupLabelOf(g.code);
+      for(const a of (Array.isArray(g.applied) ? g.applied : [])){
+        if(a.kind === "group") applied.push(gl + " 改了" + labels(a.fields));
+        else if(a.kind === "added") applied.push(gl + " 新增了 " + who(a.name));
+        else if(a.kind === "removed") applied.push(gl + " 刪除了 " + who(a.name));
+        else applied.push(gl + " 改了 " + who(a.name) + ((a.fields || []).length ? "（" + labels(a.fields) + "）" : ""));
+      }
+      if(g.reordered) applied.push(gl + " 調整了成員順序");
+      for(const c of (Array.isArray(g.conflicts) ? g.conflicts : [])){
+        if(c.kind === "kept_deleted_edited") conflicts.push(gl + " " + who(c.name) + "：你刪掉了他，但網站上之後有人改過他的資料，所以沒有刪除");
+        else if(c.kind === "edited_but_deleted") conflicts.push(gl + " " + who(c.name) + "：你改了他的資料，但網站上已經刪除他，維持刪除");
+        else if(c.kind === "both_added") conflicts.push(gl + " " + who(c.name) + "：兩邊都新增了這一位，用網站上的那一份");
+        else if(c.kind === "group_field") conflicts.push(gl + "（" + mergeFieldLabel(c.field) + "）");
+        else conflicts.push(gl + " " + who(c.name) + (c.field ? "（" + mergeFieldLabel(c.field) + "）" : ""));
+      }
+    }
+    return { applied, conflicts };
+  }
+  function renderMergeNotice(){
+    const el = byId("merge-notice");
+    if(!el) return;
+    const n = mergeNotice;
+    if(!n){ el.hidden = true; el.innerHTML = ""; return; }
+    const { applied, conflicts } = mergeNoticeItems(n);
+    const list = items => '<ul class="merge-list">' +
+      items.slice(0, MERGE_LIST_MAX).map(t => "<li>" + esc(t) + "</li>").join("") +
+      (items.length > MERGE_LIST_MAX ? "<li>…還有 " + (items.length - MERGE_LIST_MAX) + " 處</li>" : "") + "</ul>";
+    const when = AdminLogic.updateMonthDay(n.savedAt);
+    const locked = Array.isArray(n.unmergeable) ? n.unmergeable : [];
+    let h = '<div class="merge-title">🔀 這台裝置有一份' + esc(when ? " " + when + " " : "較早") + '的草稿，網站在那之後更新過。</div>';
+    if(n.cleared){
+      h += "<p>草稿裡沒有你需要套用的修改，已經改用網站上最新的資料。這份舊草稿已清除，不會蓋掉任何人的更新。</p>";
+    }else if(applied.length){
+      h += "<p>已經只把你改過的 <b>" + applied.length + " 處</b>套到最新資料上，其他都用網站上的版本：</p>" + list(applied) +
+           "<p>請確認無誤，再按「發布到網站」。</p>";
+    }else if(Array.isArray(n.groups) && n.groups.length){
+      h += "<p>網站更新過的分組裡，你的草稿沒有需要套用的修改，已經改用網站上最新的資料。</p>";
+    }
+    if(conflicts.length){
+      h += "<p>兩邊都改到的 <b>" + conflicts.length + " 處</b>保留網站上的版本：</p>" + list(conflicts);
+    }
+    if(n.structure) h += "<p>分組結構（代號、組名、順序）在網站上改過，已經改用網站上的。</p>";
+    if(Array.isArray(n.lost) && n.lost.length){
+      h += "<p>" + esc(n.lost.map(groupLabelOf).join("、")) + " 在網站上已經刪除，草稿裡這幾組的修改沒有套用。</p>";
+    }
+    if(locked.length){
+      h += '<p class="merge-warn">⚠ ' + esc(locked.map(groupLabelOf).join("、")) + "：" +
+           (n.blocked ? "這次沒有發布。" : "發布時會擋下這幾組。") + esc(STALE_BLOCK_MSG) + "</p>";
+    }
+    h += '<div class="merge-btns">' +
+         (locked.length ? '<button class="btn btn-sm" type="button" data-merge="backup">下載備份</button>' +
+                          '<button class="btn btn-sm" type="button" data-merge="discard">捨棄變更</button>' : "") +
+         '<button class="btn btn-sm" type="button" data-merge="close">知道了</button></div>';
+    el.innerHTML = h;
+    el.hidden = false;
+    el.classList.toggle("warn", locked.length > 0);
+    const on = (k, fn) => { const b = el.querySelector('[data-merge="' + k + '"]'); if(b) b.onclick = fn; };
+    on("backup", download);
+    on("discard", discardDraft);
+    on("close", dismissMergeNotice);
+  }
+  function dismissMergeNotice(){
+    mergeNotice = null;
+    renderMergeNotice();
+    // 草稿還在的話跟著存一次,重新整理之後才不會又跳出來;草稿已經清掉(或發布了)就不要再建一份
+    if(hasUnpublishedChanges()) saveDraft();
   }
 
   /* ---------- toast (optional action button, e.g. undo) ---------- */
@@ -1382,7 +1637,11 @@
     /* 夥伴送來的更新(含私人備註)也是還沒公開的內容,登出就從畫面上拿掉;
        草稿衝突的姓名清單屬於這次登入的草稿,一併清空。 */
     resetMemberUpdates();
-    conflictMupd.clear();
+    /* 衝突、鎖住的分組與合併說明都屬於這次登入載入的草稿。不清的話換另一個帳號登入
+       (而他沒有草稿)時,會被上一個人的舊草稿擋下發布。 */
+    conflictPaths.clear(); conflictMupd.clear(); unmergeablePaths.clear();
+    mergeNotice = null; renderMergeNotice();
+    resetRecycle();          // clearSession 之後:回收區整塊收起來,路上的回應作廢
     showLock();
     toast("已登出");
   }
@@ -1590,6 +1849,75 @@
     }
   }
 
+  /* 這次發布會寫到或刪掉、而且被鎖住(舊草稿沒辦法安全合併)的分組檔。
+     刪除也要算:改名時舊檔會被刪掉,裡面是線上最新的內容。 */
+  function staleBlockedPaths(payload){
+    const paths = payload.files.map(f => f.path).concat(payload.remove || []);
+    return paths.filter(p => unmergeablePaths.has(p));
+  }
+
+  /* ---------- 最近刪除的夥伴:發布時記進回收區 ----------
+     發布是整檔覆寫,刪掉的人只剩 git 歷史裡找得到,而那要網管才救得回來。
+     發布成功後把被刪的人(完整資料 + 原本在哪一組、第幾位)交給 Worker 存進私有 R2 的回收區,
+     儀表板的「最近刪除的夥伴」就能一鍵救回。 */
+  const RECYCLE_BATCH_MAX = 20;                   // 與 Worker 的 /recycle-put 上限一致
+  const RECYCLE_MEMBER_MAX_BYTES = 64 * 1024;     // 同上:單筆序列化後的上限,超過整批會被退回
+  const RECYCLE_MEMBER_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+  /* payload → 被刪的人。比對的是「線上那一份」(loadedBody)與發布後的整份 DATA:
+     同一個 id 搬到別組不算刪除;改名的組舊檔也算進來(它在 payload.remove 裡)。 */
+  function deletedMembersOf(payload){
+    const touched = payload.files.map(f => f.path).filter(isGroupPath).concat(payload.remove || []);
+    const gidByPath = {};
+    for(const gid of Object.keys(originalPathByGroupId)) gidByPath[originalPathByGroupId[gid]] = gid;
+    const live = [];
+    for(const p of touched){
+      const gid = gidByPath[p];
+      if(!gid || typeof loadedBody[p] !== "string") continue;      // 新的組:線上本來就沒有人
+      let body; try{ body = JSON.parse(loadedBody[p]); }catch(e){ continue; }
+      const g = DATA.find(x => x.id === gid);
+      live.push({ gid, code: g ? g.code : p.replace(/^data\/|\.json$/g, "").toUpperCase(),
+                  members: body && Array.isArray(body.members) ? body.members : [] });
+    }
+    return AdminLogic.removedMembers(live, DATA);
+  }
+
+  /* 發布成功後才呼叫。失敗重試一次(只重送還沒寫進去的那幾筆);還是不行就明講,
+     而且要講「已發布」—— 這則會蓋掉發布成功的 toast,不講的話會以為發布失敗而再發一次。
+     Worker 會擋下格式不合的整批:id 不合格、不是這一組開頭的 id(舊資料)、太大的(內嵌照片)、
+     代號不合格的,先在這裡挑掉,算進「沒有記進去」的人,其他人照常記。 */
+  async function recordDeleted(items){
+    const session = loadSession();
+    const ok = [], miss = [];
+    for(const it of items){
+      const id = String(it.member && it.member.id || "");
+      let bytes = Infinity;
+      try{ bytes = new TextEncoder().encode(JSON.stringify(it.member)).length; }catch(e){}
+      if(RECYCLE_MEMBER_ID_RE.test(id) && id.indexOf(it.gid + "_") === 0 && bytes <= RECYCLE_MEMBER_MAX_BYTES &&
+         GROUPCODE_RE.test(String(it.code || "").trim())) ok.push(it);
+      else miss.push(it);
+    }
+    const put = list => Promise.race([
+      workerFetch("/recycle-put", { session, items: list }),
+      new Promise(r => setTimeout(() => r({ ok:false, error:"timeout" }), 15000)),   // 不要讓發布鈕一直卡在「發布中」
+    ]);
+    for(let i = 0; i < ok.length; i += RECYCLE_BATCH_MAX){
+      let chunk = ok.slice(i, i + RECYCLE_BATCH_MAX);
+      let res = session ? await put(chunk) : { ok:false };
+      if(!res.ok && session){
+        chunk = chunk.slice(Math.max(0, Number(res.stored) || 0));     // 中途失敗時前面幾筆已經寫進去了
+        res = await put(chunk);
+      }
+      if(!res.ok) chunk.slice(Math.max(0, Number(res.stored) || 0)).forEach(it => miss.push(it));
+    }
+    if(miss.length){
+      const names = miss.map(it => String(it.member && it.member.name || "") || "未命名");
+      toast("已發布 ✔，但這次刪除的夥伴沒有記進回收區，要救回請聯絡網管（" + names.join("、") + "）。",
+            { warn:true, duration:14000 });
+    }
+    if(rcyOpen) loadRecycle();      // 回收區開著的話,剛刪的人馬上出現
+  }
+
   let publishing = false;
   async function publish(){
     if(publishing) return false;
@@ -1633,6 +1961,24 @@
         toast("沒有偵測到任何變更，不需要發布");
         return false;
       }
+      /* ★ 舊草稿裡沒辦法安全合併的分組:**不提供**「繼續 = 覆蓋」。
+         10/1 的事故就是在這裡按了確定 —— 草稿一個字都沒改,6 個組檔卻被整檔換回 8 月的版本。
+         沒有來源版本就分不出「使用者改的」和「只是舊資料」,唯一安全的做法是請他留一份備份、
+         取得最新資料再重做。擋在衝突確認之前,而且不論角色、不論數量一律擋。 */
+      const stuck = staleBlockedPaths(payload);
+      if(stuck.length){
+        const codes = [];
+        stuck.forEach(p => { const c = p.replace(/^data\/|\.json$/g, ""); if(codes.indexOf(c) < 0) codes.push(c); });
+        const base = mergeNotice || { savedAt: null, groups: [], lost: [], unmergeable: [] };
+        const locked = (Array.isArray(base.unmergeable) ? base.unmergeable : []).slice();
+        codes.forEach(c => { if(!locked.some(x => String(x).toLowerCase() === c)) locked.push(c.toUpperCase()); });
+        mergeNotice = Object.assign({}, base, { unmergeable: locked, blocked: true });
+        renderMergeNotice();
+        const box = byId("merge-notice");
+        if(box && box.scrollIntoView) box.scrollIntoView({ behavior:"smooth", block:"center" });
+        toast(codes.map(groupLabelOf).join("、") + "沒有發布：" + STALE_BLOCK_MSG, { warn:true, duration:14000 });
+        return false;
+      }
       /* ★ 衝突閘門:草稿的來源版本與線上現況對不起來的路徑,一定要使用者明確表態。
          這裡刻意用 confirm 而不是靜默處理 —— 「覆蓋別人剛發布的內容」不該是預設行為,
          但也不該把人卡在無限迴圈裡(那正是原本的狀況)。 */
@@ -1673,6 +2019,11 @@
         return false;
       }
 
+      /* 這次會刪掉的夥伴,要在**送出之前**算:成功之後 loadedBody 就換成新內容,
+         線上原本那一份(要放進回收區的完整資料、他原本的位置)就沒了。
+         真的寫進回收區要等發布成功 —— 失敗的發布什麼都沒刪。 */
+      const removedNow = workerCaps.recycle === true ? deletedMembersOf(payload) : [];
+
       /* 送出「之前」先把資料檔的內容記進草稿。這一步是回應遺失時唯一的線索:
          沒有它,下次開頁面就分不出「其實已經寫進去了」與「真的被別人搶先改掉」,
          只能一律當成版本落後,把人卡死。照片附件不必記(檔名由內容決定,重寫無妨)。 */
@@ -1711,6 +2062,9 @@
         /* 發布不經過 loadData(),但審核區的「目前（網站上）」是拿 DATA 比的 —— 剛發布的內容
            可能正好是某筆待審核要改的欄位,清單要跟著重畫,預設勾選才會對。 */
         refreshMemberUpdates();
+        /* 等它跑完才回去:離開提醒視窗的「發布並離開」在發布成功後會立刻換頁,
+           沒等的話,記錄刪除的請求會跟著頁面一起被取消。 */
+        if(removedNow.length) await recordDeleted(removedNow);
       } else if(res.error === "read_only"){
         // 唯讀帳號。前端本來就擋著,會走到這裡代表 session 是別的分頁登的、或有人繞過介面
         toast("這是唯讀帳號，伺服器拒絕了這次發布。要修改請用有編輯權限的帳號登入。",
@@ -1907,6 +2261,224 @@
       if(SHEET_URL) h += '<a class="dtool" href="' + esc(SHEET_URL) + '" target="_blank" rel="noopener">📊 名冊試算表</a>';
       tools.innerHTML = h;
     }
+    renderRecycle();
+  }
+
+  /* ---------- 儀表板:🗑 最近刪除的夥伴 ----------
+     發布時被刪掉的人會記進私有 R2 的回收區(見 recordDeleted)。刪錯了在這裡按「救回」,
+     由 Worker 放回他原本那一組、原本的位置,直接寫進網站 —— 不必再找網管翻 git 歷史。
+     預設收起,按「查看」才去讀:儀表板每改一個字就重畫一次,不能每次都打一趟 Worker。
+     唯讀帳號整塊看不到(伺服器也會回 403);組長只看得到自己那一組的。 */
+  let rcyOpen = false;
+  let rcyItems = null;        // 最近一次成功讀到的清單(還沒讀過是 null)
+  let rcyTruncated = false;
+  let rcyUnknown = 0;         // 回收區裡格式不對、被 Worker 略過的筆數
+  let rcyError = "";
+  let rcyLoading = false;
+  let rcyBusy = false;        // 有救回/永久刪除在路上時,其他按鈕先停用
+  let rcySeq = 0;             // 只採用最後一次讀取的結果;登出也 +1,路上的回應一律作廢
+
+  function recycleVisible(){ return workerCaps.recycle === true && !isViewer() && !!loadSession(); }
+
+  function renderRecycle(){
+    const wrap = byId("rcy"), body = byId("rcy-body"), btn = byId("rcy-toggle");
+    if(!wrap || !body || !btn) return;
+    if(!recycleVisible()){ wrap.hidden = true; body.innerHTML = ""; return; }
+    wrap.hidden = false;
+    btn.textContent = rcyOpen ? "收起" : "查看";
+    btn.setAttribute("aria-expanded", rcyOpen ? "true" : "false");
+    if(!rcyOpen){ body.hidden = true; body.innerHTML = ""; return; }
+    body.hidden = false;
+    let h = "";
+    if(rcyLoading && !rcyItems) h += '<div class="rcy-msg">讀取中…</div>';
+    if(rcyError) h += '<div class="rcy-msg warn">' + esc(rcyError) + '</div>';
+    if(rcyItems){
+      h += rcyItems.length ? '<div class="rcy-list">' + rcyItems.map(rcyRowHTML).join("") + '</div>'
+                           : '<div class="rcy-msg">最近沒有刪除的夥伴。</div>';
+      if(rcyTruncated) h += '<div class="rcy-msg">筆數太多，只列出最近的一部分。</div>';
+      if(rcyUnknown > 0) h += '<div class="rcy-msg">另有 ' + rcyUnknown + ' 筆紀錄看不懂（格式不對），沒有列出來。</div>';
+    }
+    h += '<div class="rcy-foot"><span>發布時刪掉的夥伴會自動記在這裡' + (isLeader() ? '（只列出你這一組的）' : '') + '。</span>' +
+         '<button class="btn btn-sm" type="button" data-rcy-reload' + (rcyLoading || rcyBusy ? " disabled" : "") + '>重新整理</button></div>';
+    body.innerHTML = h;
+    const reload = body.querySelector("[data-rcy-reload]");
+    if(reload) reload.onclick = reloadRecycleAll;
+    body.querySelectorAll("[data-rcy-restore]").forEach(b => { b.onclick = () => restoreRecycled(b.dataset.rcyRestore); });
+    body.querySelectorAll("[data-rcy-drop]").forEach(b => { b.onclick = () => dropRecycled(b.dataset.rcyDrop); });
+  }
+
+  /* 一列:姓名・組・刪除時間・刪除者。名錄上已經有同一個 id 的人(被別人救回、或刪掉之後
+     又復原再發布)不給「救回」—— 救回去也只會被伺服器擋下 already_present。 */
+  function rcyRowHTML(it){
+    const g = DATA.find(x => x.id === it.gid);
+    const group = g ? g.code + "・" + g.name : String(it.code || "?");
+    const when = AdminLogic.updateTimeText(it.at);
+    const meta = (when ? when + " 刪除" : "刪除時間不明") + (it.by ? "・" + it.by : "");
+    const off = rcyBusy ? " disabled" : "";
+    /* 原本那一組已經不在了(總管理員刪了整組):救回會被伺服器擋 group_missing,
+       不給按鈕,直接講要找誰 */
+    const acts = (findMemberById(it.id)
+        ? '<span class="rcy-here">已經在名錄上</span>'
+        : it.groupMissing === true
+          ? '<span class="rcy-gone">原本的分組已經不在了，請總管理員手動加回</span>'
+          : '<button class="btn btn-sm btn-primary" type="button" data-rcy-restore="' + esc(it.rid) + '"' + off + '>救回</button>') +
+      (!isLeader() && !isViewer()
+        ? '<button class="btn btn-sm" type="button" data-rcy-drop="' + esc(it.rid) + '"' + off + '>永久刪除</button>' : "");
+    return '<div class="rcy-row">' +
+      '<div class="rcy-main"><div class="rcy-name">' + esc(String(it.name || "（未命名）")) +
+      ' <span class="rcy-group">' + esc(group) + '</span></div>' +
+      '<div class="rcy-meta">' + esc(meta) + '</div></div>' +
+      '<div class="rcy-acts">' + acts + '</div></div>';
+  }
+
+  /* 三支端點共用的錯誤說明。沒列到的碼照實帶出來,方便回報給網管。 */
+  function recycleErrorText(res, name){
+    const code = String((res && res.error) || (res && res.httpStatus ? "HTTP " + res.httpStatus : "unknown"));
+    const who = name ? "「" + name + "」" : "這位夥伴";
+    switch(code){
+      case "already_present": return who + "已經在名錄上了（可能已經有人救回），回收區的這一筆已經清掉。";
+      case "recycle_gone": return "這一筆已經不在回收區了（可能已經被救回或永久刪除），清單已更新。";
+      case "group_missing": return who + "原本的分組已經不在了，沒辦法自動救回。請聯絡總管理員手動加回。";
+      case "forbidden_group": return "你只能救回自己這一組的夥伴。";
+      case "group_renamed": return "你這一組的代號已被總管理員改過，請重新整理頁面後再試。";
+      case "admin_only": return "只有總管理員可以永久刪除。";
+      case "read_only": return "唯讀帳號不能使用回收區。";
+      case "stale_base": case "busy_retry_later": return "剛好有人同時在發布，這次沒有寫入。請等幾秒再按一次。";
+      case "bad_data_file": case "data_too_large": case "data_file_too_large":
+        return "救回之後的資料不符合規則（" + code + "），這次沒有寫入。請聯絡網管。";
+      case "forbidden_path": return "你沒有修改這一組的權限，這次沒有寫入。";
+      case "update_store_failed": return "回收區的儲存空間暫時讀寫失敗，請稍後再試一次（再按一次不會重複）。";
+      case "restore_uncertain":
+        return "GitHub 沒有回應，不確定" + who + "有沒有救回。請按這裡的「重新整理」：名單上顯示「已經在名錄上」就是救回了；" +
+               "還沒有的話再按一次「救回」—— 再按是安全的，已經救回的話系統會擋下，不會變成兩個人。";
+      case "pending_image_store_unavailable": return "發布服務還沒接上回收區的儲存空間（Cloudflare R2），暫時無法使用。請聯絡總管理員。";
+      case "network": return "連不到發布服務，請檢查網路後再試一次。";
+      default: return "沒有成功（" + code + "），請稍後再試。";
+    }
+  }
+  function recycleSessionExpired(res){
+    if(!(res && (res.error === "session_expired" || res.httpStatus === 401))) return false;
+    clearSession(); showLock();
+    toast("登入逾時，請重新輸入密碼後再試一次", { warn:true, duration:7000 });
+    return true;
+  }
+
+  async function loadRecycle(){
+    if(!recycleVisible()) return;
+    const seq = ++rcySeq;
+    rcyLoading = true; renderRecycle();
+    const res = await workerFetch("/recycle-list", { session: loadSession() });
+    if(seq !== rcySeq) return;           // 已經有更新的一次讀取,或已經登出
+    rcyLoading = false;
+    if(res.ok){
+      rcyItems = (Array.isArray(res.items) ? res.items : []).filter(x => x && typeof x.rid === "string" && x.rid);
+      rcyTruncated = res.truncated === true;
+      rcyUnknown = Math.max(0, Number(res.unknown) || 0);
+      rcyError = "";
+    }else if(!recycleSessionExpired(res)){
+      rcyError = "讀不到回收區：" + recycleErrorText(res);
+    }
+    renderRecycle();
+  }
+
+  /* 「重新整理」:手上沒有未發布的修改時,連網站資料一起重讀 —— 「已經在名錄上」是拿 DATA 比的,
+     救回結果不確定(restore_uncertain)時,使用者就是靠這一顆確認有沒有救回來。
+     有未發布的修改時只重抓清單,不動畫面上的資料(同審核區的重新整理)。 */
+  async function reloadRecycleAll(){
+    if(!hasUnpublishedChanges()){
+      try{ await loadData(); resetHistory(); renderAll(); validate(); }
+      catch(e){ toast("重新載入網站資料失敗，請重新整理頁面。", { warn:true, duration:7000 }); }
+    }
+    await loadRecycle();
+  }
+
+  /* 救回 = Worker 端交易,直接寫進網站。和認領一樣,手上不能有還沒發布的修改:
+     救回成功後要 loadData() 換成線上資料,沒發布的編輯會從畫面上消失,之後的自動存檔
+     再用新畫面蓋掉原本的草稿 —— 那才是真的資料遺失(見 claimPending 的說明)。 */
+  async function restoreRecycled(rid){
+    if(isViewer() || rcyBusy) return;
+    const it = (rcyItems || []).find(x => x.rid === rid);
+    if(!it) return;
+    const name = String(it.name || "") || "這位夥伴";
+    const session = loadSession();
+    if(!session){ showLock(); toast("請先輸入管理密碼", { warn:true }); return; }
+    if(hasUnpublishedChanges()){
+      toast("你還有尚未發布的修改。請先按「發布到網站」（或捨棄變更），再救回刪除的夥伴。", { warn:true, duration:9000 });
+      return;
+    }
+    const g = DATA.find(x => x.id === it.gid);
+    if(!confirm("救回「" + name + "」到「" + (g ? g.code + "・" + g.name : String(it.code || "?")) + "」？\n\n" +
+                "會立刻寫進網站（不必再按發布），放回他被刪除前的位置。")) return;
+    rcyBusy = true; renderRecycle();
+    toast("救回中…");
+    let res;
+    try{ res = await workerFetch("/recycle-restore", { session, rid }); }
+    finally{ rcyBusy = false; }
+    if(res.ok){
+      /* 換成線上資料之後清掉「上一步」:堆疊裡是救回之前的整份資料,按了再發布會把他無聲刪回去
+         (而且版本基準已經是新的,不會被擋)。審核區的套用是同一個理由,見 resetHistory。 */
+      try{ await loadData(); resetHistory(); }
+      catch(e){ toast("已救回，但重新載入網站資料失敗，請重新整理頁面。", { warn:true, duration:9000 }); loadRecycle(); return; }
+      renderAll(); validate();
+      toast("已救回「" + (String(res.name || "") || name) + "」，幾分鐘後前台就會看到。", { duration:9000 });
+      loadRecycle();
+      return;
+    }
+    if(recycleSessionExpired(res)){ renderRecycle(); return; }
+    const err = String(res.error || "");
+    if(err === "already_present"){
+      try{ await loadData(); resetHistory(); renderAll(); validate(); }catch(e){}
+    }
+    if(err === "restore_uncertain"){
+      /* 寫入可能已經落地:先把網站資料重讀一次,名單上的「已經在名錄上」才對得上;
+         讀不到也沒關係,說明裡教他按「重新整理」再看。 */
+      try{ await loadData(); resetHistory(); renderAll(); validate(); }catch(e){}
+      toast(recycleErrorText(res, name), { warn:true, duration:16000 });
+    }else if(err === "already_present" || err === "recycle_gone" || err === "group_missing" || err === "forbidden_group" ||
+       err === "group_renamed" || err === "stale_base" || err === "busy_retry_later" || err === "bad_data_file" ||
+       err === "data_too_large" || err === "data_file_too_large" || err === "forbidden_path" || err === "update_store_failed" ||
+       err === "pending_image_store_unavailable" || err === "read_only"){
+      toast(recycleErrorText(res, name), { warn:true, duration:10000 });
+    }else{
+      /* 網路斷掉、GitHub 逾時、沒列到的碼:不能說「沒有寫入」—— 寫入可能其實成功了。
+         再按一次是安全的:已經在名錄上時伺服器會回 already_present,不會變成兩個人。 */
+      toast("不確定有沒有救回（" + (err || (res.httpStatus ? "HTTP " + res.httpStatus : "unknown")) + "）。" +
+            "請等一下按「重新整理」：" + name + "如果顯示「已經在名錄上」就是救回了；還沒有的話再按一次「救回」（不會重複）。",
+            { warn:true, duration:16000 });
+    }
+    loadRecycle();
+  }
+
+  /* 永久刪除:只刪回收區的那一筆,網站上的資料不變。給「確定是刻意刪的、不想留」用,只有總管理員。 */
+  async function dropRecycled(rid){
+    if(isLeader() || isViewer() || rcyBusy) return;
+    const it = (rcyItems || []).find(x => x.rid === rid);
+    if(!it) return;
+    const name = String(it.name || "") || "這位夥伴";
+    const session = loadSession();
+    if(!session){ showLock(); toast("請先輸入管理密碼", { warn:true }); return; }
+    if(!confirm("永久刪除「" + name + "」的回收紀錄？\n\n刪了之後就沒辦法再救回（網站上的資料不會改變）。" +
+                "只有確定是刻意刪掉、不需要留的才這樣做。")) return;
+    rcyBusy = true; renderRecycle();
+    let res;
+    try{ res = await workerFetch("/recycle-drop", { session, rid }); }
+    finally{ rcyBusy = false; }
+    if(res.ok){
+      rcyItems = (rcyItems || []).filter(x => x.rid !== rid);
+      renderRecycle();
+      toast("已永久刪除「" + name + "」的回收紀錄。", { duration:7000 });
+      return;
+    }
+    if(recycleSessionExpired(res)){ renderRecycle(); return; }
+    toast(recycleErrorText(res, name), { warn:true, duration:9000 });
+    loadRecycle();
+  }
+
+  /* 登出:清單(含姓名與刪除者)從畫面拿掉,路上的回應作廢 */
+  function resetRecycle(){
+    rcySeq++;
+    rcyOpen = false; rcyItems = null; rcyTruncated = false; rcyUnknown = 0; rcyError = ""; rcyLoading = false; rcyBusy = false;
+    renderRecycle();
   }
 
   /* ---------- 待認領區 ----------
@@ -2246,7 +2818,10 @@
     }
 
     if(res.ok){
-      await loadData();
+      await loadData(); resetHistory();
+      /* 認領／刪除是伺服器端直接寫進網站;重讀之後畫面換成線上資料,舊的「上一步」紀錄
+         還停在認領前的待認領清單。按上一步再發布,會把舊清單送回去、而且不會跳出任何衝突提示。
+         這兩個動作本來就只在沒有未發布修改時才能做,清掉歷史不會丟掉任何東西。 */
       /* 先把選取切到目標組再畫面重繪 —— 反過來的話這一輪畫的還是舊的選取。
          loadData() 之後 DATA 是全新的物件,gid 不一定還在(例如同時被改名),
          所以要用 fixSelected() 兜底。 */
@@ -2256,7 +2831,7 @@
       return;
     }
     if(res.error === "already_claimed"){
-      await loadData(); renderAll();
+      await loadData(); resetHistory(); renderAll();
       toast(`「${name}」已經被其他組長認領走了，清單已更新。`, { warn:true, duration: 8000 });
       return;
     }
@@ -2307,12 +2882,12 @@
     toast("刪除中…");
     const res = await workerFetch("/drop-pending", { session, pid });
     if(res.ok){
-      await loadData(); renderAll();
+      await loadData(); resetHistory(); renderAll();
       toast("已刪除「" + (a.name || "這筆申請") + "」，照片也一併清掉了。", { duration:7000 });
       return;
     }
     if(res.error === "already_claimed"){
-      await loadData(); renderAll();
+      await loadData(); resetHistory(); renderAll();
       toast("這筆申請已經被別人處理掉了，清單已更新。", { warn:true, duration:7000 });
       return;
     }
@@ -3202,6 +3777,7 @@
     tryLoadDraft();
     fixSelected();
     renderAll(); validate();
+    renderMergeNotice();      // 舊草稿合併的說明(沒有就收起來)
     // 登入當下資料還沒抓回來,組長的組名查不到(會顯示「找不到此組」),載完要再寫一次
     showWho();
     showDraftBanner(hasDraft);
@@ -3255,6 +3831,11 @@
   // 總覽儀表板收合(記住選擇)
   const DASH_KEY = "member-directory-dash-collapsed";
   try{ if(localStorage.getItem(DASH_KEY) === "1") document.body.classList.add("dash-collapsed"); }catch(e){}
+  // 最近刪除的夥伴:預設收起,按「查看」才去讀回收區
+  byId("rcy-toggle").onclick = () => {
+    rcyOpen = !rcyOpen;
+    if(rcyOpen) loadRecycle(); else renderRecycle();
+  };
   byId("dash-toggle").onclick = () => {
     const c = document.body.classList.toggle("dash-collapsed");
     try{ localStorage.setItem(DASH_KEY, c ? "1" : "0"); }catch(e){}
