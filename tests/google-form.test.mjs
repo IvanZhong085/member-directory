@@ -4,6 +4,7 @@
    跑法:node tests/google-form.test.mjs */
 import fs from "node:fs";
 import vm from "node:vm";
+import crypto from "node:crypto";
 import { FakeGitHub, FakeR2, FakeKV, loadWorker } from "./github-model.mjs";
 
 const src = fs.readFileSync(new URL("../tools/google-form.gs", import.meta.url), "utf8");
@@ -247,6 +248,7 @@ class FakeItem {
     this.required = false; this.choices = []; this.goTo = null; this.navType = null; this.choiceWrites = 0;
   }
   getId() { return this.id; } getType() { return this.type; }
+  getIndex() { const i = this.form.items.indexOf(this); if (i < 0) throw new Error("Item " + this.id + " was deleted"); return i; }
   getTitle() { return this.title; } setTitle(t) { this.title = String(t); return this; }
   getHelpText() { return this.help; } setHelpText(t) { this.help = String(t); return this; }
   setRequired(b) { this.required = !!b; return this; } isRequired() { return this.required; }
@@ -294,6 +296,15 @@ class FakeForm {
   addSectionHeaderItem() { return this.add(ITEM.SECTION_HEADER); }
   getItems(type) { return type ? this.items.filter(i => i.type === type) : this.items.slice(); }
   getItemById(id) { return this.items.find(i => String(i.id) === String(id)) || null; }
+  /* 照官方文件:moveItem(item, toIndex) 或 moveItem(from, to)(兩個都是索引),回傳被搬的那一題 */
+  moveItem(a, to) {
+    const from = typeof a === "number" ? a : this.items.indexOf(a);
+    if (from < 0 || from >= this.items.length || !(to >= 0 && to < this.items.length)) throw new Error("Invalid index");
+    const [it] = this.items.splice(from, 1);
+    this.items.splice(to, 0, it);
+    return it;
+  }
+  deleteItem(it) { const i = this.items.indexOf(it); if (i >= 0) this.items.splice(i, 1); }
   getResponse(id) { const r = this.responses.get(String(id)); if (!r) throw new Error("Invalid response ID"); return r; }
   createResponse() {
     const parts = [], form = this;
@@ -313,9 +324,11 @@ function defaultWorker(body, st) {
   if (body.secret !== SECRET) return [401, { ok: false, error: "bad_secret" }];
   if (!u.name || !u.group) return [400, { ok: false, error: "bad_update" }];
   const fields = Object.keys(u.changes || {}).filter(k => String(u.changes[k]).trim());
+  const ph = u.photos || {};
+  const photos = [ph.image, ph.card].filter(Boolean).length + (Array.isArray(ph.products) ? ph.products.filter(Boolean).length : 0);
   return [200, { ok: true, uid: "u_test" + String(++st.uidSeq).padStart(4, "0"), memberId: "g3_m1", name: u.name, code: u.group,
     fields, ignored: [{ field: "tagline", value: "佔位字內容Q" }], invalid: [{ field: "website", value: "不合格網址內容Q" }],
-    untouched: ["title"], stalePrefill: [], cleared: [], truncated: [], confirmOnly: false, hasNote: !!u.note,
+    untouched: ["title"], stalePrefill: [], cleared: [], truncated: [], confirmOnly: false, hasNote: !!u.note, photos,
     open: 3, groupOpen: 1, oldestAt: new Date(Date.now() - 2 * 86400000 - 60000).toISOString() }];
 }
 const workerSays = (code, error) => () => [code, { ok: false, error }];
@@ -325,12 +338,21 @@ function makeUpd(opts = {}) {
   for (const k of Object.keys(props)) if (props[k] === undefined) delete props[k];
   const st = {
     groups: baseGroups(), dataStatus: 200, dataThrow: false, siteConfig: null,
-    ping: { ok: true, caps: { memberUpdate: true }, memberUpdateSite: SITE },
+    ping: { ok: true, caps: { memberUpdate: true, memberUpdatePhotos: true }, memberUpdateSite: SITE },
+    drive: new Map(),          // 假的雲端硬碟:檔案 ID → { bytes, mime, noThumb };不在裡面的 ID 一律讀不到
     worker: null, onPost: null, posts: [], fetches: [], sent: [], logs: [], triggers: [], quota: 99, mailThrow: false,
     cache: new Map(), cachePuts: [], lockHeld: false, lockMisses: 0, unlockedWrites: [], propFail: null,
     forms: new Map(), nextItemId: 1, nextFormNo: 1, nextSheet: 1, sleeps: 0, uidSeq: 0, createCalls: 0, needsReauth: false,
   };
-  const resp = (code, text) => ({ getResponseCode: () => code, getContentText: () => text });
+  const resp = (code, text, blob) => ({ getResponseCode: () => code, getContentText: () => text,
+    getBlob: () => { if (!blob) throw new Error("沒有 blob"); return blob; } });
+  /* 假的 Blob:照片轉檔(driveImageDataUrl_ → blobToDataUrl_)用得到的就這三個方法 */
+  const mkBlob = f => ({
+    getContentType: () => f.mime,
+    getBytes: () => Array.from(f.bytes),
+    getAs: t => { if (!/^image\//.test(f.mime)) throw new Error("Converting from " + f.mime + " to " + t + " is not supported."); return mkBlob({ mime: t, bytes: f.bytes }); },
+  });
+  const DRIVE_META = "https://www.googleapis.com/drive/v3/files/", THUMB = "https://lh3.googleusercontent.test/thumb/";
   const propsSvc = {
     getProperty: k => (Object.prototype.hasOwnProperty.call(props, k) ? props[k] : null),
     setProperty: (k, v) => {
@@ -356,6 +378,14 @@ function makeUpd(opts = {}) {
       formatDate: (d, tz, fmt) => fmt.replace("yyyy", d.getUTCFullYear()).replace("MM", pad(d.getUTCMonth() + 1)).replace("dd", pad(d.getUTCDate()))
                                      .replace("HH", pad(d.getUTCHours())).replace("mm", pad(d.getUTCMinutes())),
       sleep: () => { st.sleeps++; },
+      base64Encode: b => Buffer.from(b).toString("base64"),
+    },
+    DriveApp: {
+      getFileById: id => {
+        const f = st.drive.get(String(id));
+        if (!f) throw new Error("Exception: No item with the given ID could be found, or you do not have permission to access it.");
+        return { getBlob: () => mkBlob(f), getName: () => id + ".jpg", getSize: () => f.bytes.length, getMimeType: () => f.mime };
+      },
     },
     LockService: { getScriptLock: () => {
       let mine = false;
@@ -376,6 +406,18 @@ function makeUpd(opts = {}) {
     }) },
     UrlFetchApp: { fetch: (url, o = {}) => {
       st.fetches.push(url);
+      /* Drive 縮圖:① Drive API 問 thumbnailLink ② 抓那個短效網址;drive.google.com/thumbnail 一律 404。
+         檔案不在 st.drive(或 noThumb)時兩條都拿不到,driveImageDataUrl_ 會退回 DriveApp 讀原檔 */
+      if (url.startsWith(DRIVE_META)) {
+        const id = decodeURIComponent(url.slice(DRIVE_META.length).replace(/\?.*$/, "")), f = st.drive.get(id);
+        if (!f || f.noThumb) return resp(404, JSON.stringify({ error: { code: 404 } }));
+        return resp(200, JSON.stringify({ thumbnailLink: THUMB + encodeURIComponent(id) + "=s220" }));
+      }
+      if (url.startsWith(THUMB)) {
+        const m = /^([^=]+)=w(\d+)$/.exec(url.slice(THUMB.length)), f = m && st.drive.get(decodeURIComponent(m[1]));
+        return f ? resp(200, "", mkBlob(f)) : resp(404, "");
+      }
+      if (url.startsWith("https://drive.google.com/thumbnail")) return resp(404, "");
       if (url.startsWith(SITE)) {
         const path = url.slice(SITE.length).replace(/[?&]t=\d+$/, "");
         if (path === "data.js") {
@@ -385,7 +427,7 @@ function makeUpd(opts = {}) {
         if (path === "site-config.js") return st.siteConfig == null ? resp(404, "") : resp(200, st.siteConfig);
         return resp(404, "");
       }
-      /* st.relay:把對 Worker 的請求整個交給測試(㊱ 用它把請求轉給真正的 Worker) */
+      /* st.relay:把對 Worker 的請求整個交給測試(㊵ 用它把請求轉給真正的 Worker) */
       if (st.relay && url.startsWith(RELAY + "/")) {
         const [code, out] = st.relay(url, o);
         return resp(code, typeof out === "string" ? out : JSON.stringify(out));
@@ -417,6 +459,7 @@ function makeUpd(opts = {}) {
       }),
       getAuthorizationInfo: () => ({ getAuthorizationStatus: () => (st.needsReauth ? "REQUIRED" : "ENABLED"), getAuthorizationUrl: () => "https://example.test/auth" }),
       AuthMode: { FULL: "FULL" }, AuthorizationStatus: { REQUIRED: "REQUIRED" },
+      getOAuthToken: () => "fake-oauth-token",
     },
     FormApp: {
       create: title => { st.createCalls++; const f = new FakeForm(st, title); st.forms.set(f.getEditUrl(), f); return f; },
@@ -464,6 +507,36 @@ const failedRid = (env, rid) => failedOf(env).find(x => x.rid === rid);
 const logText = env => env.__st.logs.join("\n");
 const mailText = env => env.__st.sent.map(m => m.subject + "\n" + m.body).join("\n=====\n");
 
+/* ── 照片用的小工具 ──
+   網管照執行紀錄的步驟,在「照片（選填）」下面手動加三個上傳題(Apps Script 建不出來)。
+   這裡模擬那個動作:插在段落標題後面;沒有段落標題就插在「給組長的備註」前面。 */
+const PHOTO_SEC = "照片（選填）", NOTE_Q = "給組長的備註";
+const UPLOAD_TITLES = ["形象照", "名片照片", "商品照片"];
+function addUploads(form, titles = UPLOAD_TITLES) {
+  const sec = form.items.findIndex(i => i.title === PHOTO_SEC);
+  let at = sec >= 0 ? sec + 1 : form.items.findIndex(i => i.title === NOTE_Q);
+  if (at < 0) at = form.items.length;
+  const made = [];
+  for (const t of titles) {
+    const it = form.add(ITEM.FILE_UPLOAD).setTitle(t);
+    form.items.pop(); form.items.splice(at++, 0, it);
+    made.push(it);
+  }
+  return made;
+}
+/* 假的 JPEG(開頭、結尾是真的 JPEG 標記;中間依 ID 填,每張內容都不一樣)。放進假的雲端硬碟。 */
+const jpegOf = (id, size = 2000) => {
+  const fill = Buffer.alloc(size, 0);
+  for (let i = 0; i < size; i++) fill[i] = (id.charCodeAt(i % id.length) + i) & 0xff;
+  return Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), fill, Buffer.from([0xff, 0xd9])]);
+};
+function putPhoto(env, id, o = {}) {
+  const f = { bytes: o.bytes || jpegOf(id, o.size), mime: o.mime || "image/jpeg", noThumb: !!o.noThumb };
+  env.__st.drive.set(id, f);
+  return f;
+}
+const dataUrlOf = f => "data:" + f.mime + ";base64," + Buffer.from(f.bytes).toString("base64");
+
 console.log("⑮ createMemberUpdateForm:讀不到名錄 → 在 FormApp.create 之前就停下,不寫任何屬性");
 {
   const cases = [
@@ -499,14 +572,21 @@ console.log("⑯ createMemberUpdateForm:題目、設定、換頁、屬性、觸�
   ok("建了 1 份表單,標題照定稿", env.__st.createCalls === 1 && form && form.getTitle() === "雲榮鑽石分會・夥伴資料更新");
   const titles = form.items.map(i => i.title);
   const want = [NAME_Q, "要更新的內容", "補上還沒有的資料", "所屬公司", "主要營業項目", "公司網站", "我有…", "我要…",
-    "修改名錄上已經有的內容", "行業／職稱", "服務項目", "適合引薦對象", "25 秒自我介紹 Slogan", "給組長的備註", "連結代碼",
+    "修改名錄上已經有的內容", "行業／職稱", "服務項目", "適合引薦對象", "25 秒自我介紹 Slogan", PHOTO_SEC, "給組長的備註", "連結代碼",
     "找不到自己的名字？", "你的姓名", "想更新什麼"];
-  ok("18 題的順序照定稿", JSON.stringify(titles) === JSON.stringify(want), titles.join("|"));
+  ok("19 題的順序照定稿(「照片（選填）」在「給組長的備註」前面)", JSON.stringify(titles) === JSON.stringify(want), titles.join("|"));
   const types = form.items.map(i => i.type).join(",");
-  ok("題型照定稿", types === "LIST,PAGE_BREAK,SECTION_HEADER,TEXT,PARAGRAPH_TEXT,TEXT,PARAGRAPH_TEXT,PARAGRAPH_TEXT,SECTION_HEADER,TEXT,PARAGRAPH_TEXT,PARAGRAPH_TEXT,PARAGRAPH_TEXT,PARAGRAPH_TEXT,TEXT,PAGE_BREAK,TEXT,PARAGRAPH_TEXT", types);
+  ok("題型照定稿", types === "LIST,PAGE_BREAK,SECTION_HEADER,TEXT,PARAGRAPH_TEXT,TEXT,PARAGRAPH_TEXT,PARAGRAPH_TEXT,SECTION_HEADER,TEXT,PARAGRAPH_TEXT,PARAGRAPH_TEXT,PARAGRAPH_TEXT,SECTION_HEADER,PARAGRAPH_TEXT,TEXT,PAGE_BREAK,TEXT,PARAGRAPH_TEXT", types);
   const req = form.items.filter(i => i.required).map(i => i.title);
   ok("只有「請選你的名字」和「你的姓名」是必填", JSON.stringify(req) === JSON.stringify([NAME_Q, "你的姓名"]), req.join(","));
-  ok("沒有上傳題", form.getItems(ITEM.FILE_UPLOAD).length === 0);
+  ok("沒有上傳題(Apps Script 建不出來,要網管手動加)", form.getItems(ITEM.FILE_UPLOAD).length === 0);
+  const sec = form.byTitle(PHOTO_SEC);
+  ok("照片段落的說明照定稿", sec && sec.help === "形象照、名片照片、商品照片（最多 5 張）。會先由組長確認再上線。", sec && sec.help);
+  ok("★ 說明寫明要登入 Google、從 LINE 會改用手機瀏覽器、照片也由組長確認",
+     form.desc.includes("需要登入 Google") && form.desc.includes("手機的瀏覽器") && form.desc.includes("照片也一樣，組長確認後才會換上") && form.desc.includes(PHOTO_SEC), form.desc);
+  const said = [form.desc, form.f.confirm, ...form.items.map(i => i.title + "\n" + i.help)].join("\n");
+  ok("★ 表單上任何地方都不再說「不用登入」或「照片用 LINE 傳給組長」",
+     !/不用登入|不必登入|不需要登入/.test(said) && !/LINE 傳/.test(said), said.match(/.{0,20}(不用登入|不必登入|不需要登入|LINE 傳).{0,20}/g));
 
   const nameItem = form.byTitle(NAME_Q), nfPage = form.byTitle("找不到自己的名字？");
   const vals = nameItem.choices.map(c => c.value);
@@ -523,7 +603,8 @@ console.log("⑯ createMemberUpdateForm:題目、設定、換頁、屬性、觸�
   ok("★ 結果摘要關閉(isPublishingSummary 是 false)", form.isPublishingSummary() === false);
   ok("已發布", form.isPublished() === true);
   ok("不收集 email、不允許編輯回覆、不限一人一次", !form.collectsEmail() && !form.canEditResponse() && form.f.limitOne === false);
-  ok("確認訊息照定稿", form.f.confirm.startsWith("✅ 收到了，謝謝你！") && form.f.confirm.includes("要換照片：直接用 LINE 傳給你的組長"));
+  ok("確認訊息照定稿(不再叫人用 LINE 傳照片)", form.f.confirm.startsWith("✅ 收到了，謝謝你！") && form.f.confirm.includes("照片也由組長確認後才換上") &&
+     !form.f.confirm.includes("要換照片"), form.f.confirm);
   ok("回應進試算表", /^SHEET\d+$/.test(form.dest));
 
   ok("UPDATE_FORM_EDIT_URL 已存", env.__props.UPDATE_FORM_EDIT_URL === form.getEditUrl());
@@ -545,6 +626,12 @@ console.log("⑯ createMemberUpdateForm:題目、設定、換頁、屬性、觸�
   ok("member 的 entry 對得上名字題", ents.member === "entry." + (nameItem.id * 7 + 100000), ents.member);
   ok("token 的 entry 對得上連結代碼題", ents.token === "entry." + (form.byTitle("連結代碼").id * 7 + 100000), ents.token);
   ok("執行紀錄印出 UPDATE_FORM_URL", log.some(l => l.trim() === 'UPDATE_FORM_URL: "' + form.getPublishedUrl() + '",'));
+  const logAll = log.join("\n");
+  ok("★ 執行紀錄印出手動加三個上傳題的步驟(標題、圖片、張數、10 MB、checkMemberUpdateForm)",
+     logAll.includes("還要手動加三個「上傳檔案」題") && logAll.includes(form.getEditUrl()) &&
+     log.some(l => l.includes("標題「形象照」") && l.includes("上限 1")) && log.some(l => l.includes("標題「名片照片」") && l.includes("上限 1")) &&
+     log.some(l => l.includes("標題「商品照片」") && l.includes("上限 5")) && logAll.includes("10 MB") && logAll.includes("checkMemberUpdateForm"), logAll);
+  ok("★ 執行紀錄不再叫人別加上傳題、不再說不需要登入", !logAll.includes("不要在表單上加「上傳檔案」題") && !/不需要登入|不收照片/.test(logAll));
 
   let msg = "";
   try { env.createMemberUpdateForm(); } catch (e) { msg = String(e.message || e); }
@@ -647,6 +734,7 @@ console.log("⑱ 送出:body 的格式、先記後送、紀錄與信件不含內
   ok("★ submittedAt 等於 getTimestamp", u.submittedAt === "2026-10-02T13:14:41.000Z", u.submittedAt);
   ok("★ linkToken 是第 15 題的值(去掉前後空白)", u.linkToken === token, u.linkToken);
   ok("沒換組 → pickedLabel 是空字串", u.pickedLabel === "");
+  ok("★ 沒傳照片 → 不放 photos 這個鍵(純文字送件和以前一模一樣)", !("photos" in u), Object.keys(u).join(","));
   ok("回傳 ok 與 uid", out && out.code === "ok" && /^u_test\d+$/.test(out.uid), JSON.stringify(out));
   ok("成功後不在補送清單", !failedRid(env, rid));
   const m = env.__st.sent[0];
@@ -1128,6 +1216,7 @@ console.log("㉝ checkMemberUpdateForm:全部正常 → ✅;各種設定錯誤 �
 function goodCheckEnv() {
   const env = makeUpd();
   const form = setupForm(env);
+  addUploads(form);           // 網管照步驟手動加好三個上傳題
   const lines = env.memberUpdateConfigLines_(form.getPublishedUrl(), env.memberUpdateEntryIds_(form).ids);
   env.__st.siteConfig = "const SITE = {\n  SITE_BASE: \"" + SITE + "\",\n" + lines.join("\n") + "\n};\n";
   return { env, form };
@@ -1149,14 +1238,20 @@ function runCheck(env) {
   ok("探測請求送的是空白 update", env.__st.posts.some(p => p.secret === SECRET && JSON.stringify(p.update) === "{}"));
   ok("site-config 對得上", lineOf("site-config").includes("✅"));
   ok("只讀不改(屬性完全沒變)", JSON.stringify(env.__props) === propsBefore);
+  ok("★ 照片題:三題都在 → ✅ 並寫明填表需要登入 Google", lineOf("照片題").includes("✅ 形象照、名片照片、商品照片都在(填表需要登入 Google)"), lineOf("照片題"));
+  ok("回覆次數 → ✅ 不限次數", lineOf("回覆次數").includes("✅ 不限次數"));
+  ok("Worker 那一行寫出支援照片", lineOf("Worker").includes("memberUpdatePhotos") && lineOf("Worker").includes("✅"));
+  ok("不再有「登入要求」那一行", !lineOf("登入要求"));
 }
 const checkCases = [
   ["未發布", "發布狀態", (env, form) => { form.f.published = false; }],
   ["允許編輯回覆", "編輯回覆", (env, form) => { form.f.allowEdits = true; }],
   ["★ 結果摘要公開", "結果摘要", (env, form) => { form.f.summary = true; }],
-  ["有上傳題", "登入要求", (env, form) => { form.add(ITEM.FILE_UPLOAD).setTitle("形象照"); }],
-  ["收集電子郵件", "登入要求", (env, form) => { form.f.collectEmail = true; }],
-  ["★ 限制只能回覆 1 次", "登入要求", (env, form) => { form.f.limitOne = true; }],
+  ["★ 少了「名片照片」上傳題", "照片題", (env, form) => { form.deleteItem(form.byTitle("名片照片")); }],
+  ["★ 一個上傳題都沒有(舊表單)", "照片題", (env, form) => { form.items.filter(i => i.type === ITEM.FILE_UPLOAD).forEach(i => form.deleteItem(i)); }],
+  ["「形象照」是文字題不是上傳題", "照片題", (env, form) => { const i = form.byTitle("形象照").getIndex(); form.items[i] = Object.assign(new FakeItem(form, ITEM.TEXT), { title: "形象照" }); }],
+  ["★ 限制只能回覆 1 次", "回覆次數", (env, form) => { form.f.limitOne = true; }],
+  ["★ 表單有上傳題,Worker 卻還不支援照片", "Worker", env => { delete env.__st.ping.caps.memberUpdatePhotos; }],
   ["停止收件", "接受回應", (env, form) => { form.f.accepting = false; }],
   ["少了每小時同步觸發器", "觸發器", env => { env.__st.triggers = env.__st.triggers.filter(t => t.getHandlerFunction() !== "syncMemberUpdateNames"); }],
   ["送出觸發器重複", "觸發器", env => { env.__st.triggers.push({ getHandlerFunction: () => "onMemberUpdateSubmit" }); }],
@@ -1183,19 +1278,46 @@ for (const [why, label, tweak] of checkCases) {
   ok(why + " → 「" + label + "」印 ✗", /✗|🔴|—/.test(ln) && !ln.includes("✅ ") && r.bad >= 1 && text.includes("⚠ 還有"), ln);
 }
 {
-  // 「登入要求」要分開列原因,網管才知道該關哪一個設定
-  const reasons = tweak => {
+  // 「照片題」要說出缺哪幾題,網管才知道要加哪一個
+  const photoLine = tweak => {
     const { env, form } = goodCheckEnv();
     tweak(env, form);
-    return runCheck(env).lineOf("登入要求");
+    const c = runCheck(env);
+    return { ln: c.lineOf("照片題"), r: c.r, c };
   };
-  const lo = reasons((env, form) => { form.f.limitOne = true; });
-  ok("★ 限制只能回覆 1 次 → 文案叫網管關掉它,不誤指上傳題或收集電子郵件",
-     lo.includes("關掉「限制只能回覆 1 次」") && !lo.includes("收集電子郵件") && !lo.includes("上傳題"), lo);
-  const em = reasons((env, form) => { form.f.collectEmail = true; });
-  ok("收集電子郵件 → 文案只叫網管關掉收集電子郵件", em.includes("關掉「收集電子郵件」") && !em.includes("限制只能回覆"), em);
-  const all3 = reasons((env, form) => { form.add(ITEM.FILE_UPLOAD).setTitle("形象照"); form.f.collectEmail = true; form.f.limitOne = true; });
-  ok("三種同時開著 → 三個原因都列出來", all3.includes("上傳題") && all3.includes("收集電子郵件") && all3.includes("限制只能回覆 1 次"), all3);
+  const one = photoLine((env, form) => { form.deleteItem(form.byTitle("名片照片")); });
+  ok("★ 少一題 → 只點名那一題,並指向手動加的方法", one.ln.includes("少了「名片照片」") && !one.ln.includes("形象照」") && !one.ln.includes("「商品照片」") &&
+     one.ln.includes("表單編輯頁手動加") && one.ln.includes("README「八」") && one.r.bad === 1, one.ln);
+  const none = photoLine((env, form) => { form.items.filter(i => i.type === ITEM.FILE_UPLOAD).forEach(i => form.deleteItem(i)); });
+  ok("三題都沒有 → 三題都點名", none.ln.includes("少了「形象照」「名片照片」「商品照片」"), none.ln);
+  ok("★ 沒有上傳題時,Worker 不支援照片不算錯(只在 ✅ 那行提醒)", (() => {
+    const { env, form } = goodCheckEnv();
+    form.items.filter(i => i.type === ITEM.FILE_UPLOAD).forEach(i => form.deleteItem(i));
+    delete env.__st.ping.caps.memberUpdatePhotos;
+    const c = runCheck(env);
+    return c.lineOf("Worker").includes("✅") && c.lineOf("Worker").includes("還不支援照片") && c.r.bad === 1;
+  })());
+  const wrong = photoLine((env, form) => { const i = form.byTitle("形象照").getIndex(); form.items[i] = Object.assign(new FakeItem(form, ITEM.TEXT), { title: "形象照" }); });
+  ok("同名的文字題不算 → 說題型不是「上傳檔案」", wrong.ln.includes("「形象照」題型不是「上傳檔案」"), wrong.ln);
+  const alias = photoLine((env, form) => { form.byTitle("形象照").setTitle("個人照片"); form.byTitle("商品照片").setTitle("商品照片（商品圖、示意圖、證書皆可）"); });
+  ok("★ 用新夥伴表單的標題或別名加題也認得(個人照片、商品照片(商品圖…))", alias.ln.includes("✅") && alias.r.bad === 0, alias.ln);
+  const both = photoLine((env, form) => { form.add(ITEM.TEXT).setTitle("名片照片"); });
+  ok("多一題同名的文字題 → 以上傳題為準,仍是 ✅", both.ln.includes("✅") && both.r.bad === 0, both.ln);
+
+  // 收集電子郵件:反正都要登入了,不再算錯
+  const em = photoLine((env, form) => { form.f.collectEmail = true; });
+  ok("★ 收集電子郵件 → 不算 ✗", em.r.bad === 0 && em.c.text.includes("✅ 全部正常"), em.c.text);
+  const lo = (() => { const { env, form } = goodCheckEnv(); form.f.limitOne = true; return runCheck(env); })();
+  ok("★ 限制只能回覆 1 次 → 文案說明為什麼、叫網管關掉它", lo.lineOf("回覆次數").includes("限制只能回覆 1 次") && lo.lineOf("回覆次數").includes("關掉") &&
+     lo.lineOf("回覆次數").includes("換照片") && lo.r.bad === 1, lo.lineOf("回覆次數"));
+  const wk = (() => { const { env } = goodCheckEnv(); env.__st.ping.caps.memberUpdatePhotos = false; return runCheck(env); })();
+  ok("★ 有上傳題、Worker 不支援照片 → 叫總管理員重新部署 publish-relay.js", wk.lineOf("Worker").includes("✗ Worker 還不支援照片,請重新部署 publish-relay.js") && wk.r.bad === 1, wk.lineOf("Worker"));
+  const many = (() => {
+    const { env, form } = goodCheckEnv();
+    form.deleteItem(form.byTitle("商品照片")); form.f.limitOne = true; env.__st.ping.caps.memberUpdatePhotos = false;
+    return runCheck(env);
+  })();
+  ok("★ 三項同時不對 → 彙總行數對(還有 3 項沒過)", many.r.bad === 3 && many.text.includes("⚠ 還有 3 項沒過"), many.r.bad);
   // 讀不到(舊環境沒有這個方法、或讀取丟例外)視同沒開,不能讓正常的表單誤報 ✗
   for (const [why, tweak] of [
     ["沒有 hasLimitOneResponsePerUser", (env, form) => { form.hasLimitOneResponsePerUser = undefined; }],
@@ -1204,7 +1326,7 @@ for (const [why, label, tweak] of checkCases) {
     const { env, form } = goodCheckEnv();
     tweak(env, form);
     const { r, lineOf } = runCheck(env);
-    ok(why + " → 視同沒開,「登入要求」仍是 ✅", lineOf("登入要求").includes("✅ 不需要登入") && r.bad === 0, lineOf("登入要求"));
+    ok(why + " → 視同沒開,「回覆次數」仍是 ✅", lineOf("回覆次數").includes("✅ 不限次數") && r.bad === 0, lineOf("回覆次數"));
   }
 }
 {
@@ -1232,6 +1354,10 @@ console.log("㉞ printMemberUpdateLinkConfig 與 entry 編號");
   ok("11 個都對得上", logText(env).includes("✅ 11 個 entry 都對得上"));
   const ids = env.memberUpdateEntryIds_(form).ids;
   ok("每一題的 entry 都對", ENTRY_KEYS.every(k => ids[k]) && ids.company === "entry." + (form.byTitle("所屬公司").id * 7 + 100000));
+  addUploads(form);
+  const ids2 = env.memberUpdateEntryIds_(form).ids;
+  ok("★ 加了上傳題之後,預填仍然只有文字的 11 個 entry(上傳題沒辦法預填)",
+     JSON.stringify(Object.keys(ids2).sort()) === JSON.stringify([...ENTRY_KEYS].sort()) && ENTRY_KEYS.every(k => ids2[k] === ids[k]), JSON.stringify(ids2));
   form.byTitle("連結代碼").setTitle("代碼(改過)");
   env.__st.logs.length = 0;
   env.printMemberUpdateLinkConfig();
@@ -1271,7 +1397,240 @@ console.log("㉟ 其他:不用 eval、既有函式的文字修正、publishedGro
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   ㊱ 三方介面。上面的案例用的是「照規格寫的假 Worker」—— 兩邊都照規格寫、卻各自理解錯同一個
+   夥伴資料更新表單的照片(形象照 1、名片照片 1、商品照片最多 5)
+   上傳題的回應是「Drive 檔案 ID 的陣列」;照片用新夥伴表單同一支 driveImageDataUrl_ 轉成
+   data URL,放進 payload.update.photos。假的雲端硬碟在 st.drive(putPhoto 放檔案,不在裡面的讀不到)。
+   ══════════════════════════════════════════════════════════════════════════ */
+console.log("㊱ 照片:上傳題的檔案 → payload.update.photos(形狀、張數上限、只傳照片也送)");
+{
+  const env = makeUpd();
+  ok("★ 印給網管照抄的三個標題,程式都認得(titlesFor_)",
+     env.UPDATE_PHOTO_SLOTS.length === 3 && env.UPDATE_PHOTO_SLOTS.every(s => env.titlesFor_(s.key).includes(env.normTitle_(s.title))) &&
+     JSON.stringify(env.UPDATE_PHOTO_SLOTS.map(s => [s.key, s.max])) === JSON.stringify([["image", 1], ["card", 1], ["products", 5]]));
+  const form = setupForm(env);
+  addUploads(form);
+  const img = putPhoto(env, "F_IMG"), card = putPhoto(env, "F_CARD");
+  const pids = ["F_P1", "F_P2", "F_P3", "F_P4", "F_P5", "F_P6"], prods = pids.map(id => putPhoto(env, id));
+  const { rid, out } = answer(env, form, { [NAME_Q]: "A1・曾俊凱", "所屬公司": "雲榮肉品有限公司Q",
+    "形象照": ["F_IMG"], "名片照片": ["F_CARD"], "商品照片": pids });
+  const u = (env.__st.posts[0] || {}).update || {};
+  ok("送了 1 次 /member-update", env.__st.posts.length === 1);
+  ok("★ photos 剛好是 image、card、products 三個鍵", JSON.stringify(Object.keys(u.photos || {}).sort()) === '["card","image","products"]', JSON.stringify(Object.keys(u.photos || {})));
+  ok("★ 形象照、名片是 data URL,內容就是 Drive 上那個檔", !!u.photos && u.photos.image === dataUrlOf(img) && u.photos.card === dataUrlOf(card));
+  ok("★ 商品照最多 5 張、順序照上傳的順序,第 6 張不收", !!u.photos && Array.isArray(u.photos.products) && u.photos.products.length === 5 &&
+     u.photos.products.every((p, i) => p === dataUrlOf(prods[i])));
+  ok("第 6 張根本沒去讀", !env.__st.fetches.some(x => x.includes("F_P6")));
+  ok("文字照樣送", u.changes && u.changes.company === "雲榮肉品有限公司Q");
+  ok("回傳 ok、不在補送清單", out && out.code === "ok" && !failedRid(env, rid));
+  ok("★ 紀錄只記張數(形象照 1、名片 1、商品 5),並說多傳的不收", logText(env).includes("形象照 1 張、名片 1 張、商品 5 張") && logText(env).includes("多傳的 1 張不收"), logText(env));
+  ok("成功紀錄寫出 Worker 收了幾張", logText(env).includes("照片 7 張"));
+  const b64 = Buffer.from(img.bytes).toString("base64").slice(10, 50);
+  ok("★ 紀錄與通知信不含照片內容", !logText(env).includes(b64) && !logText(env).includes("data:image") && !mailText(env).includes(b64) && !mailText(env).includes("data:image"));
+  ok("成功通知照常寄 NOTIFY_EMAIL", env.__st.sent.length === 1 && env.__st.sent[0].to === "leaders@example.com");
+}
+{
+  const env = makeUpd();
+  const form = setupForm(env);
+  addUploads(form);
+  putPhoto(env, "F_ONLY");
+  const { rid, out } = answer(env, form, { [NAME_Q]: "A1・王大銘", "形象照": ["F_ONLY"], "名片照片": [], "商品照片": null });
+  const u = (env.__st.posts[0] || {}).update || {};
+  ok("★ 只傳照片、文字一格都沒填 → 照樣送出(不是 empty)", env.__st.posts.length === 1 && out && out.code === "ok" && !failedRid(env, rid), JSON.stringify(out));
+  ok("只傳照片:九欄都是空字串、備註空白", !!u.changes && UPD_FIELDS.every(k => u.changes[k] === "") && u.note === "");
+  ok("沒傳的那幾題是空值:card 空字串、products 空陣列", !!u.photos && u.photos.card === "" && Array.isArray(u.photos.products) &&
+     u.photos.products.length === 0 && u.photos.image.startsWith("data:image/jpeg;base64,"));
+  const r2 = answer(env, form, { [NAME_Q]: "A1・王大銘", "形象照": [], "名片照片": [], "商品照片": [] });
+  ok("上傳題都空著、文字也空著 → 還是「什麼都沒填」", r2.out && r2.out.code === "empty" && env.__st.posts.length === 1);
+}
+{
+  const env = makeUpd();
+  const form = setupForm(env);
+  addUploads(form, ["個人照片", "名片", "商品照片（商品圖、示意圖、證書皆可）"]);
+  putPhoto(env, "F_A"); putPhoto(env, "F_B"); putPhoto(env, "F_C");
+  answer(env, form, { [NAME_Q]: "A1・曾俊凱", "個人照片": ["F_A"], "名片": ["F_B"], "商品照片（商品圖、示意圖、證書皆可）": ["F_C"] });
+  const u = (env.__st.posts[0] || {}).update || {};
+  ok("★ 上傳題用新夥伴表單的別名或全名也認得", !!u.photos && !!u.photos.image && !!u.photos.card && u.photos.products.length === 1, JSON.stringify(Object.keys(u.photos || {})));
+  const small = putPhoto(env, "F_SMALL", { noThumb: true });
+  const a = answer(env, form, { [NAME_Q]: "A1・曾俊凱", "個人照片": ["F_SMALL"] });
+  ok("Drive 縮圖拿不到、原檔夠小 → 改用原檔照樣送", a.out.code === "ok" && env.__st.posts[1].update.photos.image === dataUrlOf(small));
+}
+
+console.log("㊲ 照片轉檔失敗 → 整筆不送、記 photo_convert_failed(可自動補送)、寄 ALERT;修好後補送成功");
+{
+  const env = makeUpd();
+  const form = setupForm(env);
+  addUploads(form);
+  putPhoto(env, "F_OK");
+  const RID = "2_PHOTOFAIL0001";
+  const real = env.driveImageDataUrl_;
+  let pendingSeen = null;
+  env.driveImageDataUrl_ = function (id, w, label) {
+    if (pendingSeen === null) pendingSeen = failedRid(env, RID) || false;
+    return real(id, w, label);
+  };
+  let threw = false, r = null;
+  try {
+    r = answer(env, form, { [NAME_Q]: "A1・曾俊凱", "所屬公司": "雲榮肉品Q", "形象照": ["F_OK"], "商品照片": ["F_NOT_YET", "F_LATER"] }, { rid: RID });
+  } catch (e) { threw = true; }
+  ok("不往外丟", !threw);
+  ok("★ 轉檔時回應 ID 已經以 pending 記在補送清單(先記後送)", pendingSeen && pendingSeen.code === "pending", JSON.stringify(pendingSeen));
+  ok("★ 一張轉不出來 → 整筆沒送(連文字也沒送)", env.__st.posts.length === 0);
+  ok("回傳 photo_convert_failed", r && r.out && r.out.code === "photo_convert_failed", r && JSON.stringify(r.out));
+  const f = failedRid(env, RID);
+  ok("★ 補送清單記成 photo_convert_failed,歸到可自動補送", f && f.code === "photo_convert_failed" && f.n === 1 &&
+     env.failedList_().auto.some(x => x.rid === RID) && !env.failedList_().manual.some(x => x.rid === RID), JSON.stringify(f));
+  ok("遇到第一張失敗就停,後面那張沒有再讀", !env.__st.fetches.some(u => u.includes("F_LATER")));
+  const m = env.__st.sent;
+  ok("★ 寄 1 封 ALERT(系統類)", m.length === 1 && m[0].to === "alert@example.com" && m[0].subject === "【會員名錄】夥伴資料更新表單出問題了：photo_convert_failed", m[0] && m[0].subject);
+  ok("ALERT 內文:原因、回應 ID、resendFailedMemberUpdates", !!m[0] && m[0].body.includes("原因：照片轉檔失敗，多半是 Google 雲端硬碟還沒產出縮圖（錯誤碼 photo_convert_failed）") &&
+     m[0].body.includes(RID) && m[0].body.includes("resendFailedMemberUpdates()") && m[0].body.includes("A1・曾俊凱"), m[0] && m[0].body);
+  ok("紀錄寫明沒有送出、卡在哪一張", logText(env).includes("【沒有】送出") && logText(env).includes("product[0]"));
+  ok("★ 紀錄與信不含照片內容與文字內容", !logText(env).includes("data:image") && !mailText(env).includes("data:image") && !logText(env).includes("雲榮肉品Q") && !mailText(env).includes("雲榮肉品Q"));
+
+  // Drive 把縮圖產出來了(或本人改傳了)→ 一鍵補送
+  env.driveImageDataUrl_ = real;
+  putPhoto(env, "F_NOT_YET"); putPhoto(env, "F_LATER");
+  env.__st.logs.length = 0;
+  env.resendFailedMemberUpdates();
+  const u = (env.__st.posts[0] || {}).update || {};
+  ok("★ 修好後 resendFailedMemberUpdates 補送成功,三張照片和文字都在", env.__st.posts.length === 1 && u.responseId === RID && !!u.photos &&
+     !!u.photos.image && u.photos.products.length === 2 && u.changes.company === "雲榮肉品Q");
+  ok("★ 補送成功後移出清單", !failedRid(env, RID) && logText(env).includes("成功 1 筆"));
+}
+
+console.log("㊲-2 Worker 還不收照片(舊版)→ 有照片的那筆不送、記 worker_no_photos(可自動補送);Worker 升級後補送成功");
+{
+  const env = makeUpd();
+  const form = setupForm(env);
+  addUploads(form);
+  putPhoto(env, "F_OLDW");
+  delete env.__st.ping.caps.memberUpdatePhotos;          // 還沒重新部署的舊版 Worker
+  const RID = "2_OLDWORKER001";
+  const r = answer(env, form, { [NAME_Q]: "A1・曾俊凱", "所屬公司": "雲榮肉品W", "形象照": ["F_OLDW"] }, { rid: RID });
+  ok("★ 沒有送出(舊版 Worker 會把照片默默丟掉)", env.__st.posts.length === 0, JSON.stringify(env.__st.posts));
+  ok("回傳 worker_no_photos", r && r.out && r.out.code === "worker_no_photos", r && JSON.stringify(r.out));
+  const f = failedRid(env, RID);
+  ok("★ 補送清單記成 worker_no_photos,歸到可自動補送", f && f.code === "worker_no_photos" &&
+     env.failedList_().auto.some(x => x.rid === RID), JSON.stringify(f));
+  ok("寄 ALERT(系統類),提到重新部署 publish-relay.js", env.__st.sent.length === 1 && env.__st.sent[0].to === "alert@example.com" &&
+     env.__st.sent[0].body.includes("publish-relay.js"), env.__st.sent[0] && env.__st.sent[0].subject);
+
+  // 純文字的送件不受影響(不問 /ping、照常送)
+  const pingsBefore = env.__st.fetches.filter(u => String(u).endsWith("/ping")).length;
+  const r2 = answer(env, form, { [NAME_Q]: "A1・曾俊凱", "所屬公司": "雲榮肉品T" }, { rid: "2_TEXTONLY0001" });
+  ok("沒有照片的送件照常送出", r2 && r2.out && r2.out.code === "ok" && env.__st.posts.length === 1, r2 && JSON.stringify(r2.out));
+  ok("沒有照片的送件不多問 /ping", env.__st.fetches.filter(u => String(u).endsWith("/ping")).length === pingsBefore);
+
+  // 重新部署之後:「不支援」只快取 2 分鐘,過期後補送就通過
+  env.__st.ping.caps.memberUpdatePhotos = true;
+  env.__st.cache.clear();
+  env.__st.posts.length = 0;
+  env.resendFailedMemberUpdates();
+  const u = (env.__st.posts[0] || {}).update || {};
+  ok("★ Worker 升級後補送成功,照片和文字都在", env.__st.posts.length === 1 && u.responseId === RID && !!u.photos && !!u.photos.image &&
+     u.changes.company === "雲榮肉品W", JSON.stringify(env.__st.posts.map(p => p.update && p.update.responseId)));
+  ok("補送成功後移出清單", !failedRid(env, RID));
+}
+{
+  const env = makeUpd();
+  const form = setupForm(env);
+  addUploads(form);
+  env.driveImageDataUrl_ = () => { throw new Error("Exception: 服務暫時無法使用"); };
+  let threw = false, r = null;
+  try { r = answer(env, form, { [NAME_Q]: "A1・曾俊凱", "名片照片": ["F_X"] }); } catch (e) { threw = true; }
+  ok("★ 轉檔丟例外 → 不往外丟,記成 photo_convert_failed(不是 script_error)", !threw && r.out.code === "photo_convert_failed" &&
+     failedRid(env, r.rid).code === "photo_convert_failed" && env.__st.posts.length === 0, r && JSON.stringify(r.out));
+}
+{
+  const env = makeUpd();
+  const form = setupForm(env);
+  addUploads(form);
+  putPhoto(env, "F_HUGE", { noThumb: true, size: 300 * 1024 });
+  putPhoto(env, "F_PDF", { mime: "application/pdf" });
+  const a = answer(env, form, { [NAME_Q]: "A1・曾俊凱", "形象照": ["F_HUGE"] });
+  ok("縮圖拿不到、原檔超過上限 → photo_convert_failed", a.out.code === "photo_convert_failed" && env.__st.posts.length === 0);
+  const b = answer(env, form, { [NAME_Q]: "A1・曾俊凱", "名片照片": ["F_PDF"] });
+  ok("傳的是 PDF → photo_convert_failed(不會硬標成 image/jpeg 送出去)", b.out.code === "photo_convert_failed" && env.__st.posts.length === 0);
+}
+
+console.log("㊳ Worker 退回照片(invalid_pending_image / pending_image_too_large)→ 需人工處理、寄 NOTIFY、不自動補送");
+for (const [code, status] of [["invalid_pending_image", 400], ["pending_image_too_large", 413]]) {
+  const env = makeUpd();
+  const form = setupForm(env);
+  addUploads(form);
+  putPhoto(env, "F_1");
+  env.__st.worker = () => [status, { ok: false, error: code, field: "product[0]", reason: "bad_format" }];
+  const { rid, out } = answer(env, form, { [NAME_Q]: "A1・曾俊凱", "商品照片": ["F_1"] });
+  ok(code + " → 只送 1 次(4xx 不重送)", env.__st.posts.length === 1);
+  ok("★ " + code + " → 記進補送清單、歸到需人工處理", out.code === code && failedRid(env, rid) && failedRid(env, rid).code === code &&
+     env.failedList_().manual.some(x => x.rid === rid) && !env.failedList_().auto.some(x => x.rid === rid));
+  const m = env.__st.sent[0];
+  ok(code + " → 寄 NOTIFY(送件類),請組長 LINE 本人換照片重填、網管 dismiss", !!m && m.to === "leaders@example.com" &&
+     m.body.includes("這一類不會自動補送") && m.body.includes('dismissFailedMemberUpdate("' + rid + '")') && m.body.includes("LINE 本人"), m && m.body);
+  ok(code + " → 紀錄寫出是哪一張", logText(env).includes("欄位 product[0]"));
+  env.__st.worker = null; env.__st.posts.length = 0;
+  env.resendFailedMemberUpdates();
+  ok(code + " → resendFailedMemberUpdates 不會自動再送", env.__st.posts.length === 0 && !!failedRid(env, rid));
+}
+
+console.log("㊴ upgradeMemberUpdateFormForPhotos:舊表單加上照片段落、換掉說明;可以重複跑");
+{
+  const env = makeUpd();
+  const form = setupForm(env);
+  // 模擬照片功能之前建好的舊表單:沒有照片段落,說明與確認訊息是舊的
+  form.deleteItem(form.byTitle(PHOTO_SEC));
+  form.desc = "・不用登入 Google，約 2 分鐘。\n・要換形象照、補名片或商品照：請直接用 LINE 傳給你的組長。";
+  form.f.confirm = "✅ 收到了，謝謝你！\n・要換照片：直接用 LINE 傳給你的組長。";
+  const nameChoices = form.byTitle(NAME_Q).choices.map(c => c.value).join("|");
+  const before = form.items.map(i => i.title);
+  const secs = () => form.items.filter(i => i.title === PHOTO_SEC);
+  env.upgradeMemberUpdateFormForPhotos();
+  const t1 = form.items.map(i => i.title);
+  ok("★ 加了一個「照片（選填）」段落標題,緊接在「給組長的備註」前面", secs().length === 1 && secs()[0].type === ITEM.SECTION_HEADER &&
+     t1.indexOf(PHOTO_SEC) === t1.indexOf(NOTE_Q) - 1, t1.join("|"));
+  ok("其他題目順序不變", JSON.stringify(t1.filter(t => t !== PHOTO_SEC)) === JSON.stringify(before));
+  ok("段落說明照定稿", secs()[0].help === "形象照、名片照片、商品照片（最多 5 張）。會先由組長確認再上線。");
+  ok("★ 說明與確認訊息換成新版(要登入、可以傳照片)", form.desc.includes("需要登入 Google") && !form.desc.includes("不用登入") &&
+     !form.desc.includes("LINE 傳") && form.f.confirm.startsWith("✅ 收到了") && !form.f.confirm.includes("要換照片"), form.desc + "\n" + form.f.confirm);
+  ok("說明的「新夥伴表單」那一行照樣有", form.desc.includes("還沒上架名錄的新夥伴"));
+  ok("名字選單沒被動到", form.byTitle(NAME_Q).choices.map(c => c.value).join("|") === nameChoices);
+  ok("★ 印出手動加上傳題的步驟", logText(env).includes("還要手動加三個「上傳檔案」題") && logText(env).includes("標題「商品照片」") && logText(env).includes(form.getEditUrl()));
+  ok("Worker 已支援照片 → 不多嘴", !logText(env).includes("Worker 還不支援照片"));
+  env.__st.logs.length = 0;
+  env.upgradeMemberUpdateFormForPhotos();
+  ok("★ 再跑一次:仍然只有一個段落標題、題目順序完全不變", secs().length === 1 && JSON.stringify(form.items.map(i => i.title)) === JSON.stringify(t1));
+  ok("再跑一次 → 紀錄說不重複加", logText(env).includes("不重複加"));
+  addUploads(form);
+  env.__st.logs.length = 0;
+  env.upgradeMemberUpdateFormForPhotos();
+  const t3 = form.items.map(i => i.title);
+  ok("★ 加好上傳題之後再跑:段落標題不搬動,上傳題仍在它和備註之間", secs().length === 1 && t3.indexOf(PHOTO_SEC) + 1 === t3.indexOf("形象照") &&
+     t3.indexOf("商品照片") + 1 === t3.indexOf(NOTE_Q), t3.join("|"));
+  ok("三題都在 → 不再印步驟,改說都在了", logText(env).includes("三個上傳題都在了") && !logText(env).includes("還要手動加"));
+}
+{
+  const env = makeUpd();
+  const form = setupForm(env);
+  form.deleteItem(form.byTitle(PHOTO_SEC));
+  form.byTitle(NOTE_Q).setTitle("備註(網管改過)");
+  env.upgradeMemberUpdateFormForPhotos();
+  const t = form.items.map(i => i.title);
+  ok("找不到「給組長的備註」→ 段落標題插在出口頁前面(仍在第 2 頁)", t.indexOf(PHOTO_SEC) >= 0 && t.indexOf(PHOTO_SEC) === t.indexOf("找不到自己的名字？") - 1, t.join("|"));
+}
+{
+  const env = makeUpd();
+  setupForm(env);
+  delete env.__st.ping.caps.memberUpdatePhotos;
+  env.upgradeMemberUpdateFormForPhotos();
+  ok("★ Worker 還不支援照片 → 提醒先重新部署 publish-relay.js 再加上傳題", logText(env).includes("Worker 還不支援照片") && logText(env).includes("publish-relay.js"));
+  const env2 = makeUpd();
+  let msg = "";
+  try { env2.upgradeMemberUpdateFormForPhotos(); } catch (e) { msg = String(e.message || e); }
+  ok("還沒建表單 → 叫人先跑 createMemberUpdateForm", msg.includes("createMemberUpdateForm"), msg);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ㊵ 三方介面。上面的案例用的是「照規格寫的假 Worker」—— 兩邊都照規格寫、卻各自理解錯同一個
    細節時,那種測試抓不到。這裡換成真正的 worker/publish-relay.js,後台那一端用真正的
    admin-logic.js 與 site-config.js:
      ・Apps Script 送出的每一個請求(HTTP 方法、欄位名稱),真正的 Worker 都認得;Worker 的回應 Apps Script 也讀得懂
@@ -1282,7 +1641,7 @@ console.log("㉟ 其他:不用 eval、既有函式的文字修正、publishedGro
    UrlFetchApp 是同步的、Worker 是非同步的,所以分兩段:先讓 Apps Script 跑一次、記下它送出的請求,
    交給 Worker;再讓 Apps Script 用 Worker 真正的回應重跑一次(兩次送出的請求必須一模一樣)。
    ══════════════════════════════════════════════════════════════════════════ */
-console.log("㊱ ★ 三方介面:Apps Script ↔ 真正的 Worker ↔ admin-logic.js / site-config.js");
+console.log("㊵ ★ 三方介面:Apps Script ↔ 真正的 Worker ↔ admin-logic.js / site-config.js");
 await (async () => {
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const W = loadWorker(new URL("../worker/publish-relay.js", import.meta.url), fs);
@@ -1329,8 +1688,10 @@ await (async () => {
     run();
     const replies = [];
     for (const s of sent) replies.push(await toWorker(s.url, s.o));
-    // 第二段:照順序回 Worker 真正的回應
+    // 第二段:照順序回 Worker 真正的回應。兩段要從同一個狀態開始 ——
+    // 「Worker 收不收照片」會快取(relaySupportsPhotos_),不清掉的話第二段少問一次 /ping,請求順序就對不上
     st.logs.length = 0; st.sent.length = 0;
+    st.cache.delete("mupd:photos-cap");
     let i = 0, alike = true;
     st.relay = (url, o) => {
       const s = sent[i], r = replies[i]; i++;
@@ -1391,7 +1752,8 @@ await (async () => {
     const answers = {};
     let unknown = 0;
     for (const [k, v] of new URL(link.url).searchParams) {
-      if (k === "usp") continue;
+      // openExternalBrowser=1 是給 LINE 的(改用手機瀏覽器開,才登得進 Google),不是表單的題目
+      if (k === "usp" || k === "openExternalBrowser") continue;
       const m = /^entry\.(\d+)$/.exec(k);
       const it = m ? form.getItemById((Number(m[1]) - 100000) / 7) : null;
       if (!it) { unknown++; continue; }
@@ -1429,6 +1791,36 @@ await (async () => {
        !!again.out && again.out.code === "duplicate" && reqs().length === 1 && !failedRid(env, rid), JSON.stringify(again.out));
   }
 
+  // ── 照片:Apps Script 從 Drive 轉出來的照片,真正的 Worker 收得下、存得對
+  //    (Worker 還沒更新到支援照片時略過,只印一行)
+  {
+    const env = makeUpd();
+    env.__st.groups = gsGroups();
+    const form = setupForm(env);
+    addUploads(form);
+    const pong = await toWorker(RELAY + "/ping", { method: "post", contentType: "application/json", payload: "{}" });
+    let caps = {};
+    try { caps = JSON.parse(pong[1]).caps || {}; } catch (e) { caps = {}; }
+    if (caps.memberUpdatePhotos !== true) {
+      console.log("  ·  Worker 還不支援照片(/ping 沒有 caps.memberUpdatePhotos),略過照片的三方測試");
+    } else {
+      const img = putPhoto(env, "W_IMG"), p1 = putPhoto(env, "W_P1"), p2 = putPhoto(env, "W_P2");
+      const { rid } = answer(env, form, { [NAME_Q]: "A1・曾俊凱", "形象照": ["W_IMG"], "商品照片": ["W_P1", "W_P2"] }, { noTrigger: true });
+      const r = await viaWorker(env, () => env.onMemberUpdateSubmit({ response: form.getResponse(rid), source: form }));
+      ok("兩次送出的請求一樣(同一張照片每次轉出來都一樣)", r.alike);
+      ok("★ 只傳照片:真正的 Worker 收下(200 ok),Apps Script 判成功、移出補送清單",
+         !!r.out && r.out.code === "ok" && !failedRid(env, rid), JSON.stringify(r.out) + " ← " + (r.replies[0] || []).join(" ").slice(0, 300));
+      const req = reqs().find(x => x.responseId === rid), ph = req && req.photos;
+      const sha = b => crypto.createHash("sha256").update(b).digest("hex");
+      ok("★ Worker 存下的照片就是 Drive 上那幾個檔(sha256 一致、順序一致、沒傳名片就是 null)",
+         !!ph && !!ph.image && ph.image.sha256 === sha(img.bytes) && ph.image.mime === "image/jpeg" && Array.isArray(ph.products) &&
+         ph.products.length === 2 && ph.products[0].sha256 === sha(p1.bytes) && ph.products[1].sha256 === sha(p2.bytes) && !ph.card,
+         JSON.stringify(ph));
+      ok("★ 照片物件真的寫進了 R2 的 updates/img/", !!ph && [ph.image].concat(ph.products || []).every(x => x && r2.objects.has(x.key) && x.key.startsWith("updates/img/")));
+      ok("Worker 回報收了 3 張,Apps Script 記在紀錄裡", logText(env).includes("照片 3 張"), logText(env));
+    }
+  }
+
   // ── 系統改送到別組:本人選的選項一路傳到審核畫面
   {
     const env = makeUpd();
@@ -1460,15 +1852,29 @@ await (async () => {
   {
     const env = makeUpd();
     const wsrc = fs.readFileSync(new URL("../worker/publish-relay.js", import.meta.url), "utf8");
-    const fnBody = name => { const m = new RegExp("\\nasync function " + name + "\\([^)]*\\)\\{([\\s\\S]*?)\\n\\}").exec(wsrc); return m ? m[1] : ""; };
+    const fnBody = name => { const m = new RegExp("\\n(?:async )?function " + name + "\\([^)]*\\)\\{([\\s\\S]*?)\\n\\}").exec(wsrc); return m ? m[1] : ""; };
     const codesIn = s => [...s.matchAll(/error:\s*"([a-z_]+)"/g)].map(m => m[1]);
     const body = fnBody("handleMemberUpdate");
+    /* 照片的錯誤碼是收件呼叫的 parse…Photos 回傳、再原樣轉回來的(error: parsed.error),
+       在 handleMemberUpdate 裡看不到字面值 —— 所以順著它呼叫的 parse…Photos 一路收集。
+       只收「Photos」(複數)那幾支:parseOnePhoto 的 empty、bad_format 之類是內部原因,
+       會被 parsePendingPhotos 換成 invalid_pending_image / pending_image_too_large 才往外回。 */
+    const photoCodes = [], seenFn = new Set(), queue = [...body.matchAll(/\b(parse\w*Photos)\(/g)].map(m => m[1]);
+    while (queue.length) {
+      const n = queue.shift();
+      if (seenFn.has(n)) continue;
+      seenFn.add(n);
+      const b = fnBody(n);
+      photoCodes.push(...codesIn(b));
+      queue.push(...[...b.matchAll(/\b(parse\w*Photos)\(/g)].map(m => m[1]));
+    }
     // 收件裡的錯誤碼,加上讀公開網站的兩支 helper 與路由(沒有這支端點 → not_found,例外 → server_error)
-    const worker = new Set([...codesIn(body), ...codesIn(fnBody("readSiteJson")), ...codesIn(fnBody("readIndexMapSite")), "not_found", "server_error"]);
+    const worker = new Set([...codesIn(body), ...photoCodes, ...codesIn(fnBody("readSiteJson")), ...codesIn(fnBody("readIndexMapSite")), "not_found", "server_error"]);
     const table = new Set(Object.keys(env.UPDATE_ERRORS_ || {}));
     const done = new Set(["nothing_to_update"]);   // Apps Script 當成「處理完了」
     const never = new Set(["bad_request"]);         // Apps Script 一律送合法 JSON,遇不到
-    const gsOnly = new Set(["config_missing", "script_error", "bad_label", "flood_paused"]);   // Apps Script 自己產生的
+    // Apps Script 自己產生的(photo_convert_failed:照片在 Apps Script 這頭就轉不出來,根本沒送到 Worker)
+    const gsOnly = new Set(["config_missing", "script_error", "bad_label", "flood_paused", "photo_convert_failed", "worker_no_photos"]);
     ok("抓得到收件端點的原始碼", body.length > 1000 && worker.has("bad_update") && worker.has("site_unreachable"), [...worker].join(","));
     const missing = [...worker].filter(c => !table.has(c) && !done.has(c) && !never.has(c));
     ok("★ Worker /member-update 會回的錯誤碼,Apps Script 的對照表都有", !missing.length, missing.join("、"));

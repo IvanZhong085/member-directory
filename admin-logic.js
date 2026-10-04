@@ -158,10 +158,19 @@ var AdminLogic = (function(){
   const UPDATE_CTRL_RE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g;
   const DAY_MS = 86400000;
 
+  /* 照片欄位(更新表單的三個上傳題)。和 9 個文字欄位分開放:
+     FIELD_LABELS 有測試鎖住「剛好 9 欄、和表單文字題同名」,連結代碼的 9 段雜湊也只管文字。
+     鍵和 Worker 的 UPDATE_PHOTO_FIELDS、成員卡的 image/card/products 同名 ——
+     套用時 choices / expect 用的就是這三個鍵。 */
+  const PHOTO_LABELS = Object.freeze({ image:"形象照", card:"名片照片", products:"商品照片" });
+  const UPDATE_PHOTO_FIELDS = Object.freeze(["image","card","products"]);
+  /* 商品照最多幾張:和成員卡上傳、Worker 套用的上限同一個數字 */
+  const UPDATE_PRODUCTS_MAX = 5;
+
   const hasOwn = (o, k) => !!o && typeof o === "object" && Object.prototype.hasOwnProperty.call(o, k);
   const isListField = f => LIST_FIELDS.indexOf(f) >= 0;
   /* 欄位鍵 → 顯示名稱。只查自己的屬性,"constructor" 這類鍵不會查到 Object.prototype 上的東西 */
-  const fieldLabel = f => hasOwn(FIELD_LABELS, f) ? FIELD_LABELS[f] : String(f == null ? "" : f);
+  const fieldLabel = f => hasOwn(FIELD_LABELS, f) ? FIELD_LABELS[f] : hasOwn(PHOTO_LABELS, f) ? PHOTO_LABELS[f] : String(f == null ? "" : f);
   const fieldRank = f => { const i = UPDATE_FIELD_ORDER.indexOf(f); return i < 0 ? UPDATE_FIELD_ORDER.length : i; };
 
   /* 選單上的選項文字「A1・曾俊凱」。中間是 U+30FB「・」,和網站徽章「代號・組名」同一種寫法。
@@ -234,19 +243,44 @@ var AdminLogic = (function(){
     return out;
   }
 
+  /* 給夥伴的表單連結一律加這個參數:LINE 內建瀏覽器看到它會改用手機的瀏覽器開。
+     為什麼一定要:更新表單可以上傳照片,Google 因此要求登入;LINE 內建瀏覽器登不進 Google
+     (會卡在「這個瀏覽器不安全」),長輩點了連結只會看到登入失敗,不會知道要換瀏覽器。
+     Google 表單會忽略不認得的參數,其他 App 開也不受影響。 */
+  const EXTERNAL_BROWSER_PARAM = "openExternalBrowser";
+
+  /* 字串網址加上 openExternalBrowser=1。已經有這個參數就原樣回傳(不重複加);
+     不是 http(s) 網址(或根本不是字串)也原樣回傳 —— 那種網址加了也沒用。
+     ★ 用字串接在查詢字串後面,不經過 URLSearchParams 重組:重組會把原本的參數重新編碼
+       (例如 %20 變成 +),組長貼在 site-config 的網址要原封不動。 */
+  function withExternalBrowser(url){
+    if(typeof url !== "string") return url;
+    const s = url.trim();
+    let u;
+    try{ u = new URL(s); }catch(e){ return url; }
+    if(u.protocol !== "https:" && u.protocol !== "http:") return url;
+    if(u.searchParams.has(EXTERNAL_BROWSER_PARAM)) return url;
+    const at = s.indexOf("#");
+    const head = at < 0 ? s : s.slice(0, at), hash = at < 0 ? "" : s.slice(at);
+    const sep = head.indexOf("?") < 0 ? "?" : /[?&]$/.test(head) ? "" : "&";
+    return head + sep + EXTERNAL_BROWSER_PARAM + "=1" + hash;
+  }
+
   /* 組 Google 表單的預填連結。回傳 null(沒設表單網址,或網址不是 http(s))
      或 { url, nameless, trimmed }:
        nameless  site-config 沒有 member 的 entry → 只能給通用連結
        trimmed   全部預填超過 maxLen → 退回只預選名字(**不帶連結代碼**:代碼記的是
                  「每一格帶入了什麼」,格子沒帶入卻帶代碼,Worker 會誤判本人清空了每一格)
      只放 entries 與 values 兩邊都有的鍵;編碼一律交給 URLSearchParams,
-     換行、空白、「・」、括號都不用自己處理。 */
+     換行、空白、「・」、括號都不用自己處理。
+     三種結果都帶 openExternalBrowser=1(見 withExternalBrowser),長度判斷也把它算進去 ——
+     它是最後才接上的,不算的話剛好卡在上限邊緣的連結會超過。 */
   const PREFILL_KEYS = ["member"].concat(UPDATE_FIELD_ORDER, ["token"]);
   function updatePrefillUrl(formUrl, entries, values, maxLen = 6000){
     const base = typeof formUrl === "string" ? formUrl.trim() : "";
     if(!base) return null;
     const entryOf = k => hasOwn(entries, k) && typeof entries[k] === "string" ? entries[k].trim() : "";
-    if(!entryOf("member")) return { url: base, nameless: true, trimmed: false };
+    if(!entryOf("member")) return { url: withExternalBrowser(base), nameless: true, trimmed: false };
     const valueOf = k => hasOwn(values, k) && values[k] != null ? String(values[k]) : "";
     const build = keys => {
       let u;
@@ -257,6 +291,7 @@ var AdminLogic = (function(){
         const e = entryOf(k), v = valueOf(k);
         if(e && v) u.searchParams.set(e, v);
       }
+      u.searchParams.set(EXTERNAL_BROWSER_PARAM, "1");   // 放最後:前面那些才是給表單看的
       return u.toString();
     };
     /* 連結代碼記的是「每一格帶入了什麼」。有內容的格子卻沒有 entry(題目被改了標題、site-config
@@ -439,7 +474,62 @@ var AdminLogic = (function(){
       if(kind === "list") row.items = listDiff(before, after);
       rows.push(row);
     }
+
+    /* 照片列接在文字列後面(形象照、名片照片、商品照片)。
+       before 是成員卡上現在的檔名(後台用 imgSrc 顯示);incoming 是暫存區的新照片,
+       後台另外向 /member-update-photo 要。
+       照片不和網站上的比對:同一張照片重新上傳也會是不同的檔,判斷不出「一樣」,所以 identical 一律 false。
+       預設規則和文字列一樣是「第一條成立的決定,警示每條都列」:
+         ① allSkip                    整筆有疑問(選錯名字、補送的舊內容),警示已經在標頭
+         ② 較新那筆也傳了這類照片       舊的先不套用,免得舊照片蓋掉新照片
+         ③ 形象照/名片原本就有          換掉就回不去,而冒名送件最容易得逞、也最傷人的就是換大頭照
+         ④ 商品照:原本沒有 → 換成新的;放得下 → 加在原本後面(最不會弄丟東西);
+            放不下(超過 5 張)→ 不勾,要組長自己選整組換掉還是不套用 */
+    for(const p of memberUpdatePhotos(r)){
+      const f = p.field;
+      const before = f === "products"
+        ? (Array.isArray(m.products) ? m.products : []).filter(x => typeof x === "string").map(canonText).filter(Boolean)
+        : [canonText(typeof m[f] === "string" ? m[f] : "")].filter(Boolean);
+      const warnings = [];
+      let choice = "";
+      const decide = (c, w) => { if(!choice) choice = c; if(w) warnings.push(w); };
+      if(allSkip) decide("skip");
+      if(newer.has(f)) decide("skip", "後面那筆較新的更新也傳了這類照片，這裡先不套用。");
+      if(f === "products"){
+        const n = before.length, k = p.incoming.length;
+        if(!n) decide("replace");
+        else if(n + k <= UPDATE_PRODUCTS_MAX) decide("append");
+        else decide("skip", "⚠ 原本 " + n + " 張加上新的 " + k + " 張超過 " + UPDATE_PRODUCTS_MAX + " 張，請選「整組換成新的」或不套用。");
+      }else{
+        if(before.length) decide("skip", "⚠ 會換掉名錄上現在的" + p.label + "。請先確認新照片是本人（或他的名片）再勾選。");
+        decide("replace");
+      }
+      rows.push({ field: f, label: p.label, kind: "photo", before, incoming: p.incoming, count: p.incoming.length,
+                  options: f === "products" ? ["replace","append","skip"] : ["replace","skip"],
+                  defaultChoice: choice, warnings, identical: false, changedSinceSubmit: false });
+    }
     return rows;
+  }
+
+  /* 這筆更新帶了哪些照片。回傳 [{ field, label, incoming:[{ field, index }] }],
+     依形象照、名片照片、商品照片的順序,只列真的有照片的欄位。
+     incoming 的 field / index 就是 /member-update-photo 要的參數:商品照是 "product"
+     (單數,和 Worker 的照片 key 同一個字)、index 0–4;形象照與名片的 index 是 -1。
+     req.photos 是 /member-update-get 給的摘要(只有 mime、bytes,沒有 R2 key)。
+     格式不對的項目略過,但其他項目**保留原本的位置**當 index —— Worker 是照位置找照片的。 */
+  function memberUpdatePhotos(req){
+    const p = req && req.photos && typeof req.photos === "object" && !Array.isArray(req.photos) ? req.photos : null;
+    if(!p) return [];
+    const isRef = x => !!x && typeof x === "object" && !Array.isArray(x);
+    const out = [];
+    for(const f of UPDATE_PHOTO_FIELDS){
+      const incoming = f === "products"
+        ? (Array.isArray(p.products) ? p.products.slice(0, UPDATE_PRODUCTS_MAX) : [])
+            .map((x, i) => isRef(x) ? { field:"product", index:i } : null).filter(Boolean)
+        : (hasOwn(p, f) && isRef(p[f]) ? [{ field:f, index:-1 }] : []);
+      if(incoming.length) out.push({ field:f, label:PHOTO_LABELS[f], incoming });
+    }
+    return out;
   }
 
   /* 審核畫面的「系統註記」:沒有變成修改、但組長應該知道的事。
@@ -557,6 +647,13 @@ var AdminLogic = (function(){
       }else{
         lines.push("【" + fieldLabel(f) + "】" + c);
       }
+    }
+    /* 照片沒辦法放進純文字,只說有幾張、去哪裡拿 —— 不講的話,組長貼完文字就以為轉抄完了 */
+    const PHOTO_SHORT = { image:"形象照", card:"名片", products:"商品照" };
+    const photos = memberUpdatePhotos(r);
+    if(photos.length){
+      lines.push("另外傳了照片：" + photos.map(p => PHOTO_SHORT[p.field] + " " + p.incoming.length + " 張").join("、") +
+                 "（照片請在後台查看、另存）。");
     }
     if(r.confirmOnly === true) lines.push("本人確認資料正確，沒有要修改。");
     const note = canonText(r.note);
@@ -838,11 +935,12 @@ var AdminLogic = (function(){
   }
 
   return { computeConflicts, computeRenameRemovals, isPrimaryTab, pendingNotice, makeSingleFlight,
-           FIELD_LABELS, UPDATE_FIELD_ORDER, LIST_FIELDS, UPDATE_LATE_MS, UPDATE_HASH_EMPTY,
+           FIELD_LABELS, PHOTO_LABELS, UPDATE_FIELD_ORDER, UPDATE_PHOTO_FIELDS, UPDATE_PRODUCTS_MAX,
+           LIST_FIELDS, UPDATE_LATE_MS, UPDATE_HASH_EMPTY, fieldLabel,
            memberUpdateLabel, canonUpdateValue, sameUpdateValue, updateValueHash, memberUpdateToken,
-           memberPrefillValues, updatePrefillUrl, listDiff, mergeList, websiteHost,
+           memberPrefillValues, updatePrefillUrl, withExternalBrowser, listDiff, mergeList, websiteHost,
            updateTimeText, updateMonthDay, updateWaitDays,
-           memberUpdateHeader, memberUpdateRows, memberUpdateExtras, memberUpdateNotice,
+           memberUpdateHeader, memberUpdateRows, memberUpdatePhotos, memberUpdateExtras, memberUpdateNotice,
            groupMemberUpdates, findMembersByName, memberUpdateCopyText, overwrittenMemberUpdates,
            stableJson, sameJson, mergeGroupThreeWay, removedMembers };
 })();

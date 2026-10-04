@@ -19,10 +19,12 @@
  * ⚠ 重複執行 createVisitorForm 會被擋下(建立過就記在指令碼屬性裡)。
  *   要改題目請直接到表單編輯頁改;真的要重建請先跑 forgetForms_()。
  *
- * ── 夥伴資料更新表單(已上架的夥伴自己補公司等文字資料)──────────────
+ * ── 夥伴資料更新表單(已上架的夥伴自己補公司等文字資料、換照片)──────────
  * 送出後不會直接上線:先進私有的「待審核」區,組長在後台逐欄確認才寫進名錄。
  * 部署步驟、審核方式與常見問題(含「被灌單怎麼辦」)見 README「八、夥伴資料更新表單」。
+ * ⚠ 這份表單有照片上傳題,所以填表的人都要登入 Google(這是 Google 的規定)。
  *   createMemberUpdateForm()       建立更新表單 + 回應試算表 + 兩個觸發器(做一次)
+ *   upgradeMemberUpdateFormForPhotos()  已經建好的舊表單加上照片段落(可以重複跑)
  *   checkMemberUpdateForm()        逐項檢查(只讀不改);全部 ✅ 才把網址發到 LINE
  *   syncMemberUpdateNames()        名字選單照公開名錄更新(觸發器每小時自動跑,也可以手動跑)
  *   printMemberUpdateLinkConfig()  重印要貼進 site-config.js 的兩行
@@ -1416,11 +1418,15 @@ function createRosterSheet() {
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
-   夥伴資料更新表單(已上架的夥伴自己更新文字資料)
+   夥伴資料更新表單(已上架的夥伴自己更新文字資料與照片)
    ══════════════════════════════════════════════════════════════════════════
-   夥伴在下拉選單選「A1・曾俊凱」,只填要改的格子(空著＝不改),送出後由
-   onMemberUpdateSubmit 轉給 Worker 的 /member-update,進私有 R2 的「待審核」區;
-   組長在後台逐欄確認後,Worker 才寫進 data/<組>.json。完整說明見 README「八」。
+   夥伴在下拉選單選「A1・曾俊凱」,只填要改的格子(空著＝不改),要換照片就在
+   「照片（選填）」上傳,送出後由 onMemberUpdateSubmit 轉給 Worker 的 /member-update,
+   進私有 R2 的「待審核」區;組長在後台逐欄確認後,Worker 才寫進 data/<組>.json 與 images/。
+   完整說明見 README「八」。
+   ★ 上傳題 Apps Script 建不出來(Google 的限制),要網管在表單編輯頁手動加三題;
+     createMemberUpdateForm / upgradeMemberUpdateFormForPhotos 會印出步驟,
+     checkMemberUpdateForm 的「照片題」那一行會核對。有上傳題,填表就一定要登入 Google。
 
    幾個刻意的決定(細節在各函式的註解):
    ① 這裡只負責「讀表單、轉送」。佔位字、網址補 https、和名錄現值比對全部交給 Worker ——
@@ -1429,9 +1435,10 @@ function createRosterSheet() {
       中途任何例外、寄信失敗、執行逾時,都不會讓一筆送件無聲無息地消失。
    ③ 熔斷:1 小時超過 60 筆就自動暫停收件。這個帳號的觸發器時間、UrlFetch 與寄信額度,
       是新夥伴申請與來賓報名共用的,被灌單時要先保住它們。
-   ④ 通知信只放過濾後的「代號・姓名」、錯誤碼與回應 ID,不放填答內容與備註 ——
-      表單不必登入,任何拿到網址的人寫的字都不能原樣出現在信裡。
-   ⑤ 執行紀錄同樣不記欄位內容。紀錄是另一個會被人看到的地方。 */
+   ④ 通知信只放過濾後的「代號・姓名」、錯誤碼與回應 ID,不放填答內容、備註與照片 ——
+      表單雖然要登入 Google,但任何有 Google 帳號、拿到網址的人都填得了,
+      他們寫的字不能原樣出現在信裡。
+   ⑤ 執行紀錄同樣不記欄位內容;照片只記張數。紀錄是另一個會被人看到的地方。 */
 
 var UPDATE_TRIGGER      = "onMemberUpdateSubmit";
 var UPDATE_SYNC_TRIGGER = "syncMemberUpdateNames";
@@ -1442,6 +1449,7 @@ var UPDATE_Q = {                       // 更新表單專用的題目(九個資�
   page:   "要更新的內容",
   secNew: "補上還沒有的資料",
   secEdit:"修改名錄上已經有的內容",
+  secPhoto:"照片（選填）",
   note:   "給組長的備註",
   token:  "連結代碼",
   nfPage: "找不到自己的名字？",
@@ -1451,8 +1459,20 @@ var UPDATE_Q = {                       // 更新表單專用的題目(九個資�
 /* 九個資料欄位。順序 = admin-logic.js 的 UPDATE_FIELD_ORDER = Worker 的 UPDATE_TOKEN_ORDER,
    tests/logic.test.mjs 會比對三份 —— 連結代碼的 9 段雜湊就是照這個順序排的。 */
 var UPDATE_FIELD_KEYS = ["company","business_items","website","have","want","title","services","targets","tagline"];
-/* site-config.js 的 UPDATE_FORM_ENTRIES 固定是這 11 個鍵(後台組預填連結用) */
+/* site-config.js 的 UPDATE_FORM_ENTRIES 固定是這 11 個鍵(後台組預填連結用)。
+   上傳題不在裡面:Google 表單的上傳題沒辦法預填,連結只帶得了文字。 */
 var UPDATE_ENTRY_KEYS = ["member","title","company","services","targets","have","want","tagline","business_items","website","token"];
+/* 三個照片上傳題(網管手動加)。key 沿用 NEWMEMBER_Q / NEWMEMBER_ALIASES 的欄位鍵,
+   所以標題用新夥伴表單那一套(主要標題或任一別名)都認得。
+   title 是印給網管照抄的標題 —— 刻意挑最短的寫法(「商品照片」是 products 的別名),
+   手動打字少一點就少一點打錯的機會;tests/google-form.test.mjs 會核對它們確實認得出來。
+   max 是每題最多取幾張:形象照、名片各 1 張,商品照最多 5 張(和後台、Worker 一致)。 */
+var UPDATE_PHOTO_SLOTS = [
+  { key: "image",    title: "形象照",   max: 1 },
+  { key: "card",     title: "名片照片", max: 1 },
+  { key: "products", title: "商品照片", max: 5 },
+];
+var UPDATE_PHOTO_HELP = "形象照、名片照片、商品照片（最多 5 張）。會先由組長確認再上線。";
 var UPDATE_MAIL_MIN_QUOTA      = 20;              // 剩餘額度低於這個數字時,只寄系統類失敗通知
 var UPDATE_SUCCESS_MAIL_GAP_MS = 6 * 3600 * 1000;
 var UPDATE_NF_MAIL_GAP_MS      = 6 * 3600 * 1000; // 「找不到名字」彙整信的間隔
@@ -1461,7 +1481,10 @@ var UPDATE_NAMEIDX_CACHE_S     = 600;             // 名錄索引快取 10 分�
 var UPDATE_DEDUPE_MAX_KEYS     = 50;
 var UPDATE_FAILED_MAX          = 100;
 var UPDATE_RESEND_BUDGET_MS    = 5 * 60 * 1000;   // 補送迴圈的時間上限(Apps Script 單次最多 6 分鐘)
-var UPDATE_MANUAL_CODES = ["member_not_found","member_ambiguous","update_too_large","bad_label","bad_update","flood_paused"];
+/* 需人工處理的錯誤碼。照片的兩個(格式不對、太大)照樣補送只會再被退一次,要本人換一張重填。
+   photo_convert_failed 不在這裡:它多半是 Drive 縮圖還沒產生,晚一點補送就好。 */
+var UPDATE_MANUAL_CODES = ["member_not_found","member_ambiguous","update_too_large","bad_label","bad_update","flood_paused",
+                           "invalid_pending_image","pending_image_too_large"];
 var UPDATE_NF_NAMES_MAX  = 10;                    // 彙整信最多列幾個姓名
 var UPDATE_PROP_MAX_BYTES = 8800;                 // 指令碼屬性單一值上限 9 KB,留一點餘裕
 /* 這些結果代表「這筆處理完了」,補送時算成功 */
@@ -1491,12 +1514,18 @@ var UPDATE_ERRORS_ = {
   bad_label:        { cls: "sys", hint: UPDATE_LABEL_HINT_ },
   bad_update:       { cls: "sys", hint: UPDATE_LABEL_HINT_ },
   flood_paused:     { cls: "sys", hint: "表單疑似被灌單、自動暫停收件那一刻進來的送件。確定是夥伴送的，執行 resendMemberUpdate(\"{rid}\")；其他的執行 dismissFailedMemberUpdate(\"{rid}\")。" },
+  /* 照片轉檔是 Apps Script 這一頭的事(讀 Drive → 縮圖 → data URL),所以是系統類:
+     最常見的是剛上傳完 Drive 還沒產出縮圖,晚一點補送就好,不必去打擾組長。 */
+  worker_no_photos: { cls: "sys", hint: "Worker 還是不收照片的舊版（/ping 沒有 caps.memberUpdatePhotos）。這一筆（連同文字）還沒送出，照片也都還在表單與雲端硬碟。請總管理員重新部署 publish-relay.js，2 分鐘後執行 resendFailedMemberUpdates() 補送。" },
+  photo_convert_failed: { cls: "sys", hint: "照片轉檔失敗，多半是 Google 雲端硬碟還沒產出縮圖。這一筆（連同文字）都還沒送出，稍後執行 resendFailedMemberUpdates() 補送通常就好。一直失敗的話，多半是傳了不是照片的檔案或特殊格式：請組長 LINE 本人改傳 JPG 或 PNG 照片重填一次，再由網管執行 dismissFailedMemberUpdate(\"{rid}\")。" },
   group_not_found:  { cls: "sub", hint: "選單上的組代號已經不存在（可能剛改名）。系統每小時會更新選單，補送時會用新的代號重找。" },
   member_not_found: { cls: "sub", hint: "名錄上找不到這位（可能剛改名、被刪除，或選錯人）。如果是改名或選錯人：請網管在 Apps Script 執行 resendMemberUpdate(\"{rid}\", \"A1・正確姓名\")；如果他已經不在名錄上：請組長 LINE 本人，處理完由網管執行 dismissFailedMemberUpdate(\"{rid}\")。" },
   member_ambiguous: { cls: "sub", hint: "同一組有兩位同名的夥伴，系統無法判斷是誰。請組長直接跟本人確認後在後台手動修改，再由網管執行 dismissFailedMemberUpdate(\"{rid}\")。" },
   update_too_large: { cls: "sub", hint: "內容太長。請組長 LINE 本人，請他縮短後重填；之後由網管執行 dismissFailedMemberUpdate(\"{rid}\")。" },
   too_many_updates_for_member: { cls: "sub", hint: "這位夥伴已經有 3 筆更新在等審核。請組長先到後台處理他的待審更新（如果那幾筆不是本人送的，直接按「不採用」）。之後補送或請本人重填，擇一即可（內容相同的不會重複建立）。" },
   updates_full:     { cls: "sub", hint: "待審核更新已經滿 100 筆。請組長盡快到後台處理（總管理員可以勾選後一次不採用），處理後再補送。" },
+  invalid_pending_image: { cls: "sub", hint: "上傳的照片不是名錄收得下的圖片（只收 JPG、PNG、WebP），整筆（連同文字）都沒有送進後台。請組長 LINE 本人，請他換一張照片、連同要改的文字重填一次；之後由網管執行 dismissFailedMemberUpdate(\"{rid}\")。" },
+  pending_image_too_large: { cls: "sub", hint: "照片太大，名錄收不下，整筆（連同文字）都沒有送進後台。請組長 LINE 本人，請他換一張較小的照片、連同要改的文字重填一次；之後由網管執行 dismissFailedMemberUpdate(\"{rid}\")。" },
 };
 
 /* ── 小工具 ───────────────────────────────────────────────────────────── */
@@ -1562,7 +1591,8 @@ function splitUpdateLabel_(label) {
 
 /* 信件裡的姓名只留「文字」:字母、組合符號、「・·」與空白。
    冒號、斜線、句點全部濾掉,就不可能組成網址;角括號濾掉,就不可能出現標籤。
-   表單不必登入,任何人都能在姓名欄寫一段釣魚文字,這是它進到信裡之前唯一的關卡。 */
+   表單雖然要登入 Google,但任何有 Google 帳號的人都能在姓名欄寫一段釣魚文字,
+   這是它進到信裡之前唯一的關卡。 */
 function safeNameText_(s, max) {
   var v = String(s == null ? "" : s);
   try { v = v.normalize("NFKC"); } catch (err) { /* 沒有 normalize 就照原樣過濾 */ }
@@ -2020,14 +2050,157 @@ function newMemberFormUrl_() {
   try { return String(FormApp.openByUrl(u).getPublishedUrl() || ""); } catch (err) { return ""; }
 }
 
+/* 表單說明。★ 要講清楚「為什麼要登入」:夥伴從 LINE 點進來看到 Google 登入畫面,
+   第一個反應通常是「是不是點錯了、會不會是詐騙」;先說明原因,才不會在這一步就放棄。
+   「從 LINE 點開會改用手機瀏覽器」是因為組長給的連結帶 openExternalBrowser=1
+   (LINE 內建的瀏覽器登不進 Google),先講好,夥伴看到畫面跳走才不會慌。 */
 function memberUpdateDescription_(newMemberUrl) {
-  return "已經在分會名錄上的夥伴，用這份表單補上或修改自己的資料，例如補公司名稱、主要營業項目、我有／我要。\n" +
+  return "已經在分會名錄上的夥伴，用這份表單補上或修改自己的資料，例如補公司名稱、主要營業項目、我有／我要，也可以換照片。\n" +
     "・只填要改的格子，其他空著就好 —— 空著＝維持名錄上原本的內容，不會被清掉。\n" +
-    "・送出後由你的產業小組組長確認，確認後才會出現在名錄上。\n" +
-    "・不用登入 Google，約 2 分鐘。\n" +
-    "・要換形象照、補名片或商品照：請直接用 LINE 傳給你的組長。\n" +
+    "・送出後由你的產業小組組長確認，確認後才會出現在名錄上。照片也一樣，組長確認後才會換上。\n" +
+    "・需要登入 Google 帳號才能送出（因為可以上傳照片）。從 LINE 點開時會自動改用手機的瀏覽器開啟，用你平常的 Google 帳號登入就好。約 3 分鐘。\n" +
+    "・要換形象照、補名片或商品照片（最多 5 張）：在最下面的「" + UPDATE_Q.secPhoto + "」上傳；不換就空著。\n" +
     (newMemberUrl ? "・還沒上架名錄的新夥伴，請改填新夥伴表單：" + newMemberUrl
                   : "・還沒上架名錄的新夥伴，請跟你的組長索取新夥伴表單。");
+}
+
+/* 送出後看到的確認訊息。建表與 upgradeMemberUpdateFormForPhotos 共用,兩邊才不會講不一樣的話。 */
+function memberUpdateConfirmation_() {
+  return "✅ 收到了，謝謝你！\n" +
+    "接下來由你的產業小組組長確認（通常一週內），確認後幾分鐘內就會出現在名錄上，你不用再做任何事。\n" +
+    "・發現填錯了：再填一次這份表單，只填要改正的那一格就好。\n" +
+    "・有傳照片的話，照片也由組長確認後才換上。\n" +
+    "・一週後名錄還是沒變：請直接 LINE 你的組長。";
+}
+
+/* 「照片（選填）」段落標題:放在「給組長的備註」前面,三個上傳題由網管手動加在它下面。
+   已經有就不動(網管可能已經在它下面加好上傳題,這時候再搬它反而會把題目順序弄亂)。
+   回傳 "added" | "exists" | "no_anchor"。
+   ★ 新項目一律先加在表單最後面,再用 moveItem 搬到「給組長的備註」的位置 ——
+     FormApp 沒有「插在某題前面」的方法。找不到備註題就退而求其次插在出口頁前面
+     (仍然在第 2 頁);兩個都找不到就不加,交給網管手動處理。 */
+function ensureMemberUpdatePhotoSection_(form) {
+  var want = normTitle_(UPDATE_Q.secPhoto);
+  var heads = form.getItems(FormApp.ItemType.SECTION_HEADER);
+  for (var i = 0; i < heads.length; i++) if (normTitle_(heads[i].getTitle()) === want) return "exists";
+  var anchor = null, noteT = normTitle_(UPDATE_Q.note), items = form.getItems();
+  for (var j = 0; j < items.length; j++) if (normTitle_(items[j].getTitle()) === noteT) { anchor = items[j]; break; }
+  if (!anchor) anchor = findUpdateNotFoundPage_(form);
+  if (!anchor) return "no_anchor";
+  var at = anchor.getIndex();
+  var head = form.addSectionHeaderItem().setTitle(UPDATE_Q.secPhoto).setHelpText(UPDATE_PHOTO_HELP);
+  form.moveItem(head, at);
+  return "added";
+}
+
+/* 表單上的三個照片上傳題。回傳 { found:{key: Item}, missing:[標題], wrongType:[標題], uploads: 上傳題總數 }。
+   標題比對沿用 titlesFor_(主要標題 + 別名,經過 normTitle_),題型一定要是「上傳檔案」——
+   同名的文字題收不到檔案,不能算數。 */
+function memberUpdatePhotoItems_(form) {
+  var items = form.getItems(), byTitle = Object.create(null), uploads = 0;
+  for (var i = 0; i < items.length; i++) {
+    var t = normTitle_(items[i].getTitle()), isUp = items[i].getType() === FormApp.ItemType.FILE_UPLOAD;
+    if (isUp) uploads++;
+    // 同一個標題有上傳題就以上傳題為準(網管可能留著一題同名的舊文字題)
+    if (!hasOwn_(byTitle, t) || isUp) byTitle[t] = { item: items[i], upload: isUp };
+  }
+  var out = { found: {}, missing: [], wrongType: [], uploads: uploads };
+  for (var s = 0; s < UPDATE_PHOTO_SLOTS.length; s++) {
+    var slot = UPDATE_PHOTO_SLOTS[s], names = titlesFor_(slot.key), hit = null;
+    for (var n = 0; n < names.length; n++) {
+      if (hasOwn_(byTitle, names[n]) && (!hit || (!hit.upload && byTitle[names[n]].upload))) hit = byTitle[names[n]];
+    }
+    if (!hit) out.missing.push(slot.title);
+    else if (!hit.upload) out.wrongType.push(slot.title);
+    else out.found[slot.key] = hit.item;
+  }
+  return out;
+}
+
+/* 印出「手動加三個上傳題」的步驟。建表與 upgradeMemberUpdateFormForPhotos 共用。
+   ★ Apps Script 的 FormApp 沒有建立上傳題的方法(沒有 addFileUploadItem),這是 Google 的限制,
+     只能在表單編輯頁用滑鼠加。送出處理是靠「標題」對應欄位的,所以標題要一字不差。 */
+function logMemberUpdatePhotoSteps_(editUrl) {
+  Logger.log("⚠ 還要手動加三個「上傳檔案」題(Apps Script 建不了上傳題,這是 Google 的限制):");
+  Logger.log("   1. 打開表單編輯頁:" + editUrl);
+  Logger.log("   2. 點一下段落標題「" + UPDATE_Q.secPhoto + "」,再按右邊的「+」新增問題 → 題型選「檔案上傳」(有些畫面叫「上傳檔案」)");
+  Logger.log("      (Google 會說明檔案會存進你的雲端硬碟,按「繼續」)");
+  Logger.log("   3. 照順序加這三題,都放在「" + UPDATE_Q.secPhoto + "」下面、「" + UPDATE_Q.note + "」上面,都不要勾「必填」:");
+  for (var i = 0; i < UPDATE_PHOTO_SLOTS.length; i++) {
+    var s = UPDATE_PHOTO_SLOTS[i];
+    Logger.log("      " + (i + 1) + ". 標題「" + s.title + "」  檔案類型只允許「圖片」、檔案數量上限 " + s.max +
+               "、檔案大小上限 10 MB");
+  }
+  Logger.log("   ★ 標題要一字不差(和新夥伴表單同一套名稱),送出處理是靠標題對應欄位的。");
+  Logger.log("   4. 加完執行 checkMemberUpdateForm,「照片題」那一行要是 ✅。");
+}
+
+/* /ping。一定要用 POST:Worker 對 POST 以外的方法一律回 405 method_not_allowed(後台的 /ping 也是 POST)。
+   用 UrlFetch 預設的 GET 的話,永遠會判成「Worker 太舊」,網管會被引導去重新部署一個沒問題的 Worker。
+   連不到回 null。 */
+function pingRelay_(relay) {
+  try {
+    return parseRelayResponse_(UrlFetchApp.fetch(relay + "/ping", {
+      method: "post", contentType: "application/json", payload: "{}", muteHttpExceptions: true }));
+  } catch (err) { return null; }
+}
+
+/* Worker 收不收得下照片。回傳 true / false / null(問不到)。
+   ★ 舊版 Worker 不認得 update.photos:文字照收、照片被默默丟掉;只傳照片的那筆還會被當成
+     「沒有可以更新的內容」而結案 —— 組長和本人都不會知道照片沒進來。網管先貼了新版程式、
+     加了上傳題,卻還沒重新部署 Worker 時就會這樣,所以有照片的送件先問一次 /ping。
+   快取:支援就記 10 分鐘(不是每筆都多打一次);不支援只記 2 分鐘,重新部署之後補送很快就會通過。
+   問不到(連線失敗)回 null,由呼叫端照常送出 —— 連不到的話送件本身也會失敗並記進補送清單。 */
+function relaySupportsPhotos_(relay) {
+  var cache = null, key = "mupd:photos-cap";
+  try {
+    cache = CacheService.getScriptCache();
+    var v = cache.get(key);
+    if (v === "1") return true;
+    if (v === "0") return false;
+  } catch (err) { cache = null; }
+  var ping = pingRelay_(relay);
+  var caps = ping && ping.out && ping.out.caps;
+  if (!caps || typeof caps !== "object") return null;
+  var ok = caps.memberUpdatePhotos === true;
+  try { if (cache) cache.put(key, ok ? "1" : "0", ok ? 600 : 120); } catch (err2) { /* 快取壞了就下次再問 */ }
+  return ok;
+}
+
+/* 給「已經建好」的更新表單加上照片功能(新建的表單 createMemberUpdateForm 已經做好了)。
+   做三件事,可以重複執行,不會加出第二個段落標題:
+   ① 表單說明、確認訊息換成「要登入 Google、可以上傳照片」的版本
+   ② 沒有「照片（選填）」段落標題就加在「給組長的備註」前面
+   ③ 印出手動加三個上傳題的步驟(已經加好就只印 ✅)
+   ★ 上傳題加上去的那一刻起,填表就要登入 Google。Worker 還不支援照片的話,照片會被
+     Worker 默默丟掉 —— 所以這裡會先問 Worker,沒準備好就提醒先重新部署。 */
+function upgradeMemberUpdateFormForPhotos() {
+  var form = openUpdateForm_();
+  form.setDescription(memberUpdateDescription_(newMemberFormUrl_()));
+  form.setConfirmationMessage(memberUpdateConfirmation_());
+  Logger.log("✅ 表單說明與確認訊息已更新(需要登入 Google、可以上傳照片)");
+
+  var sec = ensureMemberUpdatePhotoSection_(form);
+  if (sec === "added") Logger.log("✅ 已在「" + UPDATE_Q.note + "」前面加上段落標題「" + UPDATE_Q.secPhoto + "」");
+  else if (sec === "exists") Logger.log("✅ 已經有段落標題「" + UPDATE_Q.secPhoto + "」,不重複加");
+  else Logger.log("✗ 找不到「" + UPDATE_Q.note + "」也找不到出口頁,段落標題沒有加 —— 請在表單編輯頁手動加一個段落標題「" + UPDATE_Q.secPhoto + "」");
+
+  var relay = String(PropertiesService.getScriptProperties().getProperty("RELAY_URL") || "").replace(/\/+$/, "");
+  var ping = relay ? pingRelay_(relay) : null;
+  var caps = ping && ping.out && ping.out.caps;
+  if (!caps || caps.memberUpdatePhotos !== true) {
+    Logger.log("⚠ Worker 還不支援照片(/ping 的 caps.memberUpdatePhotos 不是 true)。請總管理員先重新部署 publish-relay.js,");
+    Logger.log("   再加上傳題 —— 否則夥伴傳的照片會進不了後台。");
+  }
+
+  var ph = memberUpdatePhotoItems_(form);
+  if (!ph.missing.length && !ph.wrongType.length) {
+    Logger.log("✅ 三個上傳題都在了(" + UPDATE_PHOTO_SLOTS.map(function (s) { return s.title; }).join("、") + ")。");
+    Logger.log("   接著執行 checkMemberUpdateForm 確認全部 ✅。");
+  } else {
+    if (ph.wrongType.length) Logger.log("✗ 這幾題標題對了但題型不是「上傳檔案」,請刪掉重加:" + ph.wrongType.join("、"));
+    logMemberUpdatePhotoSteps_(form.getEditUrl());
+  }
 }
 
 /* 建立「夥伴資料更新」表單。題目、說明與換頁規則都是定稿(見 README「八」)。
@@ -2048,16 +2221,11 @@ function createMemberUpdateForm() {
   var form = FormApp.create(UPDATE_FORM_TITLE);
   props.setProperty("UPDATE_FORM_EDIT_URL", form.getEditUrl());
   form.setDescription(memberUpdateDescription_(newMemberUrl));
-  form.setCollectEmail(false);            // 收集 email(驗證過的)會強制登入
+  form.setCollectEmail(false);            // 用不到夥伴的信箱,不必留在回應試算表(登入是上傳題要求的,和這個無關)
   form.setAllowResponseEdits(false);      // 開了的話每編輯一次就是一筆新的待審核
-  form.setLimitOneResponsePerUser(false); // 開了會強制登入
+  form.setLimitOneResponsePerUser(false); // 開了每個帳號只能送一次;夥伴常常要送不只一次(填錯再補、之後換照片)
   form.setPublishingSummary(false);       // 開了的話,送出過的人看得到所有回覆的摘要(包括別人的備註)
-  form.setConfirmationMessage(
-    "✅ 收到了，謝謝你！\n" +
-    "接下來由你的產業小組組長確認（通常一週內），確認後幾分鐘內就會出現在名錄上，你不用再做任何事。\n" +
-    "・發現填錯了：再填一次這份表單，只填要改正的那一格就好。\n" +
-    "・一週後名錄還是沒變：請直接 LINE 你的組長。\n" +
-    "・要換照片：直接用 LINE 傳給你的組長。");
+  form.setConfirmationMessage(memberUpdateConfirmation_());
 
   // 第 1 頁:先放沒有換頁設定的選項(選項不能是空陣列),後面 applyMemberUpdateChoices_ 再補換頁
   var nameItem = form.addListItem().setTitle(UPDATE_Q.member).setRequired(true).setChoiceValues(ch.labels);
@@ -2096,6 +2264,10 @@ function createMemberUpdateForm() {
     .setHelpText("希望夥伴幫你介紹什麼樣的對象，一項一行。例：\n火鍋餐廳\n外燴團隊\n不用改就空著。");
   form.addParagraphTextItem().setTitle(NEWMEMBER_Q.tagline).setRequired(false)
     .setHelpText("例會上 25 秒自我介紹的那句 slogan，兩句一組、一句一行。例：\n國產羊肉找阿成\n老饕全部都點頭\n不用改就空著。");
+  /* 照片段落。⚠ 三個「上傳檔案」題不在這裡建立:FormApp 沒有建立上傳題的方法,
+     網管照最後印出的步驟手動加在這個段落標題下面。沒加也不會壞,只是收不到照片
+     (checkMemberUpdateForm 的「照片題」會是 ✗)。 */
+  form.addSectionHeaderItem().setTitle(UPDATE_Q.secPhoto).setHelpText(UPDATE_PHOTO_HELP);
   form.addParagraphTextItem().setTitle(UPDATE_Q.note).setRequired(false)
     .setHelpText("要刪掉某一格、改名字、換組，或其他想跟組長說的，寫在這裡。只有組長和網管看得到，不會公開。例：請刪掉我的公司網站。");
   form.addTextItem().setTitle(UPDATE_Q.token).setRequired(false)
@@ -2140,7 +2312,7 @@ function createMemberUpdateForm() {
   try { lines = memberUpdateConfigLines_(form.getPublishedUrl(), memberUpdateEntryIds_(form).ids); }
   catch (err) { Logger.log("⚠ entry 編號這次取不到:" + errText_(err)); }
 
-  Logger.log("✅ 夥伴資料更新表單已建立(不需要登入、不收照片)");
+  Logger.log("✅ 夥伴資料更新表單已建立(文字題都建好了;照片的三個上傳題要手動加,步驟在最下面)");
   Logger.log("① 表單網址(之後貼進 site-config.js):" + form.getPublishedUrl());
   Logger.log("② 回應試算表(每一筆送件都留在這裡,補送時用得到):" + ss.getUrl());
   Logger.log("③ 表單編輯網址:" + form.getEditUrl());
@@ -2150,10 +2322,12 @@ function createMemberUpdateForm() {
   Logger.log(lines[0]);
   Logger.log(lines[1]);
   Logger.log("接下來:");
-  Logger.log("  1. 用手機的無痕視窗打開第 ① 個網址,確認看得到題目、沒有出現「要求存取權」或「請登入」。");
-  Logger.log("  2. 執行 checkMemberUpdateForm,除了 site-config 那一行之外都要是 ✅。");
-  Logger.log("  ⚠ 不要在表單上加「上傳檔案」題 —— 加了整份表單就會要求登入,從 LINE 點進來的夥伴多半會卡住。照片請夥伴用 LINE 傳給組長。");
+  Logger.log("  1. 照下面的步驟手動加三個照片上傳題。");
+  Logger.log("  2. 用手機打開第 ① 個網址,登入 Google 後確認看得到題目、沒有出現「要求存取權」(出現的話是發布設定不對,見第 ④ 行)。");
+  Logger.log("  3. 執行 checkMemberUpdateForm,除了 site-config 那一行之外都要是 ✅。");
   Logger.log("  ⚠ 不要刪掉或改名「連結代碼」那一題 —— 它讓夥伴用舊連結再填一次時,不會把後來的修改改回去。");
+  Logger.log("");
+  logMemberUpdatePhotoSteps_(form.getEditUrl());
 }
 
 /* ── 送出 ───────────────────────────────────────────────────────────────
@@ -2233,7 +2407,10 @@ function memberUpdateSubmit_(e, rid) {
   var noteRaw = a.byTitle[normTitle_(UPDATE_Q.note)];
   var note = noteRaw == null ? "" : String(noteRaw);
   var linkToken = String(a.byTitle[normTitle_(UPDATE_Q.token)] || "").trim().slice(0, 200);
-  if (!any && !note.trim()) {
+  // 照片也算「有填」:只想換形象照、文字一格都沒動的夥伴很常見
+  var photoIds = memberUpdatePhotoIds_(a.files);
+  var nPhotos = photoIds.image.length + photoIds.card.length + photoIds.products.length;
+  if (!any && !note.trim() && !nPhotos) {
     Logger.log("・" + safeLabel_(label) + " 什麼都沒填，不送出(回應 ID " + rid + ")");
     failedRemove_(rid);
     return { code: "empty", rid: rid };
@@ -2256,19 +2433,93 @@ function memberUpdateSubmit_(e, rid) {
   }
 
   var sendLabel = memberUpdateLabel_(code, name);
-  var payload = JSON.stringify({ secret: secret, update: {
+  var update = {
     label: sendLabel, name: name, group: code, changes: changes, note: note,
-    responseId: rid, submittedAt: a.submittedAt, linkToken: linkToken, pickedLabel: pickedLabel } });
+    responseId: rid, submittedAt: a.submittedAt, linkToken: linkToken, pickedLabel: pickedLabel };
+
+  /* 照片:Drive 上的檔案 → data URL(和新夥伴表單同一支 driveImageDataUrl_)。
+     ★ 上傳了幾張就必須轉出幾張;任何一張失敗,這一筆(連同文字)整筆不送,記成 photo_convert_failed。
+       轉不出來就當「沒傳」送出去的話,Worker 只會看到少了一張,組長和本人都不會知道照片沒進來。
+       回應與原檔都還在表單與 Drive,修好(或等 Drive 產出縮圖)之後 resendFailedMemberUpdates 會補送。
+     ★ 沒有照片就不放 photos 這個鍵:純文字的送件和以前一模一樣,Worker 的去重雜湊也不會變。 */
+  if (nPhotos && relaySupportsPhotos_(relay) === false) {
+    Logger.log("✗ " + safeLabel_(sendLabel) + " 的更新【沒有】送出:Worker 還不收照片(回應 ID " + rid + ")" +
+               "\n   請總管理員重新部署 publish-relay.js,之後執行 resendFailedMemberUpdates 補送。照片與文字都還在,不會遺失。");
+    failedPut_(rid, "worker_no_photos");
+    notifyUpdateFailure_({ code: "worker_no_photos", rid: rid, label: sendLabel, name: name });
+    return { code: "worker_no_photos", rid: rid };
+  }
+  if (nPhotos) {
+    Logger.log("・" + safeLabel_(sendLabel) + " 傳了照片:形象照 " + photoIds.image.length + " 張、名片 " + photoIds.card.length +
+               " 張、商品 " + photoIds.products.length + " 張" + (photoIds.dropped ? "(多傳的 " + photoIds.dropped + " 張不收)" : "") +
+               "(回應 ID " + rid + ")");
+    var conv = memberUpdatePhotos_(photoIds);
+    if (!conv.ok) {
+      Logger.log("✗ " + safeLabel_(sendLabel) + " 的更新【沒有】送出:照片轉檔失敗(" + conv.fails.join("、") + ";回應 ID " + rid + ")" +
+                 "\n   常見原因:Drive 還沒產出縮圖(稍後補送通常就好)、原檔太大、或傳的不是照片。表單回應與原檔都還在,不會遺失。");
+      failedPut_(rid, "photo_convert_failed");
+      notifyUpdateFailure_({ code: "photo_convert_failed", rid: rid, label: sendLabel, name: name });
+      return { code: "photo_convert_failed", rid: rid };
+    }
+    update.photos = conv.photos;
+  }
+
+  var payload = JSON.stringify({ secret: secret, update: update });
   return memberUpdateResult_(rid, sendLabel, name, postMemberUpdate_(relay, payload));
 }
 
-/* 逐題讀取。名字題用 item ID 認(標題被改也認得到),其他題用正規化後的標題。 */
+/* 上傳題的檔案 ID → { image:[…], card:[…], products:[…], dropped: 多傳而不收的張數 }。
+   標題沿用新夥伴表單那一套(titlesFor_:主要標題 + 別名),所以網管用哪一個名稱加題都認得。
+   張數上限照 UPDATE_PHOTO_SLOTS:網管把上傳題的檔案數量上限設大了,多的也不送。 */
+function memberUpdatePhotoIds_(files) {
+  var out = { image: [], card: [], products: [], dropped: 0 };
+  for (var i = 0; i < UPDATE_PHOTO_SLOTS.length; i++) {
+    var s = UPDATE_PHOTO_SLOTS[i], v = files ? pickByTitle_(files, s.key) : undefined;
+    var ids = isArr_(v) ? v : [];
+    out[s.key] = ids.slice(0, s.max);
+    if (ids.length > s.max) out.dropped += ids.length - s.max;
+  }
+  return out;
+}
+
+/* 檔案 ID → { ok, photos:{ image, card, products:[…] }, fails:[欄位] }。
+   photos 就是送給 Worker 的 update.photos,格式和 /intake 的照片欄位相同(data URL,解碼後 ≤200KB)。
+   ★ 遇到第一張失敗就停:整筆反正不會送,剩下的不必再花時間與 UrlFetch 額度去轉
+     (每一張失敗的照片會等 Drive 縮圖好幾輪,補送迴圈還有 5 分鐘的時間上限)。
+   ★ driveImageDataUrl_ 幾乎不丟例外,但這裡在觸發器的路徑上,還是逐張包起來:
+     丟例外也算這一張失敗(photo_convert_failed,可自動補送),不讓它變成 script_error。
+   紀錄只記欄位與張數,不記照片內容。 */
+function memberUpdatePhotos_(ids) {
+  var photos = { image: "", card: "", products: [] }, fails = [];
+  var conv = function (id, label, field) {
+    if (fails.length) return "";
+    var url = "";
+    try { url = driveImageDataUrl_(id, 900, label); }
+    catch (err) { url = ""; Logger.log("⚠ " + label + " 轉檔時出錯:" + errText_(err)); }
+    if (!url) fails.push(field);
+    return url;
+  };
+  if (ids.image.length) photos.image = conv(ids.image[0], "形象照", "image");
+  if (ids.card.length) photos.card = conv(ids.card[0], "名片照片", "card");
+  for (var i = 0; i < ids.products.length && !fails.length; i++) {
+    photos.products.push(conv(ids.products[i], "商品照片 " + (i + 1), "product[" + i + "]"));
+  }
+  return { ok: !fails.length, photos: photos, fails: fails };
+}
+
+/* 逐題讀取。名字題用 item ID 認(標題被改也認得到),其他題用正規化後的標題。
+   回傳 { picked, byTitle: 正規化標題 → 文字, files: 正規化標題 → 檔案 ID 陣列, submittedAt }。
+   ★ 上傳題另外放進 files、保留原本的陣列:它的回應是「Drive 檔案 ID 的陣列」,
+     String() 會把它接成一串逗號隔開的字,拆不回來(也不能保證 ID 裡沒有逗號)。 */
 function memberUpdateAnswers_(response) {
   var nameId = String(PropertiesService.getScriptProperties().getProperty("UPDATE_FORM_NAME_ITEM_ID") || "");
-  var byTitle = Object.create(null), picked = null;
+  var byTitle = Object.create(null), files = Object.create(null), picked = null;
   var items = response.getItemResponses() || [];
   for (var i = 0; i < items.length; i++) {
     var item = items[i].getItem(), v = items[i].getResponse();
+    var upload = false;
+    try { upload = item.getType() === FormApp.ItemType.FILE_UPLOAD; } catch (err) { upload = false; }
+    if (upload || isArr_(v)) { files[normTitle_(item.getTitle())] = uploadIds_(v); continue; }
     var val = v == null ? "" : String(v);
     if (picked === null && nameId && String(item.getId()) === nameId) { picked = val; continue; }
     byTitle[normTitle_(item.getTitle())] = val;
@@ -2280,7 +2531,17 @@ function memberUpdateAnswers_(response) {
   var submittedAt = "";
   try { var ts = response.getTimestamp(); if (ts) submittedAt = new Date(ts.getTime()).toISOString(); }
   catch (err) { submittedAt = ""; }        // 拿不到時 Worker 會改用收件時間
-  return { picked: picked, byTitle: byTitle, submittedAt: submittedAt };
+  return { picked: picked, byTitle: byTitle, files: files, submittedAt: submittedAt };
+}
+
+/* 上傳題的回應 → 檔案 ID 陣列(去掉空的)。沒上傳是 null 或空陣列;保險起見單一字串也收。 */
+function uploadIds_(v) {
+  var list = isArr_(v) ? v : (v == null ? [] : [v]), out = [];
+  for (var i = 0; i < list.length; i++) {
+    var id = String(list[i] == null ? "" : list[i]).trim();
+    if (id) out.push(id);
+  }
+  return out;
 }
 
 /* 熔斷計數:這一小時收到第幾筆。快取壞了就回 0(照常處理),不能因為計數器壞掉就擋下正常送件。 */
@@ -2362,6 +2623,8 @@ function memberUpdateResult_(rid, label, name, r) {
       if (ks.length) parts.push(tags[i][1] + " " + ks.join("、"));
     }
     if (out.confirmOnly === true) parts.push("只確認資料正確");
+    var nPh = Math.floor(Number(out.photos)) || 0;
+    if (nPh > 0) parts.push("照片 " + nPh + " 張");
     Logger.log("✅ " + who + " 的更新已進待審核(uid " + safeUid_(out.uid) + (parts.length ? ";" + parts.join(";") : "") +
                ";目前共 " + (Math.floor(Number(out.open)) || "?") + " 筆)");
     failedRemove_(rid);
@@ -2374,7 +2637,9 @@ function memberUpdateResult_(rid, label, name, r) {
     return { code: "nothing_to_update", rid: rid };
   }
   var code = out && typeof out.error === "string" && /^[a-z0-9_]{1,40}$/.test(out.error) ? out.error : "http_" + r.status;
-  Logger.log("✗ " + who + " 的更新沒有送進後台:" + code + "(回應 ID " + rid + ")");
+  // 照片被退回時 Worker 會說是哪一張(例如 product[2]);只記欄位名,先過濾形狀
+  var where = out && typeof out.field === "string" && /^[a-z_]{1,20}(\[\d{1,2}\])?$/.test(out.field) ? "、欄位 " + out.field : "";
+  Logger.log("✗ " + who + " 的更新沒有送進後台:" + code + "(回應 ID " + rid + where + ")");
   failedPut_(rid, code);
   notifyUpdateFailure_({ code: code, rid: rid, label: label, name: name });
   return { code: code, rid: rid };
@@ -2609,18 +2874,26 @@ function checkMemberUpdateForm() {
   line("編輯回覆      ", !edits, !edits ? "✅ 關閉" : "✗ 開著 —— 夥伴每編輯一次就多一筆待審核,請到「設定 → 回覆」關掉「允許編輯回覆」");
   var summary = form.isPublishingSummary();
   line("結果摘要      ", !summary, !summary ? "✅ 不公開" : "✗ 填答者看得到所有人的回覆(包括備註)—— 到「設定 → 回覆」關掉「查看結果摘要」");
-  /* 上傳題、收集電子郵件、「限制只能回覆 1 次」三種都會強制登入(建表時已關掉,這裡防網管事後打開;
-     被灌單後很容易想用「限制只能回覆 1 次」擋重複送件)。原因分開列,網管才知道要關哪一個。
-     讀不到「限制只能回覆 1 次」(舊環境沒有這個方法或讀取出錯)時視同沒開,不誤報。 */
-  var uploads = form.getItems(FormApp.ItemType.FILE_UPLOAD).length, emails = form.collectsEmail();
+  /* 照片題:三個上傳題都要在(網管手動加的,Apps Script 建不出來)。有上傳題就一定要登入 Google ——
+     這是刻意的取捨,所以「收集電子郵件」不再算錯(反正都登入了)。 */
+  var ph = memberUpdatePhotoItems_(form);
+  var phAll = UPDATE_PHOTO_SLOTS.map(function (s) { return s.title; });
+  if (!ph.missing.length && !ph.wrongType.length) {
+    line("照片題        ", true, "✅ " + phAll.join("、") + "都在(填表需要登入 Google)");
+  } else {
+    var phWhy = [];
+    if (ph.missing.length) phWhy.push("少了「" + ph.missing.join("」「") + "」");
+    if (ph.wrongType.length) phWhy.push("「" + ph.wrongType.join("」「") + "」題型不是「上傳檔案」(刪掉重加)");
+    line("照片題        ", false, "✗ " + phWhy.join(";") + " —— Apps Script 建不了上傳題,請到表單編輯頁手動加" +
+         "(步驟見 README「八」,或執行 upgradeMemberUpdateFormForPhotos 印出步驟)");
+  }
+  /* 「限制只能回覆 1 次」:夥伴常常要送不只一次(填錯再補、過幾天換照片),開了第二次就送不出去。
+     被灌單後很容易想用它擋重複送件,所以這裡防網管事後打開。
+     讀不到(舊環境沒有這個方法或讀取出錯)時視同沒開,不誤報。 */
   var limitOne = false;
   try { limitOne = typeof form.hasLimitOneResponsePerUser === "function" && !!form.hasLimitOneResponsePerUser(); } catch (err) { limitOne = false; }
-  var loginWhy = [];
-  if (uploads) loginWhy.push("刪掉上傳題(照片請夥伴用 LINE 傳給組長)");
-  if (emails) loginWhy.push("到「設定 → 回覆」關掉「收集電子郵件」");
-  if (limitOne) loginWhy.push("到「設定 → 回覆」關掉「限制只能回覆 1 次」(擋灌單請看 README「八」的「被灌單怎麼辦」)");
-  line("登入要求      ", !loginWhy.length, !loginWhy.length ? "✅ 不需要登入"
-    : "✗ 會要求登入,從 LINE 點進來的夥伴多半會卡住;請" + loginWhy.join("、"));
+  line("回覆次數      ", !limitOne, !limitOne ? "✅ 不限次數"
+    : "✗ 開了「限制只能回覆 1 次」—— 夥伴第二次要補資料或換照片就送不出去;請到「設定 → 回覆」關掉(擋灌單請看 README「八」的「被灌單怎麼辦」)");
 
   // 名字選單
   var nameItem = updateNameItemById_(form);
@@ -2658,14 +2931,9 @@ function checkMemberUpdateForm() {
   var secret = props.getProperty("INTAKE_SECRET");
   if (!relay) line("Worker        ", false, "✗ 沒設 RELAY_URL —— 到「專案設定 → 指令碼屬性」補上");
   else {
-    var ping = null;
-    /* ★ 一定要用 POST:Worker 對 POST 以外的方法一律回 405 method_not_allowed(後台的 /ping 也是 POST)。
-       用 UrlFetch 預設的 GET 的話,這一行永遠是 ✗「Worker 太舊」,網管會被引導去重新部署一個沒問題的 Worker。 */
-    try {
-      ping = parseRelayResponse_(UrlFetchApp.fetch(relay + "/ping", {
-        method: "post", contentType: "application/json", payload: "{}", muteHttpExceptions: true }));
-    } catch (err) { ping = null; }
+    var ping = pingRelay_(relay);   // 一定是 POST,見 pingRelay_
     var caps = ping && ping.out && ping.out.caps;
+    var photoCap = !!(caps && caps.memberUpdatePhotos === true);
     if (!caps || caps.memberUpdate !== true) {
       line("Worker        ", false, "✗ Worker 太舊或沒綁 R2(/ping 的 caps.memberUpdate 不是 true)—— 請總管理員重新部署 publish-relay.js,並確認綁好 R2");
     } else {
@@ -2673,7 +2941,15 @@ function checkMemberUpdateForm() {
       var siteShow = /^https?:\/\/\S{1,200}$/.test(site) ? site : "(看不懂的網址)";
       if (normSiteBase_(site) !== normSiteBase_(SITE_BASE_URL)) {
         line("Worker        ", false, "✗ Worker 讀的網址(" + siteShow + ")和 SITE_BASE_URL(" + SITE_BASE_URL + ")不一樣 —— 請總管理員在 Cloudflare 設 SITE_BASE(見 worker/README)");
-      } else line("Worker        ", true, "✅ caps.memberUpdate,讀名錄的網址 " + siteShow);
+      } else if (ph.uploads && !photoCap) {
+        /* 表單已經收照片,Worker 卻不認得 update.photos:舊 Worker 會把照片默默丟掉
+           (只傳照片的那幾筆甚至會被當成「沒有可以更新的內容」),夥伴和組長都不會知道。 */
+        line("Worker        ", false, "✗ Worker 還不支援照片,請重新部署 publish-relay.js(/ping 的 caps.memberUpdatePhotos 不是 true;" +
+             "表單已經有上傳題,夥伴傳的照片會進不了後台)");
+      } else {
+        line("Worker        ", true, "✅ caps.memberUpdate" + (photoCap ? "、memberUpdatePhotos" : "(還不支援照片;加上傳題之前要先重新部署)") +
+             ",讀名錄的網址 " + siteShow);
+      }
     }
   }
 

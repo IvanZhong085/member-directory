@@ -1,6 +1,6 @@
 /* 夥伴資料更新(Google 表單 → 私有 R2 待審核 → 後台套用)的 Worker 端測試。
    用**真實的 worker/publish-relay.js**,把 GitHub(含公開網站)、R2、KV 換成 tests/github-model.mjs
-   的假物件。條號對應規格 §6.5 的 1–39。
+   的假物件。條號對應規格 §6.5 的 1–39;㊵ 之後是更新表單的照片(介面契約 §2)。
 
    要守住的不變式:
      ・收件只讀公開網站,不打 GitHub API(灌單不會吃光權杖額度)
@@ -15,6 +15,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import vm from "node:vm";
+import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { FakeGitHub, FakeR2, FakeKV, loadWorker, blobShaOf } from "./github-model.mjs";
 import * as CASES from "./member-update-cases.mjs";
@@ -34,7 +35,7 @@ let pass = 0, fail = 0;
 const chk = (n, ok, d="") => { ok ? pass++ : fail++; console.log(`  ${ok?"✅":"❌"} ${n}${d?"  —— "+d:""}`); };
 const hr = t => console.log("\n" + "─".repeat(74) + "\n" + t + "\n" + "─".repeat(74));
 const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
-const brief = o => JSON.stringify(o, (k, v) => k.startsWith("_") ? undefined : v).slice(0, 160);
+const brief = o => String(JSON.stringify(o, (k, v) => k.startsWith("_") ? undefined : v)).slice(0, 160);   // undefined 也能印
 
 /* ── 測資 ─────────────────────────────────────────────────────────────── */
 const SS = "x".repeat(48);
@@ -756,6 +757,8 @@ hr("㉖ /ping:caps.memberUpdate 跟著 PENDING_IMAGES、memberUpdateSite");
   const w3 = world({ env:{ PENDING_IMAGES: undefined } });
   const p3 = await call(w3, "/ping", {});
   chk("沒綁 R2 → false,不回 memberUpdateSite", p3.caps.memberUpdate === false && !("memberUpdateSite" in p3), brief(p3));
+  chk("★ caps.memberUpdatePhotos 跟著 PENDING_IMAGES(綁了 true、沒綁 false)",
+      p.caps.memberUpdatePhotos === true && p3.caps.memberUpdatePhotos === false, brief(p3.caps));
   // 有設 SITE_BASE 時,收件真的去讀那個網站(假 GitHub 認得任何 *.github.io/<repo>/)
   const w4 = world({ env:{ SITE_BASE:"https://other.github.io/R2/" } });
   let seen = "";
@@ -1017,11 +1020,518 @@ hr("㊴ /member-update-drop-batch");
   chk("子請求 ≤ 6", r._cost <= 6, r._cost + " 個");
 }
 
+/* ══ 照片 ══════════════════════════════════════════════════════════════════
+   測試用的照片是「可列印 ASCII」的位元組:假 GitHub 把 blob 當 UTF-8 字串存,
+   非 ASCII 會失真,就沒辦法逐位元組比對寫進 repo 的圖檔。seed 不同 → 內容與 sha256 不同。 */
+const imgBytes = (seed, n = 600) => Buffer.from(Array.from({ length:n }, (_, i) => 32 + ((i * 7 + seed * 13) % 95)));
+const dataUrl = (bytes, mime = "image/jpeg") => "data:" + mime + ";base64," + Buffer.from(bytes).toString("base64");
+const IMG = (seed, n, mime) => dataUrl(imgBytes(seed, n), mime);
+const shaOf = b => crypto.createHash("sha256").update(b).digest("hex");
+const imgKeys = w => w.r2.keys().filter(k => k.startsWith("updates/img/"));
+/* 請求被刪掉時 reqOf 是 null —— 用這支讀 state,斷言失敗時才不會變成整支測試丟例外。 */
+const stateOf = (w, uid) => (reqOf(w, uid) || {}).state;
+const imgKeysOf = (w, uid) => imgKeys(w).filter(k => k.startsWith("updates/img/" + uid + "/"));
+/* 直接改 R2 裡的請求 JSON(模擬被寫壞或被動過手腳),metadata 原樣帶回去。 */
+async function patchReq(w, uid, fn){
+  const key = keyOf(uid), q = w.r2.peekJson(key), meta = w.r2.peekMeta(key);
+  if(!q) return;                          // 請求已經不在(前面的斷言已經失敗):不要讓整支測試丟例外
+  fn(q);
+  await w.r2.put(key, JSON.stringify(q), { httpMetadata:{ contentType:"application/json" }, customMetadata:meta });
+}
+/* /member-update-photo 回的是圖片位元組(錯誤時才是 JSON),所以另外一支:保留標頭與原始位元組。 */
+async function callPhoto(w, body){
+  const s0 = w.gh.subrequests, r0 = w.r2.calls.length, k0 = w.kv.calls;
+  const res = await W.__worker.fetch(new Request("https://w.test/member-update-photo", { method:"POST",
+    headers:{ "Content-Type":"application/json", "CF-Connecting-IP":"1.2.3.4" }, body: JSON.stringify(body) }), w.env);
+  const buf = Buffer.from(await res.arrayBuffer());
+  let out = {};
+  if((res.headers.get("Content-Type") || "").startsWith("application/json")){ try{ out = JSON.parse(buf.toString("utf8")); }catch(e){} }
+  out._status = res.status; out._headers = res.headers; out._bytes = buf;
+  out._cost = (w.gh.subrequests - s0) + (w.r2.calls.length - r0) + (w.kv.calls - k0);
+  out._r2 = w.r2.calls.slice(r0);
+  maxCost["/member-update-photo"] = Math.max(maxCost["/member-update-photo"] || 0, out._cost);
+  return out;
+}
+
+/* ══ 40 ══ 收件帶照片 */
+hr("㊵ 收件帶照片:R2 物件在 updates/img/<uid>/、請求 JSON 只留引用、metadata 有照片欄位");
+{
+  const w = world();
+  const P = { image: imgBytes(1), card: imgBytes(2), p0: imgBytes(3), p1: imgBytes(4, 700) };
+  const r = await submit(w, { changes:{ company:"有照片的公司" }, photos:{ image: dataUrl(P.image), card: dataUrl(P.card),
+    products:[dataUrl(P.p0), dataUrl(P.p1, "image/png")] } });
+  chk("200 ok,回應 photos = 4,fields 仍然只有文字欄位", r.ok === true && r.photos === 4 && eq(r.fields, ["company"]), brief(r));
+  const base = "updates/img/" + r.uid + "/";
+  const want = { image: base + "image-" + shaOf(P.image).slice(0, 16) + ".jpg", card: base + "card-" + shaOf(P.card).slice(0, 16) + ".jpg",
+                 p0: base + "product-0-" + shaOf(P.p0).slice(0, 16) + ".jpg", p1: base + "product-1-" + shaOf(P.p1).slice(0, 16) + ".png" };
+  chk("★ R2 有 4 張照片,key = updates/img/<uid>/<欄位>[-<索引>]-<sha256 前 16>.<副檔名>",
+      eq(imgKeys(w), Object.values(want).sort()), imgKeys(w).join(" "));
+  chk("照片位元組原樣、contentType 依 mime", Buffer.from(w.r2.objects.get(want.image) || []).equals(P.image) &&
+      Buffer.from(w.r2.objects.get(want.p1) || []).equals(P.p1) && (w.r2.meta.get(want.p1) || {}).contentType === "image/png" &&
+      (w.r2.meta.get(want.card) || {}).contentType === "image/jpeg");
+  const q = reqOf(w, r.uid);
+  const ref = (k, b, mime) => ({ key:k, mime, bytes:b.length, sha256:shaOf(b) });
+  chk("★ 請求 JSON 的 photos = { image, card, products:[…] },ref = {key, mime, bytes, sha256}",
+      eq(q.photos, { image: ref(want.image, P.image, "image/jpeg"), card: ref(want.card, P.card, "image/jpeg"),
+                     products:[ref(want.p0, P.p0, "image/jpeg"), ref(want.p1, P.p1, "image/png")] }), brief(q.photos));
+  chk("請求 JSON 裡沒有 data URL", !JSON.stringify(q).includes("base64"));
+  const meta = w.r2.peekMeta(keyOf(r.uid));
+  chk("★ metadata fields = 文字欄位 + image,card,products", meta.fields === "company,image,card,products", meta.fields);
+  const puts = r._r2.filter(c => c.op === "put").map(c => c.key);
+  chk("先寫照片、最後才寫請求(清單上看得到的請求,照片一定已經在了)", puts.length === 5 && puts[4] === keyOf(r.uid) &&
+      puts.slice(0, 4).every(k => k.startsWith(base)), puts.join(" "));
+  chk("收件仍然不打 GitHub API;子請求 ≤ 18", r._api === 0 && r._cost <= 18, `api=${r._api} cost=${r._cost}`);
+
+  const b = await submit(w, { label:"A1・王大銘", name:"王大銘", changes:{}, photos:{ products:[IMG(5)] } });
+  chk("★ 只傳照片(文字全空)也收件,不是 nothing_to_update", b.ok && b.photos === 1 && eq(b.fields, []) &&
+      w.r2.peekMeta(keyOf(b.uid)).fields === "products" && eq(reqOf(w, b.uid).changes, {}), brief(b));
+  const m = memberOf(w, "g3_m1");
+  const same = Object.fromEntries(FIELDS.map(f => [f, Array.isArray(m[f]) ? m[f].join("\n") : m[f]]));
+  const c = await submit(w, { changes: same, photos:{ image: IMG(6) } });
+  chk("★ 文字都和現值一樣、但有照片 → 一定建一筆(不是 unchanged)", c.ok && !c.unchanged && !!c.uid && c.photos === 1, brief(c));
+  const d = await submit(w, { label:"A1・林小美", name:"林小美", changes:{ title:"蔬果" }, photos:{ card: IMG(7) } });
+  chk("資料需確認的夥伴、文字沒改、有照片 → 照片那一筆(confirmOnly false)", d.ok && d.confirmOnly === false &&
+      w.r2.peekMeta(keyOf(d.uid)).fields === "card" && w.r2.peekMeta(keyOf(d.uid)).confirm === "0", brief(d));
+  const e = await submit(w, { label:"A1・陳清單", name:"陳清單", changes:{ company:"沒附照片" }, photos:{ image:"", card:"", products:[] } });
+  const qe = e.ok ? reqOf(w, e.uid) : {};
+  chk("三個空值 = 沒有照片:photos 0、請求 JSON 沒有 photos 鍵、metadata 只有文字欄位", e.ok && e.photos === 0 &&
+      !("photos" in qe) && w.r2.peekMeta(keyOf(e.uid)).fields === "company" && !imgKeysOf(w, e.uid).length, brief(e));
+  const f = await submit(w, { label:"A1・張多項", name:"張多項", changes:{}, photos:"data:image/jpeg;base64,AAAA" });
+  chk("photos 不是物件 → 當成沒有照片(只有它 → nothing_to_update)", f._status === 400 && f.error === "nothing_to_update", brief(f));
+  const g = await submit(w, { label:"A1・張多項", name:"張多項", changes:{}, photos:{ products:["", IMG(8), null] } });
+  const qg = g.ok ? reqOf(w, g.uid) : {};
+  chk("商品照的空值先剔除:key 的索引 = 請求 JSON 裡的陣列位置", g.ok && g.photos === 1 && qg.photos.products.length === 1 &&
+      /\/product-0-/.test(qg.photos.products[0].key) && qg.photos.image === null && qg.photos.card === null, brief(qg.photos));
+  const raw = '{"secret":"s3cret","update":{"label":"A1・陳大文","name":"陳大文","group":"B1","responseId":"proto-photo",' +
+    '"changes":{},"photos":{"__proto__":{"image":"' + IMG(9) + '"},"constructor":"' + IMG(10) + '"}}}';
+  const h = await call(w, "/member-update", raw);
+  chk("★ photos 帶 __proto__、constructor → 不收(只有它 → nothing_to_update),沒有污染原型",
+      h._status === 400 && h.error === "nothing_to_update" && ({}).image === undefined, brief(h));
+}
+
+/* ══ 41 ══ 照片不合格 */
+hr("㊶ 照片不合格 → 整筆退回(不靜默丟照片);擋在讀網站之前、R2 一個都不寫");
+{
+  const w = world();
+  const big = await submit(w, { changes:{ company:"x" }, photos:{ image: IMG(1, 200 * 1024 + 1) } });
+  chk("★ 解碼後超過 200KB → 413 pending_image_too_large {field:image}", big._status === 413 &&
+      big.error === "pending_image_too_large" && big.field === "image" && big.reason === "too_large" && big.max === 200 * 1024, brief(big));
+  chk("沒有讀公開網站、沒有任何 R2 呼叫", big._pages === 0 && big._r2.length === 0, `pages=${big._pages} r2=${big._r2.length}`);
+  const ok200 = await submit(w, { label:"A1・王大銘", name:"王大銘", changes:{}, photos:{ image: IMG(1, 200 * 1024) } });
+  chk("剛好 200KB → 收", ok200.ok === true && ok200.photos === 1, brief(ok200));
+  const gif = await submit(w, { changes:{ company:"x" }, photos:{ card:"data:image/gif;base64,R0lGODlhAQABAAAAACw=" } });
+  chk("★ gif → 400 invalid_pending_image {field:card, reason:bad_format}", gif._status === 400 &&
+      gif.error === "invalid_pending_image" && gif.field === "card" && gif.reason === "bad_format", brief(gif));
+  const b64 = await submit(w, { changes:{ company:"x" }, photos:{ image:"data:image/jpeg;base64,!!!!" } });
+  chk("base64 不合法 → 400 invalid_pending_image", b64._status === 400 && b64.error === "invalid_pending_image", brief(b64));
+  const num = await submit(w, { changes:{ company:"x" }, photos:{ image:12345 } });
+  chk("★ 照片不是字串 → 400 invalid_pending_image(不是當成沒傳)", num._status === 400 && num.error === "invalid_pending_image" &&
+      num.field === "image", brief(num));
+  const weird = await submit(w, { changes:{ company:"x" }, photos:{ products:[IMG(2), { toString:null }] } });
+  chk("★ 商品照是 {toString:null} → 400 invalid_pending_image {field:product[1]}(不是 500)", weird._status === 400 &&
+      weird.error === "invalid_pending_image" && weird.field === "product[1]", brief(weird));
+  const six = await submit(w, { changes:{ company:"x" }, photos:{ products:[1, 2, 3, 4, 5, 6].map(i => IMG(i)) } });
+  chk("★ 商品照 6 張 → 400 invalid_pending_image {field:products, reason:too_many, max:5}(不是靜默截成 5 張)",
+      six._status === 400 && six.error === "invalid_pending_image" && six.field === "products" && six.reason === "too_many" &&
+      six.max === 5, brief(six));
+  const five = await submit(w, { label:"A1・林小美", name:"林小美", changes:{}, photos:{ products:["", 1, 2, 3, 4, 5].map(i => i ? IMG(i) : "") } });
+  chk("空值不算張數:5 張 + 1 個空值 → 收", five.ok === true && five.photos === 5, brief(five));
+  const notArr = await submit(w, { changes:{ company:"x" }, photos:{ products: IMG(1) } });
+  chk("products 不是陣列 → 400 invalid_pending_image", notArr._status === 400 && notArr.error === "invalid_pending_image" &&
+      notArr.field === "products", brief(notArr));
+  chk("以上不合格的都沒有在 R2 留下任何東西", reqKeys(w).length === 2 && imgKeys(w).length === 6, reqKeys(w).length + " / " + imgKeys(w).length);
+}
+
+/* ══ 42 ══ 寫入失敗的回滾 */
+hr("㊷ 照片或請求寫入失敗 → 這次寫過的一次 delete 掉,回 502 update_store_failed");
+{
+  const w = world();
+  w.r2.fail = { op:"put", nth: w.r2._n.put + 3, once:true };       // 第 3 個 put = 請求本身(前兩個是照片)
+  const r = await submit(w, { changes:{ company:"請求寫不進去" }, photos:{ image: IMG(1), products:[IMG(2)] } });
+  chk("502 update_store_failed", r._status === 502 && r.error === "update_store_failed", brief(r));
+  const dels = r._r2.filter(c => c.op === "delete");
+  const puts = r._r2.filter(c => c.op === "put").map(c => c.key);
+  chk("★ 只 delete 一次,陣列裡是請求 key + 兩張照片", dels.length === 1 && Array.isArray(dels[0].key) &&
+      eq(dels[0].key, [puts[2]].concat(puts.slice(0, 2))) && puts[2].startsWith("updates/req/"), brief(dels));
+  chk("沒有殘留", w.r2.keys().length === 0, w.r2.keys().join(" "));
+  const w2 = world();
+  w2.r2.fail = { op:"put", nth: w2.r2._n.put + 2, once:true };     // 第 2 張照片
+  const r2 = await submit(w2, { changes:{ company:"第二張寫不進去" }, photos:{ image: IMG(1), card: IMG(2), products:[IMG(3)] } });
+  const puts2 = r2._r2.filter(c => c.op === "put").map(c => c.key);
+  const dels2 = r2._r2.filter(c => c.op === "delete");
+  chk("502 update_store_failed {field:card}", r2._status === 502 && r2.error === "update_store_failed" && r2.field === "card", brief(r2));
+  chk("★ 第 3 張與請求都沒有寫;一次 delete 刪掉第 1 張與失敗的第 2 張(丟例外不代表沒寫進去)",
+      puts2.length === 2 && dels2.length === 1 && eq(dels2[0].key, puts2) && w2.r2.keys().length === 0, brief(dels2));
+}
+
+/* ══ 43 ══ 去重 */
+hr("㊸ 去重:同一段文字配不同照片是兩筆;同一批照片重送是重複;沒有照片時雜湊和以前逐位元組相同");
+{
+  const w = world();
+  const a = await submit(w, { responseId:"P-1", changes:{ company:"同一段文字" }, photos:{ image: IMG(1) } });
+  const b = await submit(w, { responseId:"P-2", changes:{ company:"同一段文字" }, photos:{ image: IMG(2) } });
+  chk("★ 同一段文字、不同照片 → 不是重複(兩筆)", a.ok && b.ok && !b.duplicate && b.uid !== a.uid && reqKeys(w).length === 2, brief(b));
+  const c = await submit(w, { responseId:"P-3", changes:{ company:"同一段文字" }, photos:{ image: IMG(1) } });
+  chk("同一段文字、同一張照片(另一筆回應)→ duplicate,沒有多寫照片", c.duplicate === true && c.uid === a.uid &&
+      reqKeys(w).length === 2 && imgKeys(w).length === 2 && !c._r2.some(x => x.op === "put"), brief(c));
+  const d = await submit(w, { responseId:"P-4", changes:{ company:"同一段文字" }, photos:{ card: IMG(1) } });
+  chk("同一張照片放在別的欄位 → 不是重複", d.ok && !d.duplicate && d.uid !== a.uid, brief(d));
+  const H = o => crypto.createHash("sha256").update(JSON.stringify(o)).digest("hex").slice(0, 16);
+  const w2 = world();
+  const e = await submit(w2, { changes:{ company:"沒有照片" }, note:"備註" });
+  const qe = reqOf(w2, e.uid) || {};
+  chk("★ 沒有照片 → 雜湊 = 加照片之前的算式(JSON 裡沒有多一個 photos 鍵)",
+      qe.h === H({ changes:qe.changes, note:"備註", invalid:[], cleared:[], confirmOnly:false }) && w2.r2.peekMeta(keyOf(e.uid)).h === qe.h, qe.h);
+  const f = await submit(w2, { label:"A1・王大銘", name:"王大銘", changes:{}, photos:{ image: IMG(3), products:[IMG(4), IMG(5)] } });
+  const qf = reqOf(w2, f.uid) || {};
+  chk("有照片 → photos:[\"image:<sha>\", \"product0:<sha>\", \"product1:<sha>\"] 一起算",
+      qf.h === H({ changes:{}, note:"", invalid:[], cleared:[], confirmOnly:false,
+                   photos:["image:" + shaOf(imgBytes(3)), "product0:" + shaOf(imgBytes(4)), "product1:" + shaOf(imgBytes(5))] }), qf.h);
+}
+
+/* ══ 44 ══ /member-update-get */
+hr("㊹ /member-update-get:照片只回摘要(沒有 key、沒有 sha256)");
+{
+  const w = world();
+  const a = await submit(w, { changes:{ company:"讀照片摘要" }, photos:{ image: IMG(1), products:[IMG(2, 500), IMG(3, 400, "image/webp")] } });
+  const r = await call(w, "/member-update-get", { session:sA1, uid:a.uid });
+  chk("★ request.photos = { image:{mime,bytes}, card:null, products:[{mime,bytes}, …] }", r.ok &&
+      eq(r.request.photos, { image:{ mime:"image/jpeg", bytes:600 }, card:null,
+                             products:[{ mime:"image/jpeg", bytes:500 }, { mime:"image/webp", bytes:400 }] }), brief(r.request && r.request.photos));
+  const raw = JSON.stringify(r);
+  chk("★ 整個回應裡沒有 R2 key、沒有 sha256", !raw.includes("updates/img/") && !raw.includes("sha256") && !raw.includes(shaOf(imgBytes(1))));
+  chk("其他欄位照舊;R2 裡的請求沒有被改", r.request.uid === a.uid && r.request.changes.company === "讀照片摘要" &&
+      ((reqOf(w, a.uid) || {}).photos || { image:{ key:"" } }).image.key.startsWith("updates/img/" + a.uid + "/"));
+  const b = await submit(w, { label:"A1・王大銘", name:"王大銘", changes:{ company:"沒有照片" } });
+  const rb = await call(w, "/member-update-get", { session:sOwner, uid:b.uid });
+  chk("沒有照片 → 沒有 photos 鍵", rb.ok && !("photos" in rb.request), brief(rb));
+  chk("子請求 ≤ 3", r._cost <= 3 && rb._cost <= 3, r._cost + " / " + rb._cost);
+  await patchReq(w, a.uid, q => { q.photos = { image:"updates/img/" + a.uid + "/image-x.jpg", card:7, products:"updates/img/oops" }; });
+  const rc = await call(w, "/member-update-get", { session:sOwner, uid:a.uid });
+  chk("★ photos 被寫壞(沒有一個是合格的引用)→ 不放 photos 鍵,原始內容也不外流", rc.ok && !("photos" in rc.request) &&
+      !JSON.stringify(rc).includes("updates/img/"), brief(rc.request && rc.request.photos));
+}
+
+/* ══ 45 ══ /member-update-photo */
+hr("㊺ /member-update-photo:權限同 get、key 一律從請求 JSON 查、標頭與 /pending-photo 相同");
+{
+  const w = world();
+  const P0 = imgBytes(1), C0 = imgBytes(2), P1 = imgBytes(3, 300);
+  const a = await submit(w, { changes:{ company:"預覽" }, photos:{ image: dataUrl(P0), products:[dataUrl(C0), dataUrl(P1, "image/png")] } });
+  const r = await callPhoto(w, { session:sOwner, uid:a.uid, field:"image", index:-1 });
+  const h = r._headers;
+  chk("總管理員讀形象照:200,位元組原樣", r._status === 200 && r._bytes.equals(P0), r._status + " " + brief(r));
+  chk("★ 標頭:Content-Type 取 ref.mime、private, no-store、nosniff、inline、CORS", h.get("Content-Type") === "image/jpeg" &&
+      h.get("Cache-Control") === "private, no-store" && h.get("X-Content-Type-Options") === "nosniff" &&
+      h.get("Content-Disposition") === "inline" && h.get("Access-Control-Allow-Origin") === "https://ivanzhong085.github.io");
+  const r2 = await callPhoto(w, { session:sA1, uid:a.uid, field:"product", index:1 });
+  chk("自己組的組長讀商品照第 2 張(png)", r2._status === 200 && r2._bytes.equals(P1) && r2._headers.get("Content-Type") === "image/png", r2._status);
+  chk("子請求 ≤ 4(組長:R2 2、_index ≤2)", r._cost <= 4 && r2._cost <= 4, r._cost + " / " + r2._cost);
+  const b = await callPhoto(w, { session:sB1, uid:a.uid, field:"image" });
+  chk("★ 別組組長 → 403 forbidden_group,沒有讀照片", b._status === 403 && b.error === "forbidden_group" &&
+      b._r2.filter(c => c.op === "get").length === 1, brief(b));
+  const v = await callPhoto(w, { session:sViewer, uid:a.uid, field:"image" });
+  chk("★ viewer → 403 read_only", v._status === 403 && v.error === "read_only", brief(v));
+  const bads = [["欄位寫成 products", { field:"products", index:0 }], ["欄位 key", { field:"key" }], ["沒有欄位", {}],
+    ["商品照 index 5", { field:"product", index:5 }], ["商品照 index -1", { field:"product", index:-1 }],
+    ["商品照 index 是字串", { field:"product", index:"0" }], ["商品照 index 1.5", { field:"product", index:1.5 }],
+    ["uid 含 ../", { uid:"../req/x", field:"image" }], ["uid 是怪物件", { uid:{ toString:null }, field:"image" }]];
+  const badRes = [];
+  for(const [, o] of bads) badRes.push(await callPhoto(w, Object.assign({ session:sOwner, uid:a.uid }, o)));
+  chk("★ 欄位、索引、uid 不合格 → 400 bad_request", badRes.every(x => x._status === 400 && x.error === "bad_request"),
+      bads.map((x, i) => x[0] + ":" + badRes[i]._status).join("、"));
+  const noCard = await callPhoto(w, { session:sOwner, uid:a.uid, field:"card" });
+  const noP2 = await callPhoto(w, { session:sOwner, uid:a.uid, field:"product", index:2 });
+  chk("這一筆沒有那張照片 → 404 update_image_missing", noCard._status === 404 && noCard.error === "update_image_missing" &&
+      noP2._status === 404 && noP2.error === "update_image_missing", brief(noCard) + " / " + brief(noP2));
+  const withKey = await callPhoto(w, { session:sOwner, uid:a.uid, field:"card", key: reqOf(w, a.uid).photos.image.key });
+  chk("★ 呼叫端帶 key 一律無效", withKey._status === 404 && withKey.error === "update_image_missing", brief(withKey));
+  const gone = await callPhoto(w, { session:sOwner, uid:"u_nothere1", field:"image" });
+  chk("請求不存在 → 409 update_gone", gone._status === 409 && gone.error === "update_gone", brief(gone));
+
+  // 請求 JSON 被動過手腳:key 指到別的地方
+  const goodKey = reqOf(w, a.uid).photos.image.key;
+  await w.r2.put("pending/p_victim/image-0123456789abcdef.jpg", "secret card");
+  const tampered = [];
+  for(const k of ["pending/p_victim/image-0123456789abcdef.jpg", "updates/img/" + a.uid + "/../../req/" + a.uid + ".json",
+                  "updates/img/u_other123/image-0123456789abcdef.jpg", 12345]){
+    await patchReq(w, a.uid, q => { q.photos.image.key = k; });
+    tampered.push(await callPhoto(w, { session:sOwner, uid:a.uid, field:"image" }));
+  }
+  chk("★ key 不在 updates/img/<uid>/ 底下(pending/、含 ..、別筆、不是字串)→ 403 update_image_forbidden,不讀 R2",
+      tampered.every(x => x._status === 403 && x.error === "update_image_forbidden" && x._r2.filter(c => c.op === "get").length === 1),
+      tampered.map(x => x._status + " " + x.error).join("、"));
+  await patchReq(w, a.uid, q => { q.photos.image.key = goodKey; q.photos.image.mime = "constructor"; });
+  const t4 = await callPhoto(w, { session:sOwner, uid:a.uid, field:"image" });
+  chk("★ mime 不在白名單(constructor)→ 502 update_image_corrupt", t4._status === 502 && t4.error === "update_image_corrupt", brief(t4));
+  const pk = reqOf(w, a.uid).photos.products[1].key;
+  w.r2.fail = { op:"get", key:pk, once:true };
+  const t5 = await callPhoto(w, { session:sOwner, uid:a.uid, field:"product", index:1 });
+  chk("R2 讀照片丟例外 → 502 update_store_failed", t5._status === 502 && t5.error === "update_store_failed", brief(t5));
+  w.r2.objects.delete(pk); w.r2.meta.delete(pk);
+  const t6 = await callPhoto(w, { session:sOwner, uid:a.uid, field:"product", index:1 });
+  chk("照片物件不在了(lifecycle 清掉)→ 404 update_image_missing", t6._status === 404 && t6.error === "update_image_missing", brief(t6));
+}
+
+/* ══ 46 ══ 套用照片 */
+hr("㊻ 套用照片:replace / append / skip,和組檔同一個 commit");
+{
+  const w = world();
+  const I = imgBytes(1), C = imgBytes(2), P = [imgBytes(3), imgBytes(4, 500)];
+  const a = await submit(w, { changes:{ company:"照片也換" }, photos:{ image: dataUrl(I), card: dataUrl(C), products: P.map(x => dataUrl(x, "image/png")) } });
+  const allKeys = [keyOf(a.uid)].concat(imgKeysOf(w, a.uid));
+  const n0 = commitsWith(w, "夥伴資料更新").length;
+  const r = await apply(w, sA1, a.uid, { company:"replace", image:"replace", card:"replace", products:"replace" },
+                        { company:"", image:"", card:"", products:[] });
+  const m = memberOf(w, "g3_m1");
+  const nm = (id, suffix, b, ext) => id + "_" + suffix + "_" + shaOf(b).slice(0, 10) + "." + ext;
+  chk("★ 組長套用自己組的照片 → 200(通過 assetPaths 的組別前綴檢查),applied 含照片欄位", r.ok === true &&
+      eq(r.applied, ["company","image","card","products"]) && eq(r.warnings, []), brief(r));
+  chk("★ member.image = <memberId>_x_<sha10>.jpg、card = _card_、products = _p1_/_p2_", m.image === nm("g3_m1", "x", I, "jpg") &&
+      m.card === nm("g3_m1", "card", C, "jpg") && eq(m.products, [nm("g3_m1", "p1", P[0], "png"), nm("g3_m1", "p2", P[1], "png")]) &&
+      m.company === "照片也換" && m.lastUpdateFrom === a.uid, brief(m));
+  const files = w.gh.files();
+  chk("★ 圖檔寫進 images/,內容和夥伴送來的一樣", [[m.image, I], [m.card, C], [m.products[0], P[0]], [m.products[1], P[1]]]
+      .every(([n, b]) => files.get("images/" + n) === b.toString("latin1")));
+  chk("只有一個 commit(照片和組檔在同一個)", commitsWith(w, "夥伴資料更新").length - n0 === 1);
+  const dels = r._r2.filter(c => c.op === "delete");
+  chk("★ 成功後一次 delete:請求 + 4 張照片", dels.length === 1 && Array.isArray(dels[0].key) &&
+      eq([...dels[0].key].sort(), allKeys.slice().sort()) && w.r2.keys().length === 0, brief(dels));
+  chk("子請求 ≤ 50", r._cost <= 50, r._cost + " 個");
+}
+{
+  const w = world();
+  setMember(w, "a1", "g3_m9", { products:["old1.jpg", "", "old2.jpg", "old3.jpg"] });
+  const P = [imgBytes(11), imgBytes(12), imgBytes(13)];
+  const a = await submit(w, { label:"A1・王大銘", name:"王大銘", changes:{}, photos:{ products: P.map(x => dataUrl(x)) } });
+  const r = await apply(w, sOwner, a.uid, { products:"append" }, { products:["old1.jpg", "old2.jpg", "old3.jpg"] });
+  const m = memberOf(w, "g3_m9");
+  const nm = (i, b) => "g3_m9_p" + i + "_" + shaOf(b).slice(0, 10) + ".jpg";
+  chk("★ append:原本 3 張(空值不算)+ 新的 3 張 → 截到 5 張,warnings list_truncated dropped 1", r.ok &&
+      eq(m.products, ["old1.jpg", "old2.jpg", "old3.jpg", nm(1, P[0]), nm(2, P[1])]) &&
+      eq(r.warnings, [{ field:"products", reason:"list_truncated", dropped:1 }]), brief(r) + " " + brief(m.products));
+  chk("被截掉的那張不寫進 repo", w.gh.files().has("images/" + nm(1, P[0])) && w.gh.files().has("images/" + nm(2, P[1])) &&
+      !w.gh.files().has("images/" + nm(3, P[2])));
+  setMember(w, "a1", "g3_m6", { products:["a.jpg"] });
+  const b = await submit(w, { label:"A1・陳清單", name:"陳清單", changes:{}, photos:{ products:[dataUrl(P[0]), dataUrl(P[0])] } });
+  const rb = await apply(w, sOwner, b.uid, { products:"append" }, { products:["a.jpg"] });
+  const mb = memberOf(w, "g3_m6");
+  chk("append 沒超過 5 張 → 不截、沒有 warnings;同內容的兩張是兩個檔名", rb.ok && eq(rb.warnings, []) &&
+      eq(mb.products, ["a.jpg", "g3_m6_p1_" + shaOf(P[0]).slice(0, 10) + ".jpg", "g3_m6_p2_" + shaOf(P[0]).slice(0, 10) + ".jpg"]), brief(mb.products));
+  const c = await submit(w, { label:"A1・陳清單", name:"陳清單", changes:{}, photos:{ products:[dataUrl(P[2])] } });
+  const rc = await apply(w, sOwner, c.uid, { products:"replace" }, { products: mb.products });
+  chk("replace:整組換成新的", rc.ok && eq(memberOf(w, "g3_m6").products, ["g3_m6_p1_" + shaOf(P[2]).slice(0, 10) + ".jpg"]), brief(rc));
+}
+{
+  const w = world();
+  const a = await submit(w, { changes:{ company:"只套文字" }, photos:{ image: IMG(21), card: IMG(22) } });
+  const r = await apply(w, sOwner, a.uid, { company:"replace", image:"skip", card:"skip" }, { company:"" });
+  chk("★ 照片 skip → 成員卡照片不變、沒有寫任何圖檔、不讀照片;成功後請求與照片一起刪", r.ok && eq(r.applied, ["company"]) &&
+      memberOf(w, "g3_m1").image === "" && ![...w.gh.files().keys()].some(p => p.startsWith("images/")) &&
+      r._r2.filter(c => c.op === "get").length === 1 && w.r2.keys().length === 0, brief(r));
+  const b = await submit(w, { label:"A1・王大銘", name:"王大銘", changes:{}, photos:{ image: IMG(23) } });
+  const nb = await apply(w, sOwner, b.uid, { image:"skip" }, {});
+  chk("只有照片、全部 skip → 400 nothing_selected", nb._status === 400 && nb.error === "nothing_selected", brief(nb));
+  const rb = await apply(w, sOwner, b.uid, { image:"replace" }, { image:"" }, { clearDataIssue:true });
+  chk("只勾照片 → 照常套用", rb.ok && eq(rb.applied, ["image"]) && memberOf(w, "g3_m9").image.startsWith("g3_m9_x_"), brief(rb));
+}
+
+/* ══ 47 ══ 套用照片的參數與 expect */
+hr("㊼ 套用照片:choices / expect 驗證、審核者看到的照片不是現值 → member_changed");
+{
+  const w = world();
+  const a = await submit(w, { changes:{ company:"參數" }, photos:{ image: IMG(31), products:[IMG(32)] } });
+  const ex = { company:"", image:"", products:[] };
+  const cs = [
+    ["image 用 append", { image:"append" }, ex], ["products 用 delete", { products:"delete" }, ex],
+    ["這一筆沒有名片照片", { card:"replace" }, Object.assign({ card:"" }, ex)],
+    ["expect.image 是陣列", { image:"replace" }, { image:[] }], ["expect.image 是 null", { image:"replace" }, { image:null }],
+    ["沒帶 expect.image", { image:"replace" }, {}], ["expect.products 是字串", { products:"replace" }, { products:"" }],
+    ["expect.products 有非字串", { products:"append" }, { products:[1] }],
+  ];
+  const rs = [];
+  for(const [, ch, e] of cs) rs.push(await apply(w, sOwner, a.uid, ch, e));
+  chk("★ 不合格的照片 choices / expect → 400 bad_choice", rs.every(x => x._status === 400 && x.error === "bad_choice"),
+      cs.map((x, i) => x[0] + ":" + rs[i]._status + " " + rs[i].error + (rs[i].reason ? "/" + rs[i].reason : "")).join("、"));
+  chk("expect 型別不對 → reason expect", rs.slice(3).every(x => x.reason === "expect"));
+  chk("以上都沒有上鎖、沒有讀照片", stateOf(w, a.uid) === "open" && rs.every(x => x._r2.filter(c => c.op === "get").length === 1));
+  const b = await submit(w, { label:"A1・王大銘", name:"王大銘", changes:{ company:"沒照片" } });
+  const nb = await apply(w, sOwner, b.uid, { company:"replace", image:"replace" }, { company:"大銘水產", image:"" });
+  chk("沒有照片的請求不收照片欄位 → 400 bad_choice", nb._status === 400 && nb.error === "bad_choice" && nb.field === "image", brief(nb));
+
+  setMember(w, "a1", "g3_m1", { image:"別人剛換的.jpg" });
+  const head0 = w.gh.head;
+  const r = await apply(w, sA1, a.uid, { company:"replace", image:"replace" }, { company:"", image:"" });
+  chk("★ 審核者看到的形象照不是現值 → 409 member_changed [image],不寫入、已解鎖", r._status === 409 && r.error === "member_changed" &&
+      eq(r.fields, ["image"]) && w.gh.head === head0 && stateOf(w, a.uid) === "open", brief(r));
+  setMember(w, "a1", "g3_m1", { products:["x.jpg"] });
+  const r2 = await apply(w, sA1, a.uid, { image:"replace", products:"append" }, { image:"別人剛換的.jpg", products:[] });
+  chk("商品照也一樣 → member_changed [products]", r2._status === 409 && r2.error === "member_changed" && eq(r2.fields, ["products"]), brief(r2));
+  const r3 = await apply(w, sA1, a.uid, { image:"replace", products:"append" }, { image:" 別人剛換的.jpg ", products:["x.jpg", ""] });
+  chk("比對時 trim、去掉空值 → 和現值相同就照常套用", r3.ok && eq(memberOf(w, "g3_m1").products, ["x.jpg", "g3_m1_p1_" + shaOf(imgBytes(32)).slice(0, 10) + ".jpg"]), brief(r3));
+}
+
+/* ══ 48 ══ 照片不見了 / 壞了 */
+hr("㊽ 套用時照片不見了 → update_image_missing;位元組 / sha256 / mime / key 不對 → update_image_corrupt;一律解鎖、不寫入");
+{
+  const w = world();
+  const a = await submit(w, { changes:{ company:"照片被清掉" }, photos:{ image: IMG(51), products:[IMG(52), IMG(53)] } });
+  const pk = reqOf(w, a.uid).photos.products[1].key;
+  w.r2.objects.delete(pk); w.r2.meta.delete(pk);
+  const head0 = w.gh.head;
+  const r = await apply(w, sA1, a.uid, { company:"replace", image:"replace", products:"replace" }, { company:"", image:"", products:[] });
+  chk("★ R2 的照片不見了 → 409 update_image_missing {fields:[products]},沒有寫入、已解鎖", r._status === 409 &&
+      r.error === "update_image_missing" && eq(r.fields, ["products"]) && w.gh.head === head0 && stateOf(w, a.uid) === "open" &&
+      w.r2.peekMeta(keyOf(a.uid)).state === "open", brief(r));
+  chk("沒有碰 GitHub 的寫入(連組檔都沒讀)", r._api <= 2, r._api + " 個 API");
+  const r2 = await apply(w, sA1, a.uid, { company:"replace", image:"replace", products:"skip" }, { company:"", image:"" });
+  chk("取消勾選商品照之後照常套用;成功後請求與剩下的照片都刪掉", r2.ok && memberOf(w, "g3_m1").image.startsWith("g3_m1_x_") &&
+      eq(memberOf(w, "g3_m1").products, []) && w.r2.keys().length === 0, brief(r2));
+}
+{
+  const w = world();
+  const a = await submit(w, { changes:{ company:"壞照片" }, photos:{ image: IMG(61), card: IMG(62) } });
+  const q = reqOf(w, a.uid);
+  const go = () => apply(w, sOwner, a.uid, { company:"replace", image:"replace", card:"replace" }, { company:"", image:"", card:"" });
+  const head0 = w.gh.head;
+  const out = [];
+  w.r2.corrupt(q.photos.image.key, imgBytes(99, 599));                 // 長度不同
+  out.push(["bytes", "image", await go()]);
+  w.r2.corrupt(q.photos.image.key, imgBytes(1));                       // 一樣 600 bytes、內容不同
+  out.push(["sha256", "image", await go()]);
+  w.r2.corrupt(q.photos.image.key, imgBytes(61));                      // 復原
+  await patchReq(w, a.uid, x => { x.photos.card.mime = "text/html"; });
+  out.push(["bad_mime", "card", await go()]);
+  await w.r2.put("pending/p_victim/card-0000000000000000.jpg", imgBytes(62));
+  await patchReq(w, a.uid, x => { x.photos.card.mime = "image/jpeg"; x.photos.card.key = "pending/p_victim/card-0000000000000000.jpg"; });
+  out.push(["key", "card", await go()]);
+  for(const [reason, field, x] of out){
+    chk(`★ ${reason} 不對 → 502 update_image_corrupt {field:${field}, reason:${reason}},已解鎖`, x._status === 502 &&
+        x.error === "update_image_corrupt" && x.field === field && x.reason === reason && stateOf(w, a.uid) === "open", brief(x));
+  }
+  chk("key 不屬於這一筆 → 根本不去讀 pending/ 的物件", !out[3][2]._r2.some(c => c.op === "get" && String(c.key).startsWith("pending/")));
+  await patchReq(w, a.uid, x => { x.photos.card.key = q.photos.card.key; });
+  w.r2.fail = { op:"get", key:q.photos.card.key, once:true };
+  const sf = await go();
+  chk("R2 讀照片丟例外 → 502 update_store_failed,已解鎖", sf._status === 502 && sf.error === "update_store_failed" &&
+      stateOf(w, a.uid) === "open", brief(sf));
+  chk("以上都沒有寫入", w.gh.head === head0);
+  const ok = await go();
+  chk("修好之後照常套用", ok.ok === true && memberOf(w, "g3_m1").card.startsWith("g3_m1_card_"), brief(ok));
+}
+
+/* ══ 49 ══ 預算 */
+hr("㊾ 7 張照片的子請求預算:組長 2 輪、總管理員 3 輪;每一輪都被搶先也 ≤ 50;照片 blob 只建一次");
+{
+  const seven = s => ({ image: IMG(s), card: IMG(s + 1), products:[2, 3, 4, 5, 6].map(i => IMG(s + i)) });
+  for(const [label, sess, wantRounds] of [["組長", sA1, 2], ["總管理員", sOwner, 3]]){
+    for(const mode of ["stale_base", "ref_moved"]){
+      const w = world();
+      const a = await submit(w, { changes:{ company:"七張 " + label + mode }, photos: seven(70) });
+      let n = 0, rounds = 0, blobs = 0;
+      w.gh.hooks.before = async (u, method) => {
+        if(method === "GET" && u.includes("/contents/data/a1.json")) rounds++;
+        if(method === "POST" && u.endsWith("/git/blobs")) blobs++;
+        if(mode === "stale_base" && method === "GET" && u.includes("/git/ref/heads/")){ n++; setMember(w, "a1", "g3_m9", { title:"別人第 " + n + " 次發布" }); }
+        if(mode === "ref_moved" && method === "PATCH" && u.includes("/git/refs/")) w.gh.pushFiles({ "data.js":"sync " + Math.random() }, "同步 bot");
+      };
+      const r = await apply(w, sess, a.uid, { company:"replace", image:"replace", card:"replace", products:"replace" },
+                            { company:"", image:"", card:"", products:[] });
+      w.gh.hooks.before = null;
+      const wantErr = mode === "stale_base" ? "stale_base" : "busy_retry_later";
+      chk(`★ ${label}、每一輪都 ${mode} → ${wantRounds} 輪(${rounds})、${wantErr}、子請求 ${r._cost} ≤ 50、已解鎖`,
+          r._status === 409 && r.error === wantErr && rounds === wantRounds && r._cost <= 50 && stateOf(w, a.uid) === "open", brief(r));
+      chk(`  ${label}・${mode}:照片 get 7 次、blob 只建 7 個(各輪共用 blobCache)`,
+          r._r2.filter(c => c.op === "get").length === 8 && blobs === 7, `get ${r._r2.filter(c => c.op === "get").length - 1}、blob ${blobs}`);
+    }
+  }
+  /* 靜態上限:用 worst case 的公式算一次(每個 GitHub 讀取都走 >1MB 的兩段式、組長代號檢查與 _index 不變式都讀兩次)。 */
+  for(const [label, perRound] of [["組長", 12], ["總管理員", 10]]){
+    for(const photos of [0, 7]){
+      const fixed = 6 + photos * 2;
+      const rounds = Math.max(1, Math.min(3, Math.floor((50 - fixed) / perRound)));
+      chk(`靜態上限:${label}、${photos} 張照片 → ${rounds} 輪、最壞 ${fixed + rounds * perRound} ≤ 50`, fixed + rounds * perRound <= 50);
+    }
+  }
+  const w = world();
+  const a = await submit(w, { changes:{ company:"七張、第 3 輪成功" }, photos: seven(80) });
+  let n = 0;
+  w.gh.hooks.before = async (u, method) => {
+    if(method === "PATCH" && u.includes("/git/refs/") && n < 2){ n++; w.gh.pushFiles({ "data.js":"sync " + n }, "同步 bot"); }
+  };
+  const r = await apply(w, sOwner, a.uid, { company:"replace", image:"replace", card:"replace", products:"replace" },
+                        { company:"", image:"", card:"", products:[] });
+  w.gh.hooks.before = null;
+  chk("總管理員 7 張照片、被搶 2 次 → 第 3 輪成功,7 張都寫進去、R2 清空", r.ok === true && memberOf(w, "g3_m1").products.length === 5 &&
+      [...w.gh.files().keys()].filter(p => p.startsWith("images/g3_m1_")).length === 7 && w.r2.keys().length === 0 && r._cost <= 50,
+      brief(r) + " cost=" + r._cost);
+}
+
+/* ══ 50 ══ 清除失敗 / 已套用 */
+hr("㊿ 有照片的請求:commit 成功但清除失敗 → 再套用時一次清掉請求與照片");
+{
+  const w = world();
+  const a = await submit(w, { changes:{ company:"清除失敗" }, photos:{ image: IMG(81) } });
+  w.r2.fail = { op:"delete", once:true };
+  const r = await apply(w, sOwner, a.uid, { company:"replace", image:"replace" }, { company:"", image:"" });
+  chk("200 cleanupFailed,請求與照片都還在、已解鎖", r.ok && r.cleanupFailed === true && w.r2.keys().length === 2 &&
+      stateOf(w, a.uid) === "open", brief(r));
+  const head0 = w.gh.head;
+  const r2 = await apply(w, sOwner, a.uid, { company:"replace", image:"replace" }, { company:"清除失敗", image: memberOf(w, "g3_m1").image });
+  const dels = r2._r2.filter(c => c.op === "delete");
+  chk("★ 再套用 → 409 update_already_applied,一次 delete 清掉請求與照片,沒有第二個 commit", r2._status === 409 &&
+      r2.error === "update_already_applied" && dels.length === 1 && Array.isArray(dels[0].key) && dels[0].key.length === 2 &&
+      w.r2.keys().length === 0 && w.gh.head === head0, brief(r2));
+}
+
+/* ══ 51 ══ 不採用 */
+hr("(51) /member-update-drop 與 drop-batch:照片跟著請求一起刪");
+{
+  const w = world();
+  const a = await submit(w, { changes:{ company:"不採用" }, photos:{ image: IMG(91), products:[IMG(92)] } });
+  const r = await call(w, "/member-update-drop", { session:sA1, uid:a.uid });
+  const dels = r._r2.filter(c => c.op === "delete");
+  chk("★ 一次 delete:請求 + 2 張照片", r.ok && dels.length === 1 && Array.isArray(dels[0].key) && dels[0].key.length === 3 &&
+      dels[0].key[0] === keyOf(a.uid) && w.r2.keys().length === 0, brief(dels));
+  chk("子請求 ≤ 5", r._cost <= 5, r._cost + " 個");
+  const b = await submit(w, { changes:{ company:"不採用 2" }, photos:{ image: IMG(93) } });
+  const victim = "pending/p_victim/image-0000000000000000.jpg";
+  await w.r2.put(victim, "x");
+  await patchReq(w, b.uid, q => { q.photos.card = { key:victim, mime:"image/jpeg", bytes:1, sha256:"0".repeat(64) }; });
+  const rb = await call(w, "/member-update-drop", { session:sOwner, uid:b.uid });
+  chk("★ 請求 JSON 裡指到別處的 key 不會被刪", rb.ok && w.r2.objects.has(victim) && !imgKeysOf(w, b.uid).length, brief(rb));
+}
+{
+  const w = world();
+  const a = await submit(w, { changes:{ company:"灌單 1" }, photos:{ image: IMG(1), products:[IMG(2), IMG(3)] } });
+  const b = await submit(w, { label:"A1・王大銘", name:"王大銘", changes:{ company:"灌單 2" }, photos:{ card: IMG(4) } });
+  const c = await submit(w, { label:"A1・林小美", name:"林小美", changes:{ company:"灌單 3" }, photos:{ image: IMG(5) } });
+  const d = await submit(w, { label:"A1・陳清單", name:"陳清單", changes:{ company:"灌單 4" } });
+  await forceState(w, c.uid, "applying");
+  w.r2.pageSize = 2;                                        // 照片列表要分頁(5 張 → 3 頁)
+  const r = await call(w, "/member-update-drop-batch", { session:sOwner, uids:[a.uid, b.uid, c.uid, d.uid] });
+  w.r2.pageSize = 1000;
+  const dels = r._r2.filter(x => x.op === "delete");
+  chk("★ dropped 3、skipped 1;一次 delete 含 3 筆請求與它們的 4 張照片", r.ok && r.dropped === 3 && eq(r.skipped, [c.uid]) &&
+      dels.length === 1 && dels[0].key.length === 7 && dels[0].key.filter(k => k.startsWith("updates/img/")).length === 4, brief(r) + " " + brief(dels));
+  chk("上鎖中那筆的請求與照片都還在,其他全刪", eq(w.r2.keys(), [keyOf(c.uid)].concat(imgKeysOf(w, c.uid)).sort()), w.r2.keys().join(" "));
+  chk("子請求 ≤ 11", r._cost <= 11, r._cost + " 個");
+  const w2 = world();
+  const e = await submit(w2, { changes:{ company:"列不出照片 1" }, photos:{ image: IMG(6) } });
+  const f = await submit(w2, { label:"A1・王大銘", name:"王大銘", changes:{ company:"列不出照片 2" }, photos:{ image: IMG(7) } });
+  w2.r2.fail = { op:"list", key:"updates/img/" };
+  const r2 = await call(w2, "/member-update-drop-batch", { session:sOwner, uids:[e.uid, f.uid] });
+  w2.r2.fail = null;
+  const dels2 = r2._r2.filter(x => x.op === "delete");
+  chk("★ 列 updates/img/ 丟例外 → 照常刪請求(照片留給 lifecycle)", r2.ok && r2.dropped === 2 && reqKeys(w2).length === 0 &&
+      imgKeys(w2).length === 2 && dels2.length === 1 && eq([...dels2[0].key].sort(), [e.uid, f.uid].map(keyOf).sort()), brief(r2));
+}
+
 /* ══ 預算總表 ══ 每支端點在整份測試裡的最壞子請求數(GitHub + 公開網站 + R2 + KV) */
 hr("★ 子請求預算(GitHub + 公開網站 + R2 + KV,上限 50)");
 {
-  const caps = { "/member-update":10, "/member-updates":7, "/member-update-get":3, "/member-update-apply":42,
-                 "/member-update-drop":5, "/member-update-drop-batch":6 };
+  const caps = { "/member-update":18, "/member-updates":7, "/member-update-get":3, "/member-update-photo":4,
+                 "/member-update-apply":50, "/member-update-drop":5, "/member-update-drop-batch":11 };
   for(const [p, cap] of Object.entries(caps)){
     const got = maxCost[p];
     chk(`${p} 最壞 ${got} 個 ≤ ${cap}(≤ 50)`, typeof got === "number" && got <= cap && got <= 50);
