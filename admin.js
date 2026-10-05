@@ -107,6 +107,10 @@
   /* 分組檔(data/<代號>.json),不含 _index、_pending */
   const isGroupPath = p => DATA_PATH_RE.test(String(p)) && p !== INDEX_PATH && p !== PENDING_PATH;
   let PENDING = [];        // 新夥伴自填表單送來、還沒被任何組長認領的申請
+  /* 「換到別組」:{ 新 id: 線上的舊 id }。換組一定要換 id(見 moveMemberToGroup),
+     發布時靠這份對照才認得出「舊 id 不見了」是搬走、不是刪除(見 deletedMembersOf)。
+     隨草稿保存;發布成功後清空 —— 那時線上已經只有新 id 了。 */
+  let movedFrom = {};
   const GROUP_BODY_KEYS = ["leader", "room", "members", "recruiting"];
   /* 分組物件的鍵順序要與 tools/build-data.mjs 一致,否則合併出來的 data.js 會有無意義的差異 */
   function groupBody(g){
@@ -355,7 +359,7 @@
          是線上值),只有這兩份清單記得它們還沒解決。分組檔的衝突不存:能合併的已經合併掉了,
          合併不了的在 unmergeable 裡。 */
       localStorage.setItem(draftKey(), JSON.stringify({
-        savedAt: Date.now(), data: DATA, pending: PENDING,
+        savedAt: Date.now(), data: DATA, pending: PENDING, moved: movedFrom,
         baseHashes: baseHashes, loadedBody: loadedBody, sentBody: sentBody,
         unmergeable: [...unmergeablePaths],
         conflicts: [...conflictPaths].filter(p => p === INDEX_PATH || p === PENDING_PATH),
@@ -402,6 +406,7 @@
     DATA = parsed.data;
     // 舊版草稿沒有 pending 欄位,那時就沿用剛從伺服器載到的清單
     if(Array.isArray(parsed.pending)) PENDING = parsed.pending;
+    movedFrom = parsed.moved && typeof parsed.moved === "object" && !Array.isArray(parsed.moved) ? parsed.moved : {};
     /* ★ 三方比較:base(草稿當初的來源版本)/ draft(草稿內容)/ live(剛讀到的現況)。
 
        原本這裡是「把草稿的 baseHashes 整份蓋回去」,那會造成兩種**方向相反**的災難:
@@ -1006,11 +1011,13 @@
       return;
     }
     const linkOk = updateLinkEnabled() && canEditGroup(g);
-    wrap.innerHTML = g.members.map((m, i) => memberCardHTML(m, i, g.members.length, linkOk)).join("");
+    /* 換組只給總管理員:組長只看得到自己那一組,也寫不了別組的檔 */
+    const moveTargets = isViewer() || isLeader() ? [] : visibleGroups().filter(x => x !== g);
+    wrap.innerHTML = g.members.map((m, i) => memberCardHTML(m, i, g.members.length, linkOk, moveTargets)).join("");
     g.members.forEach((m, i) => bindMember(g, m, i));
   }
 
-  function memberCardHTML(m, i, total, linkOk){
+  function memberCardHTML(m, i, total, linkOk, moveTargets){
     const photo = m.image
       ? `<img class="mem-photo" src="${esc(imgSrc(m.image))}" alt="">`
       : `<div class="mem-photo-none">${ICON.cam}<span>無照片</span></div>`;
@@ -1034,6 +1041,10 @@
               <button class="icon-btn" data-act="down" title="下移" ${i===total-1?"disabled":""}>${ICON.down}</button>
               <button class="icon-btn" data-act="dup" title="複製此成員">${ICON.copy}</button>
               <button class="icon-btn" data-act="del" title="刪除成員">${ICON.trash}</button>
+              ${moveTargets && moveTargets.length ? `<select class="mem-move" data-act="movegrp" title="把這位夥伴換到別組" aria-label="換到別組">
+                <option value="">換組…</option>
+                ${moveTargets.map(t => `<option value="${esc(t.id)}">${esc(t.code)}・${esc(t.name)}</option>`).join("")}
+              </select>` : ""}
             </span>
           </div>
           <div class="row3">
@@ -1113,6 +1124,8 @@
     card.querySelector('[data-act="down"]').onclick = () => moveMember(g, i, 1);
     card.querySelector('[data-act="dup"]').onclick = () => duplicateMember(g, i);
     card.querySelector('[data-act="del"]').onclick = () => deleteMember(g, i);
+    const moveSel = card.querySelector('[data-act="movegrp"]');
+    if(moveSel) moveSel.onchange = () => { if(moveSel.value) moveMemberToGroup(g, i, moveSel.value); };
 
     /* 名片:不裁切,自動縮圖 */
     const cardFile = card.querySelector('[data-act="cardfile"]');
@@ -1289,6 +1302,37 @@
     pushUndo();
     [g.members[i], g.members[j]] = [g.members[j], g.members[i]];
     renderMembers(g); scheduleSave();
+  }
+
+  /* 換組:整張卡(文字、照片、名片、商品照)原封不動搬到別組最後一位。
+     ★ id 一定要換成新組開頭的:Worker 用「id 開頭 = 組的內部 id」判斷組長能寫哪些照片、
+       能救回哪些人(publish-relay.js 的 groupInternalId / recycleMemberProblem)。沿用舊 id 的話,
+       新組組長之後改不了他的照片,刪掉時回收區也收不進去。
+     照片檔名照舊(已上線的檔不必重傳),之後換新照片才會用新 id 命名。
+     他若是原組的組長,原組的「組長」欄位會清空 —— 留著一個已經不在組裡的名字,前台的組長標記
+     會靜默消失,不如直接讓總管理員看到要補。 */
+  function moveMemberToGroup(g, i, targetId){
+    if(isViewer() || isLeader()) return;   // 同 addGroup:跨組搬人只有總管理員能做
+    const target = DATA.find(x => x.id === targetId);
+    const m = g.members[i];
+    if(!target || target === g || !m) return;
+    pushUndo();
+    g.members.splice(i, 1);
+    const oldId = m.id;
+    m.id = uid(target.id + "_m");
+    // 發布前換了兩次組:對照要接回線上那個 id,而不是中途的那一個
+    const liveId = Object.prototype.hasOwnProperty.call(movedFrom, oldId) ? movedFrom[oldId] : oldId;
+    delete movedFrom[oldId];
+    if(liveId) movedFrom[m.id] = liveId;
+    touch(m);
+    target.members.push(m);
+    const who = m.name || "未命名";
+    const wasLeader = !!(g.leader || "").trim() && (g.leader || "").trim() === (m.name || "").trim();
+    if(wasLeader) g.leader = "";
+    renderAll(); scheduleSaveAndValidate();
+    toast("已把「" + who + "」換到 " + target.code + " " + target.name +
+          (wasLeader ? "。他原本是 " + g.code + " 的組長，" + g.code + " 的組長欄位已清空，請補上新組長再按「發布到網站」"
+                     : "，記得最後按「發布到網站」"), { actionLabel:"復原", duration: wasLeader ? 12000 : 7000, onAction: undo, warn: wasLeader });
   }
 
   /* ---------- export ---------- */
@@ -1880,7 +1924,7 @@
       live.push({ gid, code: g ? g.code : p.replace(/^data\/|\.json$/g, "").toUpperCase(),
                   members: body && Array.isArray(body.members) ? body.members : [] });
     }
-    return AdminLogic.removedMembers(live, DATA);
+    return AdminLogic.removedMembers(live, DATA, movedFrom);
   }
 
   /* 發布成功後才呼叫。失敗重試一次(只重送還沒寫進去的那幾筆);還是不行就明講,
@@ -2053,6 +2097,7 @@
         clearTimeout(saveTimer);
         dirty = false;
         for(const k of Object.keys(sentBody)) delete sentBody[k];   // 全部確認成功,復原線索用不到了
+        movedFrom = {};                                            // 線上已經是新 id,對照用不到了
         try{ localStorage.removeItem(draftKey()); }catch(e){}
         showDraftBanner(false);
         hidePermBanner();

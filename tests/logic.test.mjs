@@ -1300,6 +1300,16 @@ hr("㉒ 這次發布刪掉了誰(removedMembers)");
   chk("整組被清空 → 每一位都列,index 依線上順序",
       eq(L.removedMembers([liveA], [{ members:[] }]).map(x => x.index), [0, 1, 2]));
   chk("傳入 null → 空陣列", eq(L.removedMembers(null, null), []));
+  /* 後台「換到別組」會換 id(新 id 以新組的內部 id 開頭),靠 movedFrom 對照認出是搬走不是刪除 */
+  const sentB3 = { id:"g7", code:"B2", members:[ mem("g7_m1", "張三"), mem("g7_m_x1", "李聖漳") ] };
+  chk("★ 換組換了 id,movedFrom 有對照 → 不算刪除",
+      eq(L.removedMembers([liveA, liveB], [sentA2, sentB3], { "g7_m_x1": "g3_m2" }), []));
+  chk("★ 換組後又被刪(新 id 不在了)→ 照樣算刪除,回收區收的是線上那一份",
+      eq(L.removedMembers([liveA, liveB], [sentA2, sentB], { "g7_m_x1": "g3_m2" }).map(x => x.member.id), ["g3_m2"]));
+  chk("沒給 movedFrom → 換了 id 的人算刪除(舊行為不變)",
+      eq(L.removedMembers([liveA, liveB], [sentA2, sentB3]).map(x => x.member.id), ["g3_m2"]));
+  chk("movedFrom 不是物件 → 忽略",
+      eq(L.removedMembers([liveA, liveB], [sentA2, sentB3], ["g3_m2"]).map(x => x.member.id), ["g3_m2"]));
 }
 
 /* ══ tryLoadDraft:事故的完整流程 ══

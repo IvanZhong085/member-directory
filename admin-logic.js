@@ -911,13 +911,19 @@ var AdminLogic = (function(){
      sentGroups:發布之後的所有分組(手上整份 DATA)。
      回傳「線上有、發布之後哪一組都沒有」的人:[{ gid, code, index, member }],
      index 是他在線上那組的位置(救回時放回原位用),member 是線上那一份完整資料。
-     同一個 id 搬到別組不算刪除 —— 他還在名錄上,救回反而會變成兩個人。 */
-  function removedMembers(liveGroups, sentGroups){
+     同一個 id 搬到別組不算刪除 —— 他還在名錄上,救回反而會變成兩個人。
+     movedFrom:後台「換到別組」留下的 { 新 id: 線上的舊 id }。換組會換 id(id 開頭必須是
+                所屬組的內部 id,Worker 靠它做跨組授權),舊 id 因此從名錄上消失;但只要新 id
+                還在,這個人就沒被刪,不能進回收區。新 id 也不在了(換組後又被刪)才算刪除。 */
+  function removedMembers(liveGroups, sentGroups, movedFrom){
     const kept = new Set();
+    const alias = isPlainObj(movedFrom) ? movedFrom : {};
     for(const g of (Array.isArray(sentGroups) ? sentGroups : [])){
       for(const m of (g && Array.isArray(g.members) ? g.members : [])){
         const id = memberIdOf(m);
-        if(id) kept.add(id);
+        if(!id) continue;
+        kept.add(id);
+        if(Object.prototype.hasOwnProperty.call(alias, id) && typeof alias[id] === "string") kept.add(alias[id]);
       }
     }
     const out = [], seen = new Set();
