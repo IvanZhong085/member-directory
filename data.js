@@ -203,12 +203,12 @@ const GROUPS = [
           "g3_m7_p1.jpg",
           "g3_m7_p2.jpg"
         ],
-        "company": "羊來了有限公司來了",
+        "company": "羊來了有限公司",
         "business_items": "活體羊隻批發（除草）、羊肉批發與零售",
         "website": "",
         "id": "g3_m7",
         "dataIssue": false,
-        "updatedAt": "2026-07-28T07:15:20.654Z"
+        "updatedAt": "2026-10-05T14:13:06.599Z"
       },
       {
         "number": "219",
@@ -2228,6 +2228,30 @@ const GROUPS = [
         "id": "g11_m10",
         "dataIssue": false,
         "updatedAt": ""
+      },
+      {
+        "id": "g11_m_muwt6zds1cpo",
+        "number": "225",
+        "name": "李聖漳",
+        "title": "淨水設備整合規劃",
+        "services": [],
+        "targets": [
+          "水塔清洗\\管路清洗\\房仲\\驗屋公司"
+        ],
+        "have": [],
+        "want": [],
+        "tagline": [
+          "讓健康回到本源",
+          "讓好水走進生活"
+        ],
+        "image": "g1_m_ms8d1a021g8f_x_b99d84d406.jpg",
+        "card": "",
+        "products": [],
+        "company": "源恆企業社",
+        "business_items": "",
+        "website": "",
+        "dataIssue": false,
+        "updatedAt": "2026-10-06T15:03:52.480Z"
       }
     ],
     "id": "g11",
@@ -2694,30 +2718,6 @@ const GROUPS = [
         "id": "g1_m7",
         "dataIssue": false,
         "updatedAt": ""
-      },
-      {
-        "id": "g1_m_ms8d1a021g8f",
-        "number": "225",
-        "name": "李聖漳",
-        "title": "淨水設備整合規劃",
-        "services": [],
-        "targets": [
-          "水塔清洗\\管路清洗\\房仲\\驗屋公司"
-        ],
-        "have": [],
-        "want": [],
-        "tagline": [
-          "讓健康回到本源",
-          "讓好水走進生活"
-        ],
-        "image": "g1_m_ms8d1a021g8f_x_b99d84d406.jpg",
-        "card": "",
-        "products": [],
-        "company": "源恆企業社",
-        "business_items": "",
-        "website": "",
-        "dataIssue": false,
-        "updatedAt": "2026-10-01T15:01:41.205Z"
       },
       {
         "id": "g1_m_mtx0wciu8rv",
