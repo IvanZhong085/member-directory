@@ -1398,50 +1398,6 @@ const GROUPS = [
         "website": "",
         "dataIssue": false,
         "updatedAt": "2026-07-28T14:37:53.049Z"
-      },
-      {
-        "id": "g8_m_mtjjp2sy1rgp",
-        "number": "227",
-        "name": "魏宛柔",
-        "title": "兒童理財",
-        "services": [
-          "兒童理財活動"
-        ],
-        "targets": [
-          "補習班、才藝班業者",
-          "家長會委員、家長會會長",
-          "親子共學空間經營者",
-          "關注家庭理財者"
-        ],
-        "have": [
-          "軍隊人脈 (先生軍職)",
-          "無人機產業",
-          "兒童理財活動",
-          "兒童英語教學"
-        ],
-        "want": [
-          "補習班、才藝班",
-          "私立國中、國小"
-        ],
-        "tagline": [
-          "小錢滾出大未來",
-          "理財從小動起來"
-        ],
-        "image": "g8_m_mtjjp2sy1rgp_x_c7535e9607.jpg",
-        "card": "g8_m_mtjjp2sy1rgp_card_c478f1bb1e.jpg",
-        "products": [
-          "g8_m_mtjjp2sy1rgp_p1_d2e7ab5d6b.jpg",
-          "g8_m_mtjjp2sy1rgp_p2_050889314a.jpg",
-          "g8_m_mtjjp2sy1rgp_p3_921b5f8828.jpg",
-          "g8_m_mtjjp2sy1rgp_p4_b6d0c071bc.jpg",
-          "g8_m_mtjjp2sy1rgp_p5_44b70767fc.jpg"
-        ],
-        "company": "立洋國際教育顧問有限公司",
-        "business_items": "顧問服務",
-        "website": "",
-        "dataIssue": false,
-        "claimedFrom": "p_mtiouthdee3z",
-        "updatedAt": "2026-09-02T14:03:48.397Z"
       }
     ],
     "id": "g8",
@@ -1761,6 +1717,33 @@ const GROUPS = [
         "id": "g2_m6",
         "dataIssue": false,
         "updatedAt": ""
+      },
+      {
+        "number": "033",
+        "name": "盧松甫",
+        "title": "家族財富規劃顧問",
+        "services": [
+          "預留稅源/合法繼承",
+          "財產支配/資產保全"
+        ],
+        "targets": [
+          "中小企業主\u000b家庭理財規劃"
+        ],
+        "have": [],
+        "want": [],
+        "tagline": [
+          "企業資產保全找松甫",
+          "全家安心待就步"
+        ],
+        "image": "g11_m4_x.jpg",
+        "card": "",
+        "products": [],
+        "company": "",
+        "business_items": "",
+        "website": "",
+        "id": "g2_m_muz4wq3h203t",
+        "dataIssue": false,
+        "updatedAt": "2026-10-08T06:07:21.629Z"
       }
     ],
     "id": "g2",
@@ -1778,9 +1761,39 @@ const GROUPS = [
   {
     "code": "F",
     "name": "幸福企業推動組",
-    "leader": "賴可儒",
+    "leader": "張彤彤",
     "room": "小房間",
     "members": [
+      {
+        "number": "048",
+        "name": "張彤彤",
+        "title": "精品咖啡烘豆零售",
+        "services": [
+          "客製化咖啡烘焙",
+          "濾掛/咖啡豆/手沖咖啡活動",
+          "年節禮盒/企業送禮",
+          "中西式宴會Candy BAR服務"
+        ],
+        "targets": [
+          "個人長期飲用/活動邀約",
+          "公司福委會/直播主/團購主"
+        ],
+        "have": [],
+        "want": [],
+        "tagline": [
+          "彤彤咖啡杯杯香氣",
+          "激發企業生意有活力"
+        ],
+        "image": "g4_m4_x.jpg",
+        "card": "",
+        "products": [],
+        "company": "",
+        "business_items": "",
+        "website": "",
+        "id": "g4_m4",
+        "dataIssue": false,
+        "updatedAt": ""
+      },
       {
         "number": "137",
         "name": "賴可儒",
@@ -1866,36 +1879,6 @@ const GROUPS = [
         "updatedAt": ""
       },
       {
-        "number": "048",
-        "name": "張彤彤",
-        "title": "精品咖啡烘豆零售",
-        "services": [
-          "客製化咖啡烘焙",
-          "濾掛/咖啡豆/手沖咖啡活動",
-          "年節禮盒/企業送禮",
-          "中西式宴會Candy BAR服務"
-        ],
-        "targets": [
-          "個人長期飲用/活動邀約",
-          "公司福委會/直播主/團購主"
-        ],
-        "have": [],
-        "want": [],
-        "tagline": [
-          "彤彤咖啡杯杯香氣",
-          "激發企業生意有活力"
-        ],
-        "image": "g4_m4_x.jpg",
-        "card": "",
-        "products": [],
-        "company": "",
-        "business_items": "",
-        "website": "",
-        "id": "g4_m4",
-        "dataIssue": false,
-        "updatedAt": ""
-      },
-      {
         "number": "115",
         "name": "鄭凱元",
         "title": "手工客製化巧克力",
@@ -1952,6 +1935,50 @@ const GROUPS = [
         "id": "g4_m6",
         "dataIssue": false,
         "updatedAt": "2026-08-12T15:38:40.359Z"
+      },
+      {
+        "id": "g4_m_muz4yc6jmmb",
+        "number": "227",
+        "name": "魏宛柔",
+        "title": "兒童理財",
+        "services": [
+          "兒童理財活動"
+        ],
+        "targets": [
+          "補習班、才藝班業者",
+          "家長會委員、家長會會長",
+          "親子共學空間經營者",
+          "關注家庭理財者"
+        ],
+        "have": [
+          "軍隊人脈 (先生軍職)",
+          "無人機產業",
+          "兒童理財活動",
+          "兒童英語教學"
+        ],
+        "want": [
+          "補習班、才藝班",
+          "私立國中、國小"
+        ],
+        "tagline": [
+          "小錢滾出大未來",
+          "理財從小動起來"
+        ],
+        "image": "g8_m_mtjjp2sy1rgp_x_c7535e9607.jpg",
+        "card": "g8_m_mtjjp2sy1rgp_card_c478f1bb1e.jpg",
+        "products": [
+          "g8_m_mtjjp2sy1rgp_p1_d2e7ab5d6b.jpg",
+          "g8_m_mtjjp2sy1rgp_p2_050889314a.jpg",
+          "g8_m_mtjjp2sy1rgp_p3_921b5f8828.jpg",
+          "g8_m_mtjjp2sy1rgp_p4_b6d0c071bc.jpg",
+          "g8_m_mtjjp2sy1rgp_p5_44b70767fc.jpg"
+        ],
+        "company": "立洋國際教育顧問有限公司",
+        "business_items": "顧問服務",
+        "website": "",
+        "dataIssue": false,
+        "claimedFrom": "p_mtiouthdee3z",
+        "updatedAt": "2026-10-08T06:08:36.907Z"
       }
     ],
     "id": "g4",
@@ -2055,33 +2082,6 @@ const GROUPS = [
         "business_items": "",
         "website": "",
         "id": "g11_m3",
-        "dataIssue": false,
-        "updatedAt": ""
-      },
-      {
-        "number": "033",
-        "name": "盧松甫",
-        "title": "家族財富規劃顧問",
-        "services": [
-          "預留稅源/合法繼承",
-          "財產支配/資產保全"
-        ],
-        "targets": [
-          "中小企業主\u000b家庭理財規劃"
-        ],
-        "have": [],
-        "want": [],
-        "tagline": [
-          "企業資產保全找松甫",
-          "全家安心待就步"
-        ],
-        "image": "g11_m4_x.jpg",
-        "card": "",
-        "products": [],
-        "company": "",
-        "business_items": "",
-        "website": "",
-        "id": "g11_m4",
         "dataIssue": false,
         "updatedAt": ""
       },
