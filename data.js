@@ -2444,6 +2444,33 @@ const GROUPS = [
         "updatedAt": ""
       },
       {
+        "number": "094",
+        "name": "郭佩晴",
+        "title": "人壽保險",
+        "services": [
+          "醫療儲蓄規劃",
+          "醫護諮詢服務"
+        ],
+        "targets": [
+          "新生兒保單、長照規劃、中小企業團體保險"
+        ],
+        "have": [],
+        "want": [],
+        "tagline": [
+          "買保險找佩晴",
+          "讓你人生很輕盈"
+        ],
+        "image": "g11_m5_x.jpg",
+        "card": "",
+        "products": [],
+        "company": "",
+        "business_items": "",
+        "website": "",
+        "id": "g6_m_muz59z4tck",
+        "dataIssue": false,
+        "updatedAt": "2026-10-08T06:17:39.869Z"
+      },
+      {
         "number": "137",
         "name": "賴可儒",
         "title": "客製化亞洲國家旅遊",
@@ -2471,33 +2498,6 @@ const GROUPS = [
         "id": "g6_m_muz50xyb1rjp",
         "dataIssue": false,
         "updatedAt": "2026-10-08T06:10:38.435Z"
-      },
-      {
-        "number": "094",
-        "name": "郭佩晴",
-        "title": "人壽保險",
-        "services": [
-          "醫療儲蓄規劃",
-          "醫護諮詢服務"
-        ],
-        "targets": [
-          "新生兒保單、長照規劃、中小企業團體保險"
-        ],
-        "have": [],
-        "want": [],
-        "tagline": [
-          "買保險找佩晴",
-          "讓你人生很輕盈"
-        ],
-        "image": "g11_m5_x.jpg",
-        "card": "",
-        "products": [],
-        "company": "",
-        "business_items": "",
-        "website": "",
-        "id": "g6_m_muz59z4tck",
-        "dataIssue": false,
-        "updatedAt": "2026-10-08T06:17:39.869Z"
       }
     ],
     "id": "g6",
