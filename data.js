@@ -2169,6 +2169,37 @@ const GROUPS = [
         "website": "",
         "dataIssue": false,
         "updatedAt": "2026-10-06T15:03:52.480Z"
+      },
+      {
+        "number": "176",
+        "name": "吳國華",
+        "title": "弱電監視管理系統整合",
+        "services": [
+          "監視及弱電通訊工程",
+          "AI人臉識別門禁考勤",
+          "網路架設通訊工程",
+          "車道管理/總機/廣播"
+        ],
+        "targets": [
+          "建設公司、各大企業廠房廠辦",
+          "民眾有需要弱電監視系統",
+          "裝潢、水電、太陽能"
+        ],
+        "have": [],
+        "want": [],
+        "tagline": [
+          "宜陞科技智慧一生",
+          "宜陞監視安全ㄧ世"
+        ],
+        "image": "g1_m6_x.jpg",
+        "card": "",
+        "products": [],
+        "company": "",
+        "business_items": "",
+        "website": "",
+        "id": "g11_m_mv4re19411p5",
+        "dataIssue": false,
+        "updatedAt": "2026-10-12T04:35:31.672Z"
       }
     ],
     "id": "g11",
@@ -2631,37 +2662,6 @@ const GROUPS = [
         "business_items": "",
         "website": "",
         "id": "g1_m5",
-        "dataIssue": false,
-        "updatedAt": ""
-      },
-      {
-        "number": "176",
-        "name": "吳國華",
-        "title": "弱電監視管理系統整合",
-        "services": [
-          "監視及弱電通訊工程",
-          "AI人臉識別門禁考勤",
-          "網路架設通訊工程",
-          "車道管理/總機/廣播"
-        ],
-        "targets": [
-          "建設公司、各大企業廠房廠辦",
-          "民眾有需要弱電監視系統",
-          "裝潢、水電、太陽能"
-        ],
-        "have": [],
-        "want": [],
-        "tagline": [
-          "宜陞科技智慧一生",
-          "宜陞監視安全ㄧ世"
-        ],
-        "image": "g1_m6_x.jpg",
-        "card": "",
-        "products": [],
-        "company": "",
-        "business_items": "",
-        "website": "",
-        "id": "g1_m6",
         "dataIssue": false,
         "updatedAt": ""
       },
