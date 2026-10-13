@@ -2279,7 +2279,7 @@ const GROUPS = [
       {
         "number": "015",
         "name": "許凱傑",
-        "title": "民事律師",
+        "title": "商務律師",
         "services": [
           "法律層面評估與規劃",
           "訴訟、非訟諮詢與建議",
@@ -2302,7 +2302,7 @@ const GROUPS = [
         "website": "",
         "id": "g6_m3",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "2026-10-13T08:26:52.710Z"
       },
       {
         "number": "028",
