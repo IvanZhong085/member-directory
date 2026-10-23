@@ -23,12 +23,13 @@
       "image": "g9_m1_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "展鮮農產生技股份有限公司",
       "business_items": "",
       "website": "",
       "id": "g9_m1",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "總經理"
     },
     {
       "number": "156",
@@ -50,12 +51,13 @@
       "image": "g9_m2_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "華興青果行",
       "business_items": "",
       "website": "",
       "id": "g9_m2",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "經理"
     },
     {
       "number": "178",
@@ -76,12 +78,13 @@
       "image": "g9_m3_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "洋果實業有限公司",
       "business_items": "",
       "website": "",
       "id": "g9_m3",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "總經理"
     },
     {
       "number": "141",
@@ -106,12 +109,13 @@
       "image": "g9_m4_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "益身逗有限公司",
       "business_items": "",
       "website": "",
       "id": "g9_m4",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "160",
@@ -135,12 +139,13 @@
       "image": "g9_m5_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "春生農產行，鳳梨滿農產行",
       "business_items": "",
       "website": "",
       "id": "g9_m5",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "長工"
     },
     {
       "number": "149",
@@ -162,12 +167,13 @@
       "image": "g9_m6_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "永大養蜂場",
       "business_items": "",
       "website": "",
       "id": "g9_m6",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "經理"
     },
     {
       "number": "166",
@@ -192,12 +198,13 @@
       "image": "g9_m7_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "林北釀造",
       "business_items": "",
       "website": "",
       "id": "g9_m7",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "業務經理"
     },
     {
       "number": "204",
@@ -219,12 +226,13 @@
       "image": "g9_m8_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "柏優商行，義高菇菌農場",
       "business_items": "",
       "website": "",
       "id": "g9_m8",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "經理"
     },
     {
       "number": "206",
@@ -249,12 +257,13 @@
       "image": "g9_m9_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "品韻商行",
       "business_items": "",
       "website": "",
       "id": "g9_m9",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     }
   ],
   "recruiting": [

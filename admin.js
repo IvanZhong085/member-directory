@@ -1065,7 +1065,8 @@
             <div class="field"><label>所屬公司</label><input data-f="company" value="${esc(m.company||"")}" placeholder="待補充"></div>
             <div class="field"><label>主要營業項目</label><input data-f="business_items" value="${esc(m.business_items||"")}" placeholder="待補充"></div>
           </div>
-          <div class="field"><label>公司網站<span class="hint">（選填，請含 https://）</span></label><input data-f="website" value="${esc(m.website||"")}" placeholder="https://…"></div>
+            <div class="field"><label>公司內職稱<span class="hint">（選填，與專業別分開；未填留白）</span></label><input data-f="companyPosition" value="${esc(m.companyPosition||"")}" placeholder="例如：業務經理"></div>
+            <div class="field"><label>公司網站<span class="hint">（選填，請含 https://）</span></label><input data-f="website" value="${esc(m.website||"")}" placeholder="https://…"></div>
           <div class="field"><label>名片圖檔<span class="hint">（橫式即可，不裁切、自動縮圖）</span></label>
             <div class="cardimg-row">
               ${m.card ? `<img class="cardimg-thumb" src="${esc(imgSrc(m.card))}" alt="">` : `<span class="cardimg-none">尚無名片</span>`}
@@ -1091,7 +1092,7 @@
   function bindMember(g, m, i){
     const card = main.querySelector('.mem-card[data-mid="'+cssq(m.id)+'"]');
     if(!card) return;
-    ["number","name","title","company","business_items","website"].forEach(f => {
+    ["number","name","title","company","companyPosition","business_items","website"].forEach(f => {
       wireTextInput(card.querySelector('[data-f="'+f+'"]'), v => { m[f] = v; touch(m); scheduleSaveAndValidate(); });
     });
     ["services","targets","have","want","tagline"].forEach(f => {
@@ -1261,7 +1262,7 @@
   function newMember(gid, name, number){
     return { id: uid(gid+"_m"), number:number||"", name:name||"", title:"",
       services:[], targets:[], have:[], want:[], tagline:[],
-      image:"", card:"", products:[], company:"", business_items:"", website:"",
+      image:"", card:"", products:[], company:"", companyPosition:"", business_items:"", website:"",
       dataIssue:false, updatedAt:new Date().toISOString() };
   }
   function addMember(g, name, opts){

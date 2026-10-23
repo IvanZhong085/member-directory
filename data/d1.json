@@ -23,12 +23,13 @@
       "image": "g8_m1_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "厤宏科技有限公司",
       "business_items": "",
       "website": "",
       "id": "g8_m1",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "036",
@@ -54,12 +55,13 @@
       "image": "g8_m2_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "SELBST自我音樂工作室",
       "business_items": "",
       "website": "",
       "id": "g8_m2",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "215",
@@ -86,7 +88,8 @@
       "website": "",
       "id": "g8_m7",
       "dataIssue": false,
-      "updatedAt": "2026-09-11T14:08:58.109Z"
+      "updatedAt": "2026-09-11T14:08:58.109Z",
+      "companyPosition": "負責人"
     },
     {
       "number": "222",
@@ -108,12 +111,13 @@
       "image": "g8_m8_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "快樂梗有限公司",
       "business_items": "",
       "website": "",
       "id": "g8_m8",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "行銷業務經理"
     },
     {
       "id": "g8_m_ms4r2mg91w5t",
@@ -134,11 +138,12 @@
       "image": "g8_m_ms4r2mg91w5t_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "時刻智能國際有限公司",
       "business_items": "GEO優化",
       "website": "",
       "dataIssue": false,
-      "updatedAt": "2026-07-28T14:37:53.049Z"
+      "updatedAt": "2026-07-28T14:37:53.049Z",
+      "companyPosition": "業務總監"
     }
   ],
   "recruiting": [

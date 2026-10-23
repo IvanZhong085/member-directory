@@ -6,7 +6,7 @@
 <title>雲榮鑽石分會 · 後台編輯器</title>
 <meta name="robots" content="noindex, nofollow">
 <link rel="icon" type="image/svg+xml" href="favicon.svg">
-<link rel="stylesheet" href="styles.css?v=6">
+<link rel="stylesheet" href="styles.css?v=7">
 <style>
   /* ★ hidden 屬性必須贏過任何 display 宣告。
      瀏覽器對 [hidden] 的預設是 display:none,但那是**作者樣式表可以蓋掉**的預設值 ——
@@ -503,6 +503,7 @@
       <button class="btn" id="btn-missing" type="button" title="列出資料不齊的夥伴，一鍵產生催收訊息">缺資料</button>
       <a class="btn adm-hide-mobile" id="sheet-link" href="#" target="_blank" rel="noopener" hidden title="開啟 Google 名冊試算表">名冊試算表 ↗</a>
       <a class="btn" href="groups.html" target="_blank" rel="noopener" title="一頁式 組別+姓名+專業別,可直接列印或存 PDF">產業小組表</a>
+      <a class="btn" href="groups.html?view=public-single" target="_blank" rel="noopener" title="完整單張總覽,姓名下顯示公司及自填公司職位,可儲存 JPG、PNG 或單頁 PDF">對外產業小組圖</a>
       <button class="btn adm-hide-mobile" id="btn-export" type="button" title="下載一份備份檔">下載備份</button>
       <button class="btn btn-primary btn-publish" id="btn-publish" type="button">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m8 7 4-4 4 4"/><path d="M5 21h14"/></svg>
@@ -711,8 +712,8 @@
 <div class="toast" id="toast"></div>
 
 <script src="site-config.js?v=2"></script>
-<script src="csv-schema.js?v=2"></script>
+<script src="csv-schema.js?v=3"></script>
 <script src="admin-logic.js?v=4"></script>
-<script src="admin.js?v=13"></script>
+<script src="admin.js?v=14"></script>
 </body>
 </html>

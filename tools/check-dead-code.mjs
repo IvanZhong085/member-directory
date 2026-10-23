@@ -20,7 +20,7 @@ const PAGES = {
   "admin.html":     ["site-config.js", "csv-schema.js", "admin-logic.js", "admin.js", "admin.html"],
   "index.html":     ["site-config.js", "data.js", "qrcode.js", "sharecard.js", "app.js", "index.html"],
   "spotlight.html": ["site-config.js", "data.js", "qrcode.js", "sharecard.js", "spotlight.js", "spotlight.html"],
-  "groups.html":    ["site-config.js", "data.js", "qrcode.js", "groups.html"],
+  "groups.html":    ["site-config.js", "data.js", "qrcode.js", "groups-view.js", "groups.html"],
   "visitor.html":   ["site-config.js", "data.js", "visitor.html"],
 };
 /* 只掃第一方程式碼(第三方與資料檔跳過) */

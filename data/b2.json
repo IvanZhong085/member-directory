@@ -24,12 +24,13 @@
       "image": "g7_m1_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "榮玉食品有限公司",
       "business_items": "",
       "website": "",
       "id": "g7_m1",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "總經理"
     },
     {
       "number": "107",
@@ -53,12 +54,13 @@
       "image": "g7_m2_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "明鳳食寓宴會廳",
       "business_items": "",
       "website": "",
       "id": "g7_m2",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "142",
@@ -78,12 +80,13 @@
       "image": "g7_m3_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "虎秋文昌雞",
       "business_items": "",
       "website": "",
       "id": "g7_m3",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "058",
@@ -108,12 +111,13 @@
       "image": "g7_m4_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "野瘦派-健康餐盒",
       "business_items": "",
       "website": "",
       "id": "g7_m4",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "執行長"
     },
     {
       "number": "072",
@@ -135,12 +139,13 @@
       "image": "g7_m5_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "馥得力有限公司，李排骨酥餐館",
       "business_items": "",
       "website": "",
       "id": "g7_m5",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "業務部經理"
     },
     {
       "number": "202",
@@ -161,12 +166,13 @@
       "image": "g7_m6_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "鎮實實業有限公司",
       "business_items": "",
       "website": "",
       "id": "g7_m6",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "執行長"
     },
     {
       "number": "213",
@@ -188,12 +194,13 @@
       "image": "g7_m8_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "盛夏冰菓室",
       "business_items": "",
       "website": "",
       "id": "g7_m8",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "220",
@@ -214,12 +221,13 @@
       "image": "g7_m9_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "永梅純手工韭菜盒",
       "business_items": "",
       "website": "",
       "id": "g7_m9",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "老闆"
     }
   ],
   "recruiting": [

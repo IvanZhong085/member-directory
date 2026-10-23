@@ -23,12 +23,13 @@
       "image": "g11_m1_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "庄頭創意整合有限公司",
       "business_items": "",
       "website": "",
       "id": "g11_m1",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "設計總監"
     },
     {
       "number": "043",
@@ -52,12 +53,13 @@
       "image": "g11_m2_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "全修工程顧問股份有限公司、劉全修大地技師事務所、快速充電站股份有限公司、電鰻科技股份有限公司、鳳凰全球地產股份有限公司（新加坡）、嘉漁海鮮餐廳",
       "business_items": "",
       "website": "",
       "id": "g11_m2",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人、董事"
     },
     {
       "number": "090",
@@ -82,12 +84,13 @@
       "image": "g11_m3_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "立承地政士事務所",
       "business_items": "",
       "website": "",
       "id": "g11_m3",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "198",
@@ -110,12 +113,13 @@
       "image": "g11_m6_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "裕展水電工程行",
       "business_items": "",
       "website": "",
       "id": "g11_m6",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "執行長"
     },
     {
       "number": "024",
@@ -139,12 +143,13 @@
       "image": "g11_m7_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "壹元電氣行",
       "business_items": "",
       "website": "",
       "id": "g11_m7",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "副執行長"
     },
     {
       "number": "207",
@@ -169,12 +174,13 @@
       "image": "g11_m9_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "毅品空間設計企業社",
       "business_items": "",
       "website": "",
       "id": "g11_m9",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "068",
@@ -199,12 +205,13 @@
       "image": "g11_m10_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "璟耀工程股份有限公司",
       "business_items": "",
       "website": "",
       "id": "g11_m10",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "工程師"
     },
     {
       "id": "g11_m_muwt6zds1cpo",
@@ -228,7 +235,8 @@
       "business_items": "",
       "website": "",
       "dataIssue": false,
-      "updatedAt": "2026-10-06T15:03:52.480Z"
+      "updatedAt": "2026-10-06T15:03:52.480Z",
+      "companyPosition": "執行長"
     },
     {
       "number": "176",
@@ -254,12 +262,13 @@
       "image": "g1_m6_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "宜陞科技企業社",
       "business_items": "",
       "website": "",
       "id": "g11_m_mv4re19411p5",
       "dataIssue": false,
-      "updatedAt": "2026-10-12T04:35:31.672Z"
+      "updatedAt": "2026-10-12T04:35:31.672Z",
+      "companyPosition": "總經理"
     }
   ],
   "recruiting": [

@@ -25,12 +25,13 @@
       "image": "g12_m1_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "川糧食品有限公司",
       "business_items": "",
       "website": "",
       "id": "g12_m1",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "078",
@@ -51,12 +52,13 @@
       "image": "g12_m2_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "九嬸婆手工冷凍湯包",
       "business_items": "",
       "website": "",
       "id": "g12_m2",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "廠長"
     },
     {
       "number": "171",
@@ -79,12 +81,13 @@
       "image": "g12_m3_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "富樂美商行",
       "business_items": "",
       "website": "",
       "id": "g12_m3",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "業務經理"
     },
     {
       "number": "187",
@@ -106,12 +109,13 @@
       "image": "g12_m5_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "得意中華食品有限公司",
       "business_items": "",
       "website": "",
       "id": "g12_m5",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "董事長"
     },
     {
       "number": "196",
@@ -132,12 +136,13 @@
       "image": "g12_m6_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "曾家莊食品廠有限公司",
       "business_items": "",
       "website": "",
       "id": "g12_m6",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "特助"
     }
   ],
   "recruiting": [

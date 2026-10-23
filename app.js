@@ -52,7 +52,7 @@
       // 公司、營業項目、我有/我要也放進來:成員頁有顯示的欄位,搜尋卻找不到會讓人以為沒這個人
       m._haystack = [m.name, m.title, m.number, g.code, g.name,
         (m.services||[]).join(" "), (m.targets||[]).join(" "), (m.tagline||[]).join(" "),
-        m.company, m.business_items, (m.have||[]).join(" "), (m.want||[]).join(" ")
+        m.company, m.companyPosition, m.business_items, (m.have||[]).join(" "), (m.want||[]).join(" ")
       ].join(" ").toLowerCase();
       memberIndex.push(m);
     });
@@ -291,6 +291,14 @@
             </span>
             ${I.chevR}
           </a>
+          <a class="hero-btn" href="groups.html?view=public-single">
+            ${I.grid}
+            <span class="hero-btn-text">
+              <span class="hero-btn-title">對外產業小組圖</span>
+              <span class="hero-btn-sub">姓名、公司與公司職位；可儲存 JPG 或列印</span>
+            </span>
+            ${I.chevR}
+          </a>
         </div>
         <div class="hero-stats anim" style="--i:4">
           <div class="stat"><div class="stat-num">${GROUPS.length}</div><div class="stat-label">專業分組</div></div>
@@ -469,10 +477,11 @@
             <div class="info-head"><span class="info-icon">${I.megaphone}</span><span class="info-label">我要…</span></div>
             <div class="info-text">${esc(joinLines(m.want))}</div>
           </div>` : ""}
-          ${m.company || hasWebsite ? `
+          ${m.company || m.companyPosition || hasWebsite ? `
           <div class="info-card">
             <div class="info-head"><span class="info-icon">${I.building}</span><span class="info-label">所屬公司</span></div>
             <div class="info-text">${esc(m.company) || "—"}</div>
+            ${m.companyPosition ? `<div class="info-text"><span class="info-label">公司內職稱：</span>${esc(m.companyPosition)}</div>` : ""}
             ${hasWebsite ? `<a class="website-link" href="${esc(m.website)}" target="_blank" rel="noopener nofollow">${I.link} 公司網站 ↗</a>` : ""}
           </div>` : ""}
           ${m.business_items ? `

@@ -24,12 +24,13 @@
       "image": "g1_m1_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "永承實業社，琪聖塑膠企業社",
       "business_items": "",
       "website": "",
       "id": "g1_m1",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "129",
@@ -54,12 +55,13 @@
       "image": "g1_m2_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "KR健康管理顧問企業社",
       "business_items": "",
       "website": "",
       "id": "g1_m2",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "經理"
     },
     {
       "number": "037",
@@ -83,12 +85,13 @@
       "image": "g1_m3_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "信鴻人力仲介有限公司",
       "business_items": "",
       "website": "",
       "id": "g1_m3",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "總經理"
     },
     {
       "number": "151",
@@ -112,12 +115,13 @@
       "image": "g1_m4_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "永傳飼料",
       "business_items": "",
       "website": "",
       "id": "g1_m4",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "經理"
     },
     {
       "number": "169",
@@ -140,12 +144,13 @@
       "image": "g1_m5_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "邦士科技股份有限公司",
       "business_items": "",
       "website": "",
       "id": "g1_m5",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "業務副理"
     },
     {
       "number": "224",
@@ -167,12 +172,13 @@
       "image": "g1_m7_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "鉅眾工業股份有限公司",
       "business_items": "",
       "website": "",
       "id": "g1_m7",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "業務經理"
     },
     {
       "id": "g1_m_mtx0wciu8rv",
@@ -227,7 +233,8 @@
       "website": "https://www.lianggi.com",
       "dataIssue": false,
       "claimedFrom": "p_mtww26uec28",
-      "updatedAt": "2026-09-11T14:00:53.476Z"
+      "updatedAt": "2026-09-11T14:00:53.476Z",
+      "companyPosition": "特助"
     }
   ],
   "recruiting": [

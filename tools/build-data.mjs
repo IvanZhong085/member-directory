@@ -56,6 +56,17 @@ export function serializeDataJs(groups){
          "if (typeof module !== 'undefined') { module.exports = GROUPS; }\n";
 }
 
+/* Compatibility export for chart tools. The master member fields are the only source.
+   Only the three approved public fields are emitted; audit evidence stays outside the repository. */
+export function serializePublicProfiles(groups){
+  const profiles = {};
+  for(const g of groups) for(const m of g.members){
+    if(!m.id || Object.prototype.hasOwnProperty.call(profiles, m.id)) throw new Error("Missing or duplicate member ID");
+    profiles[m.id] = { name:m.name || "", company:m.company || "", position:m.companyPosition || "" };
+  }
+  return JSON.stringify(profiles, null, 2) + "\n";
+}
+
 /* 直接執行時才寫檔;被 import 當函式庫時不動任何東西
    (extract-inline-photos.mjs 會 import 這支拿 INDEX_FILE / groupFilePath,不能拿掉這道)。
 
@@ -68,6 +79,9 @@ if(import.meta.url === pathToFileURL(process.argv[1]).href){
   const groups = loadGroups();
   const out = join(ROOT, "data.js");
   const next = serializeDataJs(groups);
+  const profilePath = join(DATA_DIR, "_public-profiles.json");
+  const profileText = serializePublicProfiles(groups);
+  if(!existsSync(profilePath) || readFileSync(profilePath, "utf8") !== profileText) writeFileSync(profilePath, profileText);
   const prev = existsSync(out) ? readFileSync(out, "utf8") : "";
   if(next === prev){
     console.log("data.js 內容未變,不重寫。");

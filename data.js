@@ -28,12 +28,13 @@ const GROUPS = [
         "image": "g3_m1_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "陞煇食品",
         "business_items": "",
         "website": "",
         "id": "g3_m1",
         "dataIssue": false,
-        "updatedAt": "2026-07-28T07:14:10.402Z"
+        "updatedAt": "2026-07-28T07:14:10.402Z",
+        "companyPosition": "負責人"
       },
       {
         "number": "079",
@@ -56,12 +57,13 @@ const GROUPS = [
         "image": "g3_m2_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "永勁國際貿易有限公司",
         "business_items": "",
         "website": "",
         "id": "g3_m2",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "董事長助理"
       },
       {
         "number": "144",
@@ -81,12 +83,13 @@ const GROUPS = [
         "image": "g3_m3_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "亮軒肉品有限公司",
         "business_items": "",
         "website": "",
         "id": "g3_m3",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "136",
@@ -110,12 +113,13 @@ const GROUPS = [
         "image": "g3_m4_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "義昌食品股份有限公司，欣饌食品股份有限公司",
         "business_items": "",
         "website": "",
         "id": "g3_m4",
         "dataIssue": true,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "義昌食品總經理，欣饌食品負責人"
       },
       {
         "number": "002",
@@ -139,12 +143,13 @@ const GROUPS = [
         "image": "g3_m5_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "海中寶餐飲有限公司",
         "business_items": "",
         "website": "",
         "id": "g3_m5",
         "dataIssue": true,
-        "updatedAt": "2026-07-27T22:19:50.061Z"
+        "updatedAt": "2026-07-27T22:19:50.061Z",
+        "companyPosition": "端菜的"
       },
       {
         "number": "199",
@@ -166,12 +171,13 @@ const GROUPS = [
         "image": "g3_m6_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "段泰國蝦有限公司",
         "business_items": "",
         "website": "",
         "id": "g3_m6",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "採購"
       },
       {
         "number": "205",
@@ -208,7 +214,8 @@ const GROUPS = [
         "website": "",
         "id": "g3_m7",
         "dataIssue": false,
-        "updatedAt": "2026-10-05T14:13:06.599Z"
+        "updatedAt": "2026-10-05T14:13:06.599Z",
+        "companyPosition": "負責人"
       },
       {
         "number": "219",
@@ -230,12 +237,13 @@ const GROUPS = [
         "image": "g3_m8_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "津泰冷凍食品",
         "business_items": "",
         "website": "",
         "id": "g3_m8",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "業務"
       }
     ],
     "id": "g3",
@@ -271,12 +279,13 @@ const GROUPS = [
         "image": "g9_m1_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "展鮮農產生技股份有限公司",
         "business_items": "",
         "website": "",
         "id": "g9_m1",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "總經理"
       },
       {
         "number": "156",
@@ -298,12 +307,13 @@ const GROUPS = [
         "image": "g9_m2_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "華興青果行",
         "business_items": "",
         "website": "",
         "id": "g9_m2",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "經理"
       },
       {
         "number": "178",
@@ -324,12 +334,13 @@ const GROUPS = [
         "image": "g9_m3_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "洋果實業有限公司",
         "business_items": "",
         "website": "",
         "id": "g9_m3",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "總經理"
       },
       {
         "number": "141",
@@ -354,12 +365,13 @@ const GROUPS = [
         "image": "g9_m4_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "益身逗有限公司",
         "business_items": "",
         "website": "",
         "id": "g9_m4",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "160",
@@ -383,12 +395,13 @@ const GROUPS = [
         "image": "g9_m5_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "春生農產行，鳳梨滿農產行",
         "business_items": "",
         "website": "",
         "id": "g9_m5",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "長工"
       },
       {
         "number": "149",
@@ -410,12 +423,13 @@ const GROUPS = [
         "image": "g9_m6_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "永大養蜂場",
         "business_items": "",
         "website": "",
         "id": "g9_m6",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "經理"
       },
       {
         "number": "166",
@@ -440,12 +454,13 @@ const GROUPS = [
         "image": "g9_m7_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "林北釀造",
         "business_items": "",
         "website": "",
         "id": "g9_m7",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "業務經理"
       },
       {
         "number": "204",
@@ -467,12 +482,13 @@ const GROUPS = [
         "image": "g9_m8_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "柏優商行，義高菇菌農場",
         "business_items": "",
         "website": "",
         "id": "g9_m8",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "經理"
       },
       {
         "number": "206",
@@ -497,12 +513,13 @@ const GROUPS = [
         "image": "g9_m9_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "品韻商行",
         "business_items": "",
         "website": "",
         "id": "g9_m9",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       }
     ],
     "id": "g9",
@@ -540,12 +557,13 @@ const GROUPS = [
         "image": "g12_m1_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "川糧食品有限公司",
         "business_items": "",
         "website": "",
         "id": "g12_m1",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "078",
@@ -566,12 +584,13 @@ const GROUPS = [
         "image": "g12_m2_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "九嬸婆手工冷凍湯包",
         "business_items": "",
         "website": "",
         "id": "g12_m2",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "廠長"
       },
       {
         "number": "171",
@@ -594,12 +613,13 @@ const GROUPS = [
         "image": "g12_m3_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "富樂美商行",
         "business_items": "",
         "website": "",
         "id": "g12_m3",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "業務經理"
       },
       {
         "number": "187",
@@ -621,12 +641,13 @@ const GROUPS = [
         "image": "g12_m5_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "得意中華食品有限公司",
         "business_items": "",
         "website": "",
         "id": "g12_m5",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "董事長"
       },
       {
         "number": "196",
@@ -647,12 +668,13 @@ const GROUPS = [
         "image": "g12_m6_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "曾家莊食品廠有限公司",
         "business_items": "",
         "website": "",
         "id": "g12_m6",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "特助"
       }
     ],
     "id": "g12",
@@ -689,12 +711,13 @@ const GROUPS = [
         "image": "g7_m1_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "榮玉食品有限公司",
         "business_items": "",
         "website": "",
         "id": "g7_m1",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "總經理"
       },
       {
         "number": "107",
@@ -718,12 +741,13 @@ const GROUPS = [
         "image": "g7_m2_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "明鳳食寓宴會廳",
         "business_items": "",
         "website": "",
         "id": "g7_m2",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "142",
@@ -743,12 +767,13 @@ const GROUPS = [
         "image": "g7_m3_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "虎秋文昌雞",
         "business_items": "",
         "website": "",
         "id": "g7_m3",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "058",
@@ -773,12 +798,13 @@ const GROUPS = [
         "image": "g7_m4_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "野瘦派-健康餐盒",
         "business_items": "",
         "website": "",
         "id": "g7_m4",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "執行長"
       },
       {
         "number": "072",
@@ -800,12 +826,13 @@ const GROUPS = [
         "image": "g7_m5_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "馥得力有限公司，李排骨酥餐館",
         "business_items": "",
         "website": "",
         "id": "g7_m5",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "業務部經理"
       },
       {
         "number": "202",
@@ -826,12 +853,13 @@ const GROUPS = [
         "image": "g7_m6_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "鎮實實業有限公司",
         "business_items": "",
         "website": "",
         "id": "g7_m6",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "執行長"
       },
       {
         "number": "213",
@@ -853,12 +881,13 @@ const GROUPS = [
         "image": "g7_m8_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "盛夏冰菓室",
         "business_items": "",
         "website": "",
         "id": "g7_m8",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "220",
@@ -879,12 +908,13 @@ const GROUPS = [
         "image": "g7_m9_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "永梅純手工韭菜盒",
         "business_items": "",
         "website": "",
         "id": "g7_m9",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "老闆"
       }
     ],
     "id": "g7",
@@ -922,12 +952,13 @@ const GROUPS = [
         "image": "g10_m1_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "俊資有限公司",
         "business_items": "",
         "website": "",
         "id": "g10_m1",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "經理"
       },
       {
         "number": "075",
@@ -952,12 +983,13 @@ const GROUPS = [
         "image": "g10_m2_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "巨翊生技有限公司",
         "business_items": "",
         "website": "",
         "id": "g10_m2",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "總經理"
       },
       {
         "number": "091",
@@ -981,12 +1013,13 @@ const GROUPS = [
         "image": "g10_m3_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "恩典醫療",
         "business_items": "",
         "website": "",
         "id": "g10_m3",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "業務經理"
       },
       {
         "number": "121",
@@ -1009,12 +1042,13 @@ const GROUPS = [
         "image": "g10_m4_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "森菓菓有限公司",
         "business_items": "",
         "website": "",
         "id": "g10_m4",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "創辦人"
       },
       {
         "number": "099",
@@ -1037,12 +1071,13 @@ const GROUPS = [
         "image": "g10_m5_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "玉山鑫有限公司",
         "business_items": "",
         "website": "",
         "id": "g10_m5",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "執行長"
       },
       {
         "number": "174",
@@ -1066,12 +1101,13 @@ const GROUPS = [
         "image": "g10_m6_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "億昌油廠",
         "business_items": "",
         "website": "",
         "id": "g10_m6",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "經理"
       },
       {
         "number": "194",
@@ -1095,12 +1131,13 @@ const GROUPS = [
         "image": "g10_m7_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "東杰生醫",
         "business_items": "",
         "website": "",
         "id": "g10_m7",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "業務總監"
       },
       {
         "number": "203",
@@ -1124,12 +1161,13 @@ const GROUPS = [
         "image": "g10_m8_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "優乳有限公司",
         "business_items": "",
         "website": "",
         "id": "g10_m8",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "總經理"
       },
       {
         "number": "214",
@@ -1151,12 +1189,13 @@ const GROUPS = [
         "image": "g10_m9_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "好品味生技食品股份有限公司",
         "business_items": "",
         "website": "",
         "id": "g10_m9",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "經理"
       },
       {
         "number": "217",
@@ -1177,12 +1216,13 @@ const GROUPS = [
         "image": "g10_m10_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "不二創立有限公司",
         "business_items": "",
         "website": "",
         "id": "g10_m10",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "執行長"
       }
     ],
     "id": "g10",
@@ -1221,12 +1261,13 @@ const GROUPS = [
         "image": "g8_m1_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "厤宏科技有限公司",
         "business_items": "",
         "website": "",
         "id": "g8_m1",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "036",
@@ -1252,12 +1293,13 @@ const GROUPS = [
         "image": "g8_m2_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "SELBST自我音樂工作室",
         "business_items": "",
         "website": "",
         "id": "g8_m2",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "215",
@@ -1284,7 +1326,8 @@ const GROUPS = [
         "website": "",
         "id": "g8_m7",
         "dataIssue": false,
-        "updatedAt": "2026-09-11T14:08:58.109Z"
+        "updatedAt": "2026-09-11T14:08:58.109Z",
+        "companyPosition": "負責人"
       },
       {
         "number": "222",
@@ -1306,12 +1349,13 @@ const GROUPS = [
         "image": "g8_m8_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "快樂梗有限公司",
         "business_items": "",
         "website": "",
         "id": "g8_m8",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "行銷業務經理"
       },
       {
         "id": "g8_m_ms4r2mg91w5t",
@@ -1332,11 +1376,12 @@ const GROUPS = [
         "image": "g8_m_ms4r2mg91w5t_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "時刻智能國際有限公司",
         "business_items": "GEO優化",
         "website": "",
         "dataIssue": false,
-        "updatedAt": "2026-07-28T14:37:53.049Z"
+        "updatedAt": "2026-07-28T14:37:53.049Z",
+        "companyPosition": "業務總監"
       }
     ],
     "id": "g8",
@@ -1373,12 +1418,13 @@ const GROUPS = [
         "image": "g5_m1_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "紅內褲影像工作室",
         "business_items": "",
         "website": "",
         "id": "g5_m1",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "營運長"
       },
       {
         "number": "054",
@@ -1400,12 +1446,13 @@ const GROUPS = [
         "image": "g5_m2_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "眾點資訊有限公司",
         "business_items": "",
         "website": "",
         "id": "g5_m2",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "執行長"
       },
       {
         "number": "113",
@@ -1431,12 +1478,13 @@ const GROUPS = [
         "image": "g5_m4_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "沂融企業社",
         "business_items": "",
         "website": "",
         "id": "g5_m4",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "154",
@@ -1462,12 +1510,13 @@ const GROUPS = [
         "image": "g5_m5_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "靖騰整合行銷有限公司",
         "business_items": "",
         "website": "",
         "id": "g5_m5",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "總經理"
       },
       {
         "number": "027",
@@ -1492,12 +1541,13 @@ const GROUPS = [
         "image": "g5_m6_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "惟信行銷有限公司",
         "business_items": "",
         "website": "",
         "id": "g5_m6",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "總監"
       },
       {
         "number": "191",
@@ -1523,12 +1573,13 @@ const GROUPS = [
         "image": "g8_m4_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "威比司國際有限公司，肯尼士國際有限公司",
         "business_items": "",
         "website": "",
         "id": "g5_m_mv4qhp0a1i4x",
         "dataIssue": false,
-        "updatedAt": "2026-10-12T04:10:22.810Z"
+        "updatedAt": "2026-10-12T04:10:22.810Z",
+        "companyPosition": "負責人"
       },
       {
         "number": "152",
@@ -1553,12 +1604,13 @@ const GROUPS = [
         "image": "g8_m5_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "龍德數位科技有限公司",
         "business_items": "",
         "website": "",
         "id": "g5_m_mv4qhrv618uz",
         "dataIssue": false,
-        "updatedAt": "2026-10-12T04:10:26.514Z"
+        "updatedAt": "2026-10-12T04:10:26.514Z",
+        "companyPosition": "業務經理"
       }
     ],
     "id": "g5",
@@ -1595,12 +1647,13 @@ const GROUPS = [
         "image": "g2_m1_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "LIZSALON",
         "business_items": "",
         "website": "",
         "id": "g2_m1",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "CEO"
       },
       {
         "number": "116",
@@ -1624,12 +1677,13 @@ const GROUPS = [
         "image": "g2_m3_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "伯洸眼鏡",
         "business_items": "",
         "website": "",
         "id": "g2_m3",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "創辦人"
       },
       {
         "number": "120",
@@ -1653,12 +1707,13 @@ const GROUPS = [
         "image": "g2_m4_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "樓擂健身俱樂部",
         "business_items": "",
         "website": "",
         "id": "g2_m4",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "163",
@@ -1684,12 +1739,13 @@ const GROUPS = [
         "image": "g2_m5_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "任我美股份有限公司",
         "business_items": "",
         "website": "",
         "id": "g2_m5",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "CEO"
       },
       {
         "number": "033",
@@ -1711,12 +1767,13 @@ const GROUPS = [
         "image": "g11_m4_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "南山人壽斗六安信通訊處",
         "business_items": "",
         "website": "",
         "id": "g2_m_muz4wq3h203t",
         "dataIssue": false,
-        "updatedAt": "2026-10-08T06:07:21.629Z"
+        "updatedAt": "2026-10-08T06:07:21.629Z",
+        "companyPosition": "處經理"
       }
     ],
     "id": "g2",
@@ -1760,12 +1817,13 @@ const GROUPS = [
         "image": "g4_m4_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "美麗海精品咖啡烘豆坊",
         "business_items": "",
         "website": "",
         "id": "g4_m4",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "005",
@@ -1789,12 +1847,13 @@ const GROUPS = [
         "image": "g4_m2_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "穎川禮儀鮮花店",
         "business_items": "",
         "website": "",
         "id": "g4_m2",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "執行長"
       },
       {
         "number": "131",
@@ -1815,12 +1874,13 @@ const GROUPS = [
         "image": "g4_m3_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "築映相攝影",
         "business_items": "",
         "website": "",
         "id": "g4_m3",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "115",
@@ -1845,12 +1905,13 @@ const GROUPS = [
         "image": "g4_m5_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "豆點工作室",
         "business_items": "",
         "website": "",
         "id": "g4_m5",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "主理人"
       },
       {
         "number": "218",
@@ -1873,12 +1934,13 @@ const GROUPS = [
         "image": "g4_m6_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "你說你說企業管理顧問有限公司",
         "business_items": "",
         "website": "",
         "id": "g4_m6",
         "dataIssue": false,
-        "updatedAt": "2026-08-12T15:38:40.359Z"
+        "updatedAt": "2026-08-12T15:38:40.359Z",
+        "companyPosition": "企業培訓顧問"
       },
       {
         "id": "g4_m_muz4yc6jmmb",
@@ -1922,7 +1984,8 @@ const GROUPS = [
         "website": "",
         "dataIssue": false,
         "claimedFrom": "p_mtiouthdee3z",
-        "updatedAt": "2026-10-08T06:08:36.907Z"
+        "updatedAt": "2026-10-08T06:08:36.907Z",
+        "companyPosition": "創辦人"
       }
     ],
     "id": "g4",
@@ -1963,12 +2026,13 @@ const GROUPS = [
         "image": "g11_m1_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "庄頭創意整合有限公司",
         "business_items": "",
         "website": "",
         "id": "g11_m1",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "設計總監"
       },
       {
         "number": "043",
@@ -1992,12 +2056,13 @@ const GROUPS = [
         "image": "g11_m2_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "全修工程顧問股份有限公司、劉全修大地技師事務所、快速充電站股份有限公司、電鰻科技股份有限公司、鳳凰全球地產股份有限公司（新加坡）、嘉漁海鮮餐廳",
         "business_items": "",
         "website": "",
         "id": "g11_m2",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人、董事"
       },
       {
         "number": "090",
@@ -2022,12 +2087,13 @@ const GROUPS = [
         "image": "g11_m3_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "立承地政士事務所",
         "business_items": "",
         "website": "",
         "id": "g11_m3",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "198",
@@ -2050,12 +2116,13 @@ const GROUPS = [
         "image": "g11_m6_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "裕展水電工程行",
         "business_items": "",
         "website": "",
         "id": "g11_m6",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "執行長"
       },
       {
         "number": "024",
@@ -2079,12 +2146,13 @@ const GROUPS = [
         "image": "g11_m7_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "壹元電氣行",
         "business_items": "",
         "website": "",
         "id": "g11_m7",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "副執行長"
       },
       {
         "number": "207",
@@ -2109,12 +2177,13 @@ const GROUPS = [
         "image": "g11_m9_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "毅品空間設計企業社",
         "business_items": "",
         "website": "",
         "id": "g11_m9",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "068",
@@ -2139,12 +2208,13 @@ const GROUPS = [
         "image": "g11_m10_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "璟耀工程股份有限公司",
         "business_items": "",
         "website": "",
         "id": "g11_m10",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "工程師"
       },
       {
         "id": "g11_m_muwt6zds1cpo",
@@ -2168,7 +2238,8 @@ const GROUPS = [
         "business_items": "",
         "website": "",
         "dataIssue": false,
-        "updatedAt": "2026-10-06T15:03:52.480Z"
+        "updatedAt": "2026-10-06T15:03:52.480Z",
+        "companyPosition": "執行長"
       },
       {
         "number": "176",
@@ -2194,12 +2265,13 @@ const GROUPS = [
         "image": "g1_m6_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "宜陞科技企業社",
         "business_items": "",
         "website": "",
         "id": "g11_m_mv4re19411p5",
         "dataIssue": false,
-        "updatedAt": "2026-10-12T04:35:31.672Z"
+        "updatedAt": "2026-10-12T04:35:31.672Z",
+        "companyPosition": "總經理"
       }
     ],
     "id": "g11",
@@ -2239,12 +2311,13 @@ const GROUPS = [
         "image": "g6_m1_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "伯洸文創有限公司",
         "business_items": "",
         "website": "",
         "id": "g6_m1",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "執行長"
       },
       {
         "number": "011",
@@ -2269,12 +2342,13 @@ const GROUPS = [
         "image": "g6_m2_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "台灣新光保全股份有限公司",
         "business_items": "",
         "website": "",
         "id": "g6_m2",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "一級特品主任"
       },
       {
         "number": "015",
@@ -2297,12 +2371,13 @@ const GROUPS = [
         "image": "g6_m3_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "許凱傑律師事務所",
         "business_items": "",
         "website": "",
         "id": "g6_m3",
         "dataIssue": false,
-        "updatedAt": "2026-10-13T08:26:52.710Z"
+        "updatedAt": "2026-10-13T08:26:52.710Z",
+        "companyPosition": "律師"
       },
       {
         "number": "028",
@@ -2325,12 +2400,13 @@ const GROUPS = [
         "image": "g6_m4_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "新博力資訊科技有限公司",
         "business_items": "",
         "website": "",
         "id": "g6_m4",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "總經理"
       },
       {
         "number": "030",
@@ -2353,12 +2429,13 @@ const GROUPS = [
         "image": "g6_m5_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "金豐企業管理顧問股份有限公司",
         "business_items": "",
         "website": "",
         "id": "g6_m5",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "執案顧問"
       },
       {
         "number": "059",
@@ -2383,7 +2460,7 @@ const GROUPS = [
         "image": "g6_m6_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "臺灣智庫智策顧問有限公司",
         "business_items": "",
         "website": "",
         "id": "g6_m6",
@@ -2413,12 +2490,13 @@ const GROUPS = [
         "image": "g6_m7_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "杰辰稅務記帳士事務所",
         "business_items": "",
         "website": "",
         "id": "g6_m7",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "所長"
       },
       {
         "number": "159",
@@ -2440,7 +2518,7 @@ const GROUPS = [
         "image": "g6_m8_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "俐富股份有限公司",
         "business_items": "",
         "website": "",
         "id": "g6_m8",
@@ -2467,12 +2545,13 @@ const GROUPS = [
         "image": "g11_m5_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "南山人壽",
         "business_items": "",
         "website": "",
         "id": "g6_m_muz59z4tck",
         "dataIssue": false,
-        "updatedAt": "2026-10-08T06:17:39.869Z"
+        "updatedAt": "2026-10-08T06:17:39.869Z",
+        "companyPosition": "業務主管"
       },
       {
         "number": "137",
@@ -2496,12 +2575,13 @@ const GROUPS = [
         "image": "g4_m1_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "可悠美旅行社",
         "business_items": "",
         "website": "",
         "id": "g6_m_muz50xyb1rjp",
         "dataIssue": false,
-        "updatedAt": "2026-10-08T06:10:38.435Z"
+        "updatedAt": "2026-10-08T06:10:38.435Z",
+        "companyPosition": "總經理"
       }
     ],
     "id": "g6",
@@ -2542,12 +2622,13 @@ const GROUPS = [
         "image": "g1_m1_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "永承實業社，琪聖塑膠企業社",
         "business_items": "",
         "website": "",
         "id": "g1_m1",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "負責人"
       },
       {
         "number": "129",
@@ -2572,12 +2653,13 @@ const GROUPS = [
         "image": "g1_m2_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "KR健康管理顧問企業社",
         "business_items": "",
         "website": "",
         "id": "g1_m2",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "經理"
       },
       {
         "number": "037",
@@ -2601,12 +2683,13 @@ const GROUPS = [
         "image": "g1_m3_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "信鴻人力仲介有限公司",
         "business_items": "",
         "website": "",
         "id": "g1_m3",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "總經理"
       },
       {
         "number": "151",
@@ -2630,12 +2713,13 @@ const GROUPS = [
         "image": "g1_m4_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "永傳飼料",
         "business_items": "",
         "website": "",
         "id": "g1_m4",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "經理"
       },
       {
         "number": "169",
@@ -2658,12 +2742,13 @@ const GROUPS = [
         "image": "g1_m5_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "邦士科技股份有限公司",
         "business_items": "",
         "website": "",
         "id": "g1_m5",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "業務副理"
       },
       {
         "number": "224",
@@ -2685,12 +2770,13 @@ const GROUPS = [
         "image": "g1_m7_x.jpg",
         "card": "",
         "products": [],
-        "company": "",
+        "company": "鉅眾工業股份有限公司",
         "business_items": "",
         "website": "",
         "id": "g1_m7",
         "dataIssue": false,
-        "updatedAt": ""
+        "updatedAt": "",
+        "companyPosition": "業務經理"
       },
       {
         "id": "g1_m_mtx0wciu8rv",
@@ -2745,7 +2831,8 @@ const GROUPS = [
         "website": "https://www.lianggi.com",
         "dataIssue": false,
         "claimedFrom": "p_mtww26uec28",
-        "updatedAt": "2026-09-11T14:00:53.476Z"
+        "updatedAt": "2026-09-11T14:00:53.476Z",
+        "companyPosition": "特助"
       }
     ],
     "id": "g1",

@@ -23,12 +23,13 @@
       "image": "g3_m1_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "陞煇食品",
       "business_items": "",
       "website": "",
       "id": "g3_m1",
       "dataIssue": false,
-      "updatedAt": "2026-07-28T07:14:10.402Z"
+      "updatedAt": "2026-07-28T07:14:10.402Z",
+      "companyPosition": "負責人"
     },
     {
       "number": "079",
@@ -51,12 +52,13 @@
       "image": "g3_m2_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "永勁國際貿易有限公司",
       "business_items": "",
       "website": "",
       "id": "g3_m2",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "董事長助理"
     },
     {
       "number": "144",
@@ -76,12 +78,13 @@
       "image": "g3_m3_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "亮軒肉品有限公司",
       "business_items": "",
       "website": "",
       "id": "g3_m3",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "136",
@@ -105,12 +108,13 @@
       "image": "g3_m4_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "義昌食品股份有限公司，欣饌食品股份有限公司",
       "business_items": "",
       "website": "",
       "id": "g3_m4",
       "dataIssue": true,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "義昌食品總經理，欣饌食品負責人"
     },
     {
       "number": "002",
@@ -134,12 +138,13 @@
       "image": "g3_m5_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "海中寶餐飲有限公司",
       "business_items": "",
       "website": "",
       "id": "g3_m5",
       "dataIssue": true,
-      "updatedAt": "2026-07-27T22:19:50.061Z"
+      "updatedAt": "2026-07-27T22:19:50.061Z",
+      "companyPosition": "端菜的"
     },
     {
       "number": "199",
@@ -161,12 +166,13 @@
       "image": "g3_m6_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "段泰國蝦有限公司",
       "business_items": "",
       "website": "",
       "id": "g3_m6",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "採購"
     },
     {
       "number": "205",
@@ -203,7 +209,8 @@
       "website": "",
       "id": "g3_m7",
       "dataIssue": false,
-      "updatedAt": "2026-10-05T14:13:06.599Z"
+      "updatedAt": "2026-10-05T14:13:06.599Z",
+      "companyPosition": "負責人"
     },
     {
       "number": "219",
@@ -225,12 +232,13 @@
       "image": "g3_m8_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "津泰冷凍食品",
       "business_items": "",
       "website": "",
       "id": "g3_m8",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "業務"
     }
   ],
   "recruiting": [

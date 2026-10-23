@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { readFileSync } from 'node:fs';
+import { serializeDataJs, serializePublicProfiles } from '../tools/build-data.mjs';
+const require=createRequire(import.meta.url),view=require('../groups-view.js');
+const member={id:'member-1',name:'林測試',company:'主資料公司',companyPosition:'業務經理',title:'專業別',phone:'PRIVATE-PHONE',taxId:'PRIVATE-TAX',role:'分會主席'};
+const groups=[{code:'A1',name:'測試產業',leader:member.name,members:[member],recruiting:['內部招募']}];
+const stale={'member-1':{name:member.name,company:'過期公司',companySource:'old',position:'過期職稱',positionSource:'old'}};
+for(const mode of ['public','public-single']){
+ const html=view.renderGroups(groups,mode,stale);
+ for(const text of ['林測試','主資料公司','業務經理'])assert.ok(html.includes(text));
+ for(const text of ['PRIVATE-','專業別','分會主席','內部招募','過期公司','過期職稱','class="leader"'])assert.ok(!html.includes(text));
+ assert.ok(html.indexOf('class="n"')<html.indexOf('class="company"'));
+ assert.ok(html.indexOf('class="company"')<html.indexOf('class="position"'));
+}
+const internal=view.renderGroups(groups,'internal');
+for(const text of ['class="leader"','專業別','內部招募'])assert.ok(internal.includes(text));
+assert.ok(!internal.includes('主資料公司'));
+const blank=structuredClone(groups);delete blank[0].members[0].companyPosition;
+assert.equal(view.publicProfile(blank[0].members[0],stale).position,'','no role inference or stale sidecar fallback');
+assert.ok(view.renderGroups(blank,'public-single').includes('class="position"></span>'));
+assert.ok(!view.renderGroups(blank,'public-single').includes('職位待確認'));
+assert.match(view.renderGroups(blank,'public'),/職位待確認/);
+const corrected=structuredClone(groups);corrected[0].members[0].name='林試正';corrected[0].leader='林試正';
+assert.ok(view.renderGroups(corrected,'public').includes('林試正'));
+const hostile=structuredClone(groups);hostile[0].members[0].companyPosition='<script>" &';
+assert.ok(!view.renderGroups(hostile,'public').includes('<script>'));
+assert.ok(view.renderGroups(hostile,'public').includes('&lt;script&gt;'));
+const rebuilt=new Function(serializeDataJs(groups)+';return GROUPS;')();
+assert.equal(rebuilt[0].members[0].companyPosition,'業務經理');
+const projected=JSON.parse(serializePublicProfiles(groups));
+assert.deepEqual(projected['member-1'],{name:member.name,company:member.company,position:member.companyPosition});
+const real=require('../data.js');
+const generated=readFileSync(new URL('../data/_public-profiles.json',import.meta.url),'utf8');
+assert.equal(generated,serializePublicProfiles(real),'public projection must exactly follow the master');
+for(const row of Object.values(JSON.parse(generated)))assert.deepEqual(Object.keys(row),['name','company','position']);
+assert.equal((view.renderGroups(real,'public').match(/class="n"/g)||[]).length,real.flatMap(g=>g.members).length);
+console.log('groups-view: PASS (master source, stale sidecar ignored, blank roles, escaping, original mode, build preservation, public whitelist)');

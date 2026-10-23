@@ -25,12 +25,13 @@
       "image": "g4_m4_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "美麗海精品咖啡烘豆坊",
       "business_items": "",
       "website": "",
       "id": "g4_m4",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "005",
@@ -54,12 +55,13 @@
       "image": "g4_m2_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "穎川禮儀鮮花店",
       "business_items": "",
       "website": "",
       "id": "g4_m2",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "執行長"
     },
     {
       "number": "131",
@@ -80,12 +82,13 @@
       "image": "g4_m3_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "築映相攝影",
       "business_items": "",
       "website": "",
       "id": "g4_m3",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "115",
@@ -110,12 +113,13 @@
       "image": "g4_m5_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "豆點工作室",
       "business_items": "",
       "website": "",
       "id": "g4_m5",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "主理人"
     },
     {
       "number": "218",
@@ -138,12 +142,13 @@
       "image": "g4_m6_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "你說你說企業管理顧問有限公司",
       "business_items": "",
       "website": "",
       "id": "g4_m6",
       "dataIssue": false,
-      "updatedAt": "2026-08-12T15:38:40.359Z"
+      "updatedAt": "2026-08-12T15:38:40.359Z",
+      "companyPosition": "企業培訓顧問"
     },
     {
       "id": "g4_m_muz4yc6jmmb",
@@ -187,7 +192,8 @@
       "website": "",
       "dataIssue": false,
       "claimedFrom": "p_mtiouthdee3z",
-      "updatedAt": "2026-10-08T06:08:36.907Z"
+      "updatedAt": "2026-10-08T06:08:36.907Z",
+      "companyPosition": "創辦人"
     }
   ],
   "recruiting": [

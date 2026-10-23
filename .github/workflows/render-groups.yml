@@ -18,6 +18,7 @@ on:
     branches: [main]
     paths:
       - groups.html
+      - groups-view.js
       - group-sheet-bg.svg
       - site-config.js
       - tools/render-groups.mjs

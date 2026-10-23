@@ -22,12 +22,13 @@
       "image": "g2_m1_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "LIZSALON",
       "business_items": "",
       "website": "",
       "id": "g2_m1",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "CEO"
     },
     {
       "number": "116",
@@ -51,12 +52,13 @@
       "image": "g2_m3_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "伯洸眼鏡",
       "business_items": "",
       "website": "",
       "id": "g2_m3",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "創辦人"
     },
     {
       "number": "120",
@@ -80,12 +82,13 @@
       "image": "g2_m4_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "樓擂健身俱樂部",
       "business_items": "",
       "website": "",
       "id": "g2_m4",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "163",
@@ -111,12 +114,13 @@
       "image": "g2_m5_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "任我美股份有限公司",
       "business_items": "",
       "website": "",
       "id": "g2_m5",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "CEO"
     },
     {
       "number": "033",
@@ -138,12 +142,13 @@
       "image": "g11_m4_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "南山人壽斗六安信通訊處",
       "business_items": "",
       "website": "",
       "id": "g2_m_muz4wq3h203t",
       "dataIssue": false,
-      "updatedAt": "2026-10-08T06:07:21.629Z"
+      "updatedAt": "2026-10-08T06:07:21.629Z",
+      "companyPosition": "處經理"
     }
   ],
   "recruiting": [

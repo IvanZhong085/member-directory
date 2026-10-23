@@ -695,6 +695,24 @@ setupPhotoCleanupTrigger()   // 確認沒問題再排定，每月 1 號凌晨執
 
 ## 產業小組表的圖片版（groups.jpg）
 
+公司及獨立公司職稱已整合進會員主資料：`company`／`companyPosition`；`title` 保留為專業別。
+管理頁可編輯公司內職稱，暫存、備份、CSV 和重建 `data.js` 都會保留。
+圖表直接讀取同一份主資料；`data/_public-profiles.json` 由 `tools/build-data.mjs` 產生，僅含姓名、公司、職稱，不可手改。
+私有來源、核對對照與差異報告須放在公開 repo 外；安全合併工具與 dry-run/apply 流程見下方說明文件。
+
+「對外產業小組圖」現在由首頁／後台進入 `groups.html?view=public-single` 橫式完整單張。
+四欄依內容高度分配 12 組、89 人；公司及已填職稱位於姓名下方，未填職稱留白。
+縮減標題、留白及裝飾，保留長公司全名；可匯出 6600px 寬 JPG／PNG 或單頁橫式 PDF。
+`node tools/render-single-overview.mjs` 可產生新舊同寬比較與完整驗證。每組版保留為額外選項：`groups.html?view=public-large`。
+姓名下顯示公司與有來源的公司職位，缺資料明示待補；不以專業別或 BNI 職務代替。
+選擇小組後存成 1170px 寬的 JPG 長圖，或按「全部小組存 PDF」輸出每組一頁的長頁 PDF。
+姓名／公司／職位固定 28／20／18px，長公司完整換行並增加圖片高度；沒有縮字或省略名稱。
+工具列仍保留內部原圖及 `groups.html?view=public` 對外總覽，總覽為 16:9 JPG／A4 橫式 PDF。
+本機批次輸出全部圖片、離線預覽及 PDF：`node tools/render-public-groups.mjs`（需 Playwright；
+`GROUPS_ARTIFACT_DIR` 指定輸出資料夾，預設系統暫存目錄）。這個工具只服務本機頁面、封鎖外部請求，
+不會把對外圖片寫入正式發布流程。來源、補資料方式與目前限制見
+[公司資料整合與對外產業圖](docs/public-groups-review.md)。
+
 `groups.html` 是用程式即時畫出來的海報,沒有瀏覽器的外部系統(例如 LINE bot 的 Apps Script)拿不到畫面。
 所以由 `.github/workflows/render-groups.yml` 在「同步網站資料」跑完後,用無頭瀏覽器把 `.sheet` 區塊截成實體檔:
 

@@ -20,12 +20,13 @@
       "image": "g5_m1_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "紅內褲影像工作室",
       "business_items": "",
       "website": "",
       "id": "g5_m1",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "營運長"
     },
     {
       "number": "054",
@@ -47,12 +48,13 @@
       "image": "g5_m2_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "眾點資訊有限公司",
       "business_items": "",
       "website": "",
       "id": "g5_m2",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "執行長"
     },
     {
       "number": "113",
@@ -78,12 +80,13 @@
       "image": "g5_m4_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "沂融企業社",
       "business_items": "",
       "website": "",
       "id": "g5_m4",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "負責人"
     },
     {
       "number": "154",
@@ -109,12 +112,13 @@
       "image": "g5_m5_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "靖騰整合行銷有限公司",
       "business_items": "",
       "website": "",
       "id": "g5_m5",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "總經理"
     },
     {
       "number": "027",
@@ -139,12 +143,13 @@
       "image": "g5_m6_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "惟信行銷有限公司",
       "business_items": "",
       "website": "",
       "id": "g5_m6",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "總監"
     },
     {
       "number": "191",
@@ -170,12 +175,13 @@
       "image": "g8_m4_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "威比司國際有限公司，肯尼士國際有限公司",
       "business_items": "",
       "website": "",
       "id": "g5_m_mv4qhp0a1i4x",
       "dataIssue": false,
-      "updatedAt": "2026-10-12T04:10:22.810Z"
+      "updatedAt": "2026-10-12T04:10:22.810Z",
+      "companyPosition": "負責人"
     },
     {
       "number": "152",
@@ -200,12 +206,13 @@
       "image": "g8_m5_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "龍德數位科技有限公司",
       "business_items": "",
       "website": "",
       "id": "g5_m_mv4qhrv618uz",
       "dataIssue": false,
-      "updatedAt": "2026-10-12T04:10:26.514Z"
+      "updatedAt": "2026-10-12T04:10:26.514Z",
+      "companyPosition": "業務經理"
     }
   ],
   "recruiting": [

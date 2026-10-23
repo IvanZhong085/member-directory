@@ -40,6 +40,9 @@
   .tbtn:hover{border-color:var(--red); color:var(--red); background:#FDF3F5;}
   .tbtn-primary{background:var(--red); border-color:var(--red); color:#fff;}
   .tbtn-primary:hover{background:var(--red-dark); border-color:var(--red-dark); color:#fff;}
+  .mode-label{font-size:13px; font-weight:700;}
+  .public-status{flex-basis:100%; font-size:12px; color:var(--muted);}
+  .public-status:empty{display:none;}
 
   /* ── 16:9 海報(底圖 = BNI ACCELERATE 品牌版型,960×540) ──
      尺寸與比例由底圖決定:寬 297mm、高 = 297×540/960 = 167.06mm,固定高度不再讓內容撐開。
@@ -104,6 +107,15 @@
   /* 招募席位:紅字,無姓名、對齊專業別欄 */
   li.recruit{padding-left:calc(46px * var(--s));}
   li.recruit .t{color:var(--recruit); font-weight:700;}
+  .sheet.public .g-list li{
+    display:block; padding:calc(2px * var(--s)) 0; line-height:1.18;
+  }
+  .sheet.public .n{display:block; min-width:0;}
+  .sheet.public .company, .sheet.public .position{
+    display:block; font-size:calc(8.6px * var(--s)); overflow-wrap:anywhere;
+  }
+  .sheet.public .company{color:#26272E; font-weight:500;}
+  .sheet.public .position{color:var(--muted);}
 
   /* ── QR(右上角) ──
      原本在頁尾,但底圖的下緣整條是品牌帶(標誌文字從 x 22% 一路到右邊的弧形),
@@ -150,18 +162,100 @@
   .sheet.exporting .grid{grid-template-columns:repeat(6, 1fr);}
   .sheet.exporting .mast-date{position:absolute; right:150px; top:8px; margin-top:0; display:block;}
   .sheet.exporting .foot{position:absolute; top:2.5mm; right:7mm; margin-top:0;}
+  [hidden]{display:none !important;}
+  .large-brand, #large-print{display:none;}
+  /* 每組大字長圖：字級固定，只換行、增加高度。390px 是分享圖片的閱讀寬度。 */
+  .sheet.large, .sheet.large.exporting{
+    width:390px; max-width:100%; height:auto; min-height:0; padding:24px 20px;
+    overflow:visible;
+  }
+  .sheet.large.exporting{max-width:none;}
+  .sheet.large .sheet-bg{display:none;}
+  .sheet.large .mast{padding:0 0 20px;}
+  .sheet.large .mast-title{font-size:22px; line-height:1.5; letter-spacing:.02em;}
+  .sheet.large .mast-date{
+    position:static; margin:6px 0 0; font-size:14px; line-height:1.5; color:#595E69;
+  }
+  .sheet.large .grid{display:block; flex:none; --s:1;}
+  .sheet.large .g-h{
+    padding:14px 10px; margin-bottom:16px; font-size:24px; line-height:1.5;
+    white-space:normal; overflow:visible; overflow-wrap:anywhere; border-radius:8px;
+  }
+  .sheet.large .g-list{padding:0;}
+  .sheet.large .g-list li{
+    padding:14px; margin-bottom:12px; background:#F5F5F7; border-radius:8px;
+  }
+  .sheet.large .g-list li:last-child{margin-bottom:0;}
+  .sheet.large .n{font-size:28px; line-height:1.5; white-space:normal; overflow-wrap:anywhere;}
+  .sheet.large .company{font-size:20px; line-height:1.5; margin-top:6px; color:#26272E;}
+  .sheet.large .position{font-size:18px; line-height:1.5; margin-top:5px; color:#595E69;}
+  .sheet.large .foot{
+    position:static; display:flex; align-items:center; justify-content:space-between;
+    gap:12px; margin-top:24px;
+  }
+  .sheet.large .large-brand{display:block; font-size:30px; font-weight:900; color:var(--red);}
+  .sheet.large .foot-qr canvas{width:60px; height:60px;}
+  .sheet.large .foot-qr span{font-size:12px; line-height:1.6; letter-spacing:0;}
+  @media print{
+    .sheet.large{width:390px; max-width:none; margin:0; box-shadow:none;}
+    body.print-all > .sheet{display:none;}
+    body.print-all #large-print{display:block;}
+    #large-print .sheet{break-after:page;}
+    #large-print .sheet:last-child{break-after:auto;}
+  }
+  /* 橫式完整單張：四欄依內容高度平衡，姓名下放公司／職稱，保留每一個字。 */
+  .sheet.single, .sheet.single.exporting{
+    width:2200px; max-width:none; height:auto; min-height:0; padding:12px;
+    overflow:visible; margin:12px auto;
+  }
+  .sheet.single .sheet-bg{display:none;}
+  .sheet.single .mast{padding:0 0 9px; text-align:left;}
+  .sheet.single .mast-title{font-size:27px; line-height:1.15; letter-spacing:0; padding-right:180px;}
+  .sheet.single .mast-date{position:absolute; top:7px; right:0; margin:0; font-size:13px; line-height:1.2; letter-spacing:0;}
+  .sheet.single .grid{display:grid; flex:none; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; --s:1;}
+  .sheet.single .g{break-inside:avoid; margin-bottom:8px; align-self:start;}
+  .sheet.single .g-h{font-size:20px; line-height:1.2; padding:4px 5px; margin-bottom:2px; border-radius:2px; white-space:normal; overflow:visible; box-shadow:none;}
+  .sheet.single .g-list{padding:0;}
+  .sheet.single .g-list li{padding:3px 5px; margin:0; break-inside:avoid;}
+  .sheet.single .g-list li:nth-child(even){background:#F2F3F5;}
+  .sheet.single .n{font-size:24px; line-height:1.3; font-weight:900; letter-spacing:0; white-space:normal;}
+  .sheet.single .details{display:block; margin-top:5px; font-size:20px; line-height:1.18; overflow-wrap:anywhere;}
+  .sheet.single .company{display:inline; font-size:20px; line-height:inherit; font-weight:500; color:#202127;}
+  .sheet.single .position{display:inline; font-size:20px; line-height:inherit; color:#454A54;}
+  .sheet.single .detail-sep{color:#777C86; font-size:20px;}
+  .sheet.single .foot{display:none;}
+  .sheet.single .large-brand{display:block; font-size:22px; line-height:1; font-weight:900; color:var(--red);}
+  .sheet.single .foot-qr{gap:5px;}
+  .sheet.single .foot-qr canvas{width:30px; height:30px; border:0;}
+  .sheet.single .foot-qr span{font-size:10px; line-height:1.2; letter-spacing:0;}
+  @media print{.sheet.single, .sheet.single.exporting{margin:0; box-shadow:none;}}
 </style>
+<style id="large-page-size"></style>
 </head>
 <body>
 
 <div class="toolbar">
   <span class="tip">標題與日期<b>點一下就能改字</b>;各組「招募席位」紅字項目在後台的分組欄位編輯。確認後按「列印/存 PDF」。</span>
+  <label class="mode-label" for="view-mode">圖表版本</label>
+  <select class="tbtn" id="view-mode">
+    <option value="internal">內部產業小組表</option>
+      <option value="public-single">對外產業小組圖｜橫式完整單張</option>
+    <option value="public">對外產業小組圖｜舊六欄總覽</option>
+    <option value="public-large">對外產業小組圖｜每組大字版</option>
+  </select>
+  <span id="group-picker" hidden>
+    <label class="mode-label" for="group-select">產業小組</label>
+    <select class="tbtn" id="group-select"></select>
+  </span>
   <!-- 首頁現在有大按鈕直通這一頁,來賓也會進來:「回後台」只給從後台開過來的人看,
        用 referrer 判斷;其餘人看到的是「← 回名錄」。 -->
   <a class="tbtn" id="tbtn-admin" href="admin.html" style="display:none">← 回後台</a>
   <a class="tbtn" href="./">← 回名錄</a>
   <button class="tbtn" id="btn-jpg" type="button">🖼 存成 JPG</button>
-  <button class="tbtn tbtn-primary" onclick="window.print()" type="button">🖨 列印/存 PDF</button>
+  <button class="tbtn" id="btn-png" type="button" hidden>存成 PNG</button>
+  <button class="tbtn tbtn-primary" id="btn-print" onclick="window.print()" type="button">🖨 列印/存 PDF</button>
+  <button class="tbtn" id="btn-print-all" type="button" hidden>全部小組存 PDF</button>
+  <span id="public-status" class="public-status" role="status" aria-live="polite"></span>
 </div>
 <script>
   if(/\/admin\.html(\?|#|$)/.test(document.referrer)) document.getElementById("tbtn-admin").style.display = "";
@@ -175,52 +269,80 @@
   </header>
   <div class="grid" id="grid"></div>
   <footer class="foot">
+    <span class="large-brand">BNI</span>
     <div class="foot-qr">
       <span>掃描 QR<br>看完整名錄</span>
       <canvas id="foot-qr-canvas" width="176" height="176"></canvas>
     </div>
   </footer>
 </div>
+<div id="large-print"></div>
 
 <script src="site-config.js?v=1"></script>
-<script src="data.js?v=435ad92f"></script>
+<script src="data.js?v=f56559b5"></script>
 <script src="data-fresh.js?v=1"></script>
 <script src="qrcode.js"></script>
+<script src="groups-view.js?v=1"></script>
 <script>
 (function(){
   "use strict";
   function esc(s){ return (s||"").replace(/[&<>"']/g, function(c){ return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]; }); }
 
   var total = GROUPS.reduce(function(n,g){ return n + g.members.length; }, 0);
-  document.getElementById("mast-title").innerHTML =
-    esc(SITE.ORG_NAME) + "<span class=\"accent\">成交破億</span>產業小組團隊<span class=\"count\">(" + total + ")</span>";
+  var requestedMode = new URL(location.href).searchParams.get("view");
+  var mode = ["public", "public-large", "public-single"].indexOf(requestedMode) >= 0 ? requestedMode : "internal";
+  var requestedGroup = new URL(location.href).searchParams.get("group");
+  var groupCode = GROUPS.some(function(g){ return g.code === requestedGroup; }) ? requestedGroup : GROUPS[0].code;
+  var titles = {
+    internal: esc(SITE.ORG_NAME) + "<span class=\"accent\">成交破億</span>產業小組團隊<span class=\"count\">(" + total + ")</span>",
+    public: esc(SITE.ORG_NAME) + " 對外產業小組圖<span class=\"count\">(" + total + ")</span>",
+    "public-large": esc(SITE.ORG_NAME) + "｜產業夥伴",
+    "public-single": "BNI " + esc(SITE.ORG_NAME) + "｜產業小組圖 <span class=\"count\">" + GROUPS.length + " 組・" + total + " 人</span>"
+  };
+  var modeSelect = document.getElementById("view-mode");
+  var groupSelect = document.getElementById("group-select");
+  groupSelect.innerHTML = GROUPS.map(function(g){
+    return '<option value="' + esc(g.code) + '">' + esc(g.code + "／" + g.name) + "</option>";
+  }).join("");
+  document.getElementById("btn-print-all").textContent = "全部 " + GROUPS.length + " 組存 PDF";
+  var status = document.getElementById("public-status");
   var d = new Date(), pad = function(n){ return String(n).padStart(2,"0"); };
   document.getElementById("sheet-date").textContent = d.getFullYear() + " /" + pad(d.getMonth()+1) + "/" + pad(d.getDate());
 
-  /* 各組帶色:A/B 藍、C/D 黃、E/F 綠、G/H/I 橘(依組別代號字首) */
-  function groupColor(code){
-    var ch = (code || "").trim().charAt(0).toUpperCase();
-    if(ch === "A" || ch === "B") return "var(--c-blue)";
-    if(ch === "C" || ch === "D") return "var(--c-yellow)";
-    if(ch === "E" || ch === "F") return "var(--c-green)";
-    return "var(--c-peach)";
+  function render(){
+    clearPrintAll();
+    var external = mode !== "internal", large = mode === "public-large", single = mode === "public-single";
+    modeSelect.value = mode;
+    groupSelect.value = groupCode;
+    document.getElementById("group-picker").hidden = !large;
+    document.getElementById("btn-print-all").hidden = !large;
+    document.getElementById("btn-png").hidden = !single;
+    document.querySelector(".toolbar .tip").textContent = single ?
+      "橫式完整單張：姓名下列出公司與已填職稱，可存 JPG／PNG 或單頁橫式 PDF。" : large ?
+      "每組一張大字長圖。姓名、公司、職位完整換行；可選組存 JPG，或將全部小組存為多頁 PDF。" :
+      "標題與日期可點一下改字；總覽可存 JPG 或列印。";
+    document.title = (external ? "對外產業小組圖" : "產業小組表") + "｜" + SITE.ORG_NAME;
+    sheet.classList.toggle("public", external);
+    sheet.classList.toggle("large", large);
+    sheet.classList.toggle("single", single);
+    document.getElementById("mast-title").innerHTML = titles[mode];
+    grid.innerHTML = GroupSheet.renderGroups(large ? GROUPS.filter(function(g){ return g.code === groupCode; }) : GROUPS,
+      single ? "public-single" : external ? "public" : "internal");
+    if(single) balanceSingle();
+    status.dataset.state = "ready";
+    if(!external) status.textContent = "";
+    else {
+      var companies = 0, positions = 0;
+      GROUPS.forEach(function(g){ g.members.forEach(function(m){
+        var p = GroupSheet.publicProfile(m);
+        if(p.company) companies++;
+        if(p.position) positions++;
+      }); });
+      status.textContent = "公司 " + companies + "/" + total + "、已填公司職位 " + positions + "/" + total +
+        "；職位依夥伴自填資料，未填不推測，不以專業別或分會職務代替。";
+    }
+    fit();
   }
-
-  var html = "";
-  GROUPS.forEach(function(g){
-    html += '<section class="g"><div class="g-h" style="--gc:' + groupColor(g.code) + '">' +
-      esc(g.code || "") + "/" + esc(g.name || "") + "(" + g.members.length + ")</div><ul class=\"g-list\">";
-    g.members.forEach(function(m){
-      var isLeader = (g.leader || "").trim() && (m.name || "").trim() === (g.leader || "").trim();
-      html += '<li class="' + (isLeader ? "leader" : "") + '"><span class="n">' + esc(m.name || "") +
-        '</span><span class="sep">|</span><span class="t">' + esc(m.title || "") + "</span></li>";
-    });
-    (g.recruiting || []).forEach(function(r){
-      html += '<li class="recruit"><span class="t">' + esc(r) + "</span></li>";
-    });
-    html += "</ul></section>";
-  });
-  document.getElementById("grid").innerHTML = html;
 
   /* 頁尾 QR:掃描直達名錄 */
   try{
@@ -252,14 +374,109 @@
     return mx - grid.getBoundingClientRect().bottom;
   }
   function setScale(v){ scale = v; grid.style.setProperty("--s", scale.toFixed(2)); }
+  function balanceSingle(){
+    var blocks = Array.prototype.slice.call(grid.querySelectorAll(".g"));
+    var heights = blocks.map(function(el){ return el.getBoundingClientRect().height + 8; });
+    var columns = [0, 1, 2, 3].map(function(){ var col = document.createElement("div"); col.className = "single-column"; return col; });
+    var totals = [0, 0, 0, 0];
+    // 先放內容最高的小組減少欄底留白，再按組別原順序整理各欄。
+    blocks.map(function(el, i){ return i; }).sort(function(a,b){ return heights[b] - heights[a]; }).forEach(function(i){
+      var col = totals.indexOf(Math.min.apply(null, totals));
+      columns[col].appendChild(blocks[i]); totals[col] += heights[i];
+    });
+    columns.forEach(function(col){
+      Array.prototype.slice.call(col.children).sort(function(a,b){ return blocks.indexOf(a) - blocks.indexOf(b); }).forEach(function(el){ col.appendChild(el); });
+    });
+    columns.sort(function(a,b){ return blocks.indexOf(a.firstElementChild) - blocks.indexOf(b.firstElementChild); });
+    grid.replaceChildren.apply(grid, columns);
+  }
   function fit(){
+    sheet.style.zoom = "";
+    if(mode === "public-single"){
+      setScale(1);
+      if(!sheet.classList.contains("exporting") && !window.matchMedia("print").matches)
+        sheet.style.zoom = String(Math.min(1, Math.max(0.1, (window.innerWidth - 16) / 2200)));
+      return;
+    }
+    if(mode === "public-large"){ setScale(1); return; }
+    if(!sheet.classList.contains("exporting") && !window.matchMedia("print").matches &&
+       window.matchMedia("(max-width:900px)").matches){ setScale(1); return; }
     guard = 0; setScale(1);
     while(overflowPx() > 2 && scale > 0.6 && guard < 26){ setScale(scale - 0.03); guard++; }
     guard = 0;
     while(overflowPx() < -30 && scale < 1.6 && guard < 40){ setScale(scale + 0.02); guard++; }
     if(overflowPx() > 2 && scale > 0.64) setScale(scale - 0.02);
   }
-  fit();
+  render();
+  modeSelect.addEventListener("change", function(){
+    titles[mode] = document.getElementById("mast-title").innerHTML;
+    mode = modeSelect.value;
+    var url = new URL(location.href);
+    if(mode !== "internal") url.searchParams.set("view", mode);
+    else url.searchParams.delete("view");
+    if(mode === "public-large") url.searchParams.set("group", groupCode);
+    else url.searchParams.delete("group");
+    history.replaceState(null, "", url.href);
+    render();
+  });
+  groupSelect.addEventListener("change", function(){
+    titles[mode] = document.getElementById("mast-title").innerHTML;
+    groupCode = groupSelect.value;
+    var url = new URL(location.href);
+    url.searchParams.set("group", groupCode);
+    history.replaceState(null, "", url.href);
+    render();
+  });
+  window.addEventListener("resize", fit);
+  function clearPrintAll(){
+    document.body.classList.remove("print-all");
+    document.getElementById("large-print").replaceChildren();
+    document.getElementById("large-page-size").textContent = "";
+  }
+  function setPrintSize(height, width){
+    document.getElementById("large-page-size").textContent =
+      "@page{size:" + (width || 390) + "px " + Math.ceil(height + 2) + "px;margin:0;}";
+  }
+  function printAll(){
+    if(mode !== "public-large") return;
+    clearPrintAll();
+    var container = document.getElementById("large-print");
+    // 用相同版型建立列印頁，複製 QR 像素；不更動正在看的小組。
+    GROUPS.forEach(function(g){
+      var copy = sheet.cloneNode(true);
+      copy.classList.add("exporting");
+      copy.querySelector(".grid").innerHTML = GroupSheet.renderGroups([g], "public");
+      copy.querySelectorAll("[id]").forEach(function(el){ el.removeAttribute("id"); });
+      copy.querySelector("canvas").getContext("2d").drawImage(document.getElementById("foot-qr-canvas"), 0, 0);
+      container.appendChild(copy);
+    });
+    // 暫時量完整高度，以最高的一組決定長頁紙張；文字字級完全不變。
+    container.style.cssText = "display:block;position:absolute;left:-10000px;top:0";
+    var maxHeight = 0;
+    container.querySelectorAll(".sheet").forEach(function(el){
+      maxHeight = Math.max(maxHeight, el.getBoundingClientRect().height);
+    });
+    container.style.cssText = "";
+    setPrintSize(maxHeight);
+    document.body.classList.add("print-all");
+    window.print();
+  }
+  document.getElementById("btn-print-all").addEventListener("click", printAll);
+  window.addEventListener("beforeprint", function(){
+    if(mode === "public-single"){
+      sheet.classList.add("exporting"); fit();
+      setPrintSize(sheet.getBoundingClientRect().height, 2200);
+      return;
+    }
+    fit();
+    if(mode === "public-large" && !document.body.classList.contains("print-all")){
+      sheet.classList.add("exporting");
+      setPrintSize(sheet.getBoundingClientRect().height);
+    }
+  });
+  window.addEventListener("afterprint", function(){
+    sheet.classList.remove("exporting"); clearPrintAll(); fit();
+  });
   if(document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
 
   /* ══ 存成 JPG ══════════════════════════════════════════════════════════
@@ -366,8 +583,9 @@
     return cv;
   }
 
-  function saveJPG(){
-    var btn = document.getElementById("btn-jpg");
+  function saveImage(format){
+    var png = format === "png", mime = png ? "image/png" : "image/jpeg";
+    var btn = document.getElementById(png ? "btn-png" : "btn-jpg");
     var label = btn.textContent;
     btn.disabled = true; btn.textContent = "產生中…";
 
@@ -381,20 +599,26 @@
         alert("這台裝置的記憶體不夠產生圖片,請改用「列印/存 PDF」。");
         return;
       }
-      var targetW = Math.round(297 / 25.4 * dpis[i]);
+      var targetW = mode === "public-single" ? [6600, 4400, 2200][i] :
+        mode === "public-large" ? [1170, 780, 390][i] : Math.round(297 / 25.4 * dpis[i]);
       var cv;
       /* 撷取期間把版面釘回桌面 16:9:量寬與逐字重畫都必須在這個版面下進行,否則手機的
          窄螢幕 2 欄版面會被畫進圖裡。paintSheet 是同步的,畫完 cv 已含像素,之後的
          toBlob 不再碰 DOM,所以撷取一結束就能立刻還原,不會讓使用者看到寬版閃一下。 */
       sheet.classList.add("exporting");
       try{
+        fit();
         var basePx = sheet.getBoundingClientRect().width;   // 在桌面版面下量,scaleK 才正確
         cv = paintSheet(targetW / basePx);
       }catch(e){ cv = null; }
-      finally{ sheet.classList.remove("exporting"); }
+      finally{ sheet.classList.remove("exporting"); fit(); }
       if(!cv){ attempt(i + 1); return; }
 
-      var name = (SITE.ORG_NAME || "產業小組表").replace(/[\\/:*?"<>|]/g, "") + "_產業小組表.jpg";
+      var name = (SITE.ORG_NAME || "產業小組表").replace(/[\\/:*?"<>|]/g, "") +
+        (mode === "public-single" ? "_對外產業小組完整單張.jpg" :
+          mode === "public-large" ? "_" + groupCode + "_對外產業小組大字圖.jpg" :
+          mode === "public" ? "_對外產業小組圖.jpg" : "_產業小組表.jpg");
+      if(png) name = name.replace(/\.jpg$/, ".png");
       var done = function(url, revoke){
         var a = document.createElement("a");
         a.href = url; a.download = name;
@@ -407,15 +631,16 @@
         cv.toBlob(function(blob){
           if(!blob){ attempt(i + 1); return; }
           done(URL.createObjectURL(blob), true);
-        }, "image/jpeg", 0.92);
+        }, mime, png ? undefined : 0.95);
       } else {
-        try{ done(cv.toDataURL("image/jpeg", 0.92), false); }
+        try{ done(cv.toDataURL(mime, png ? undefined : 0.95), false); }
         catch(e){ attempt(i + 1); }
       }
     }
     attempt(0);
   }
-  document.getElementById("btn-jpg").addEventListener("click", saveJPG);
+  document.getElementById("btn-jpg").addEventListener("click", function(){ saveImage("jpg"); });
+  document.getElementById("btn-png").addEventListener("click", function(){ saveImage("png"); });
 })();
 </script>
 </body>

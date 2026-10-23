@@ -24,12 +24,13 @@
       "image": "g6_m1_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "伯洸文創有限公司",
       "business_items": "",
       "website": "",
       "id": "g6_m1",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "執行長"
     },
     {
       "number": "011",
@@ -54,12 +55,13 @@
       "image": "g6_m2_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "台灣新光保全股份有限公司",
       "business_items": "",
       "website": "",
       "id": "g6_m2",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "一級特品主任"
     },
     {
       "number": "015",
@@ -82,12 +84,13 @@
       "image": "g6_m3_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "許凱傑律師事務所",
       "business_items": "",
       "website": "",
       "id": "g6_m3",
       "dataIssue": false,
-      "updatedAt": "2026-10-13T08:26:52.710Z"
+      "updatedAt": "2026-10-13T08:26:52.710Z",
+      "companyPosition": "律師"
     },
     {
       "number": "028",
@@ -110,12 +113,13 @@
       "image": "g6_m4_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "新博力資訊科技有限公司",
       "business_items": "",
       "website": "",
       "id": "g6_m4",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "總經理"
     },
     {
       "number": "030",
@@ -138,12 +142,13 @@
       "image": "g6_m5_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "金豐企業管理顧問股份有限公司",
       "business_items": "",
       "website": "",
       "id": "g6_m5",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "執案顧問"
     },
     {
       "number": "059",
@@ -168,7 +173,7 @@
       "image": "g6_m6_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "臺灣智庫智策顧問有限公司",
       "business_items": "",
       "website": "",
       "id": "g6_m6",
@@ -198,12 +203,13 @@
       "image": "g6_m7_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "杰辰稅務記帳士事務所",
       "business_items": "",
       "website": "",
       "id": "g6_m7",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "所長"
     },
     {
       "number": "159",
@@ -225,7 +231,7 @@
       "image": "g6_m8_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "俐富股份有限公司",
       "business_items": "",
       "website": "",
       "id": "g6_m8",
@@ -252,12 +258,13 @@
       "image": "g11_m5_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "南山人壽",
       "business_items": "",
       "website": "",
       "id": "g6_m_muz59z4tck",
       "dataIssue": false,
-      "updatedAt": "2026-10-08T06:17:39.869Z"
+      "updatedAt": "2026-10-08T06:17:39.869Z",
+      "companyPosition": "業務主管"
     },
     {
       "number": "137",
@@ -281,12 +288,13 @@
       "image": "g4_m1_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "可悠美旅行社",
       "business_items": "",
       "website": "",
       "id": "g6_m_muz50xyb1rjp",
       "dataIssue": false,
-      "updatedAt": "2026-10-08T06:10:38.435Z"
+      "updatedAt": "2026-10-08T06:10:38.435Z",
+      "companyPosition": "總經理"
     }
   ],
   "recruiting": [

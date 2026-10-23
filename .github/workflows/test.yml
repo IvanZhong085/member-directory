@@ -54,5 +54,32 @@ jobs:
       - name: Apps Script 來賓報名通知測試
         run: node tests/google-form.test.mjs
 
+      - name: 產業小組圖模式與來源測試
+        run: node tests/groups-view.test.mjs
+
+      - name: 公司資料安全合併測試
+        run: node tests/company-merge.test.mjs
+
       - name: 死程式碼掃描
         run: node tools/check-dead-code.mjs
+
+  groups-browser:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 安裝瀏覽器測試工具
+        run: |
+          npm install --no-save playwright@1.63.0
+          npx playwright install --with-deps chromium
+      - name: 驗證內部及對外 JPG、列印與手機版
+        run: node tests/groups-browser.test.mjs
+      - name: 驗證每組大字圖及多頁 PDF
+        run: node tests/groups-large.test.mjs
+      - name: 驗證完整單張、同寬字級比較及單頁 PDF
+        run: node tests/groups-single.test.mjs
+
+      - name: 驗證公司職稱管理編輯及資料重建
+        run: node tests/company-admin-browser.test.mjs

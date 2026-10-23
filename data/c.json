@@ -22,12 +22,13 @@
       "image": "g10_m1_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "俊資有限公司",
       "business_items": "",
       "website": "",
       "id": "g10_m1",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "經理"
     },
     {
       "number": "075",
@@ -52,12 +53,13 @@
       "image": "g10_m2_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "巨翊生技有限公司",
       "business_items": "",
       "website": "",
       "id": "g10_m2",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "總經理"
     },
     {
       "number": "091",
@@ -81,12 +83,13 @@
       "image": "g10_m3_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "恩典醫療",
       "business_items": "",
       "website": "",
       "id": "g10_m3",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "業務經理"
     },
     {
       "number": "121",
@@ -109,12 +112,13 @@
       "image": "g10_m4_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "森菓菓有限公司",
       "business_items": "",
       "website": "",
       "id": "g10_m4",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "創辦人"
     },
     {
       "number": "099",
@@ -137,12 +141,13 @@
       "image": "g10_m5_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "玉山鑫有限公司",
       "business_items": "",
       "website": "",
       "id": "g10_m5",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "執行長"
     },
     {
       "number": "174",
@@ -166,12 +171,13 @@
       "image": "g10_m6_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "億昌油廠",
       "business_items": "",
       "website": "",
       "id": "g10_m6",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "經理"
     },
     {
       "number": "194",
@@ -195,12 +201,13 @@
       "image": "g10_m7_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "東杰生醫",
       "business_items": "",
       "website": "",
       "id": "g10_m7",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "業務總監"
     },
     {
       "number": "203",
@@ -224,12 +231,13 @@
       "image": "g10_m8_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "優乳有限公司",
       "business_items": "",
       "website": "",
       "id": "g10_m8",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "總經理"
     },
     {
       "number": "214",
@@ -251,12 +259,13 @@
       "image": "g10_m9_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "好品味生技食品股份有限公司",
       "business_items": "",
       "website": "",
       "id": "g10_m9",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "經理"
     },
     {
       "number": "217",
@@ -277,12 +286,13 @@
       "image": "g10_m10_x.jpg",
       "card": "",
       "products": [],
-      "company": "",
+      "company": "不二創立有限公司",
       "business_items": "",
       "website": "",
       "id": "g10_m10",
       "dataIssue": false,
-      "updatedAt": ""
+      "updatedAt": "",
+      "companyPosition": "執行長"
     }
   ],
   "recruiting": [

@@ -251,7 +251,7 @@ body.dir-collapsed .dir-item-visitor{padding-top:12px;}
 
 /* 首頁大按鈕:產業小組總圖(groups.html 一頁式總表)。
    要比統計卡更搶眼,所以用實心紅、字級 20px;手機撐滿一行。 */
-.hero-cta{margin-top:26px;}
+.hero-cta{margin-top:26px; display:flex; flex-wrap:wrap; gap:12px;}
 .hero-btn{
   display:inline-flex; align-items:center; gap:14px; max-width:100%;
   background:var(--red); color:#fff; text-decoration:none;

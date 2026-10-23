@@ -1,0 +1,447 @@
+{
+  "g3_m1": {
+    "name": "曾俊凱",
+    "company": "陞煇食品",
+    "position": "負責人"
+  },
+  "g3_m2": {
+    "name": "黃育騏",
+    "company": "永勁國際貿易有限公司",
+    "position": "董事長助理"
+  },
+  "g3_m3": {
+    "name": "林芳綾",
+    "company": "亮軒肉品有限公司",
+    "position": "負責人"
+  },
+  "g3_m4": {
+    "name": "黃俊賢",
+    "company": "義昌食品股份有限公司，欣饌食品股份有限公司",
+    "position": "義昌食品總經理，欣饌食品負責人"
+  },
+  "g3_m5": {
+    "name": "徐甄苡",
+    "company": "海中寶餐飲有限公司",
+    "position": "端菜的"
+  },
+  "g3_m6": {
+    "name": "彭玉卿",
+    "company": "段泰國蝦有限公司",
+    "position": "採購"
+  },
+  "g3_m7": {
+    "name": "鐘文成",
+    "company": "羊來了有限公司",
+    "position": "負責人"
+  },
+  "g3_m8": {
+    "name": "王冠凱",
+    "company": "津泰冷凍食品",
+    "position": "業務"
+  },
+  "g9_m1": {
+    "name": "鍾宇軒",
+    "company": "展鮮農產生技股份有限公司",
+    "position": "總經理"
+  },
+  "g9_m2": {
+    "name": "廖怡溱",
+    "company": "華興青果行",
+    "position": "經理"
+  },
+  "g9_m3": {
+    "name": "賴泓名",
+    "company": "洋果實業有限公司",
+    "position": "總經理"
+  },
+  "g9_m4": {
+    "name": "吳豐安",
+    "company": "益身逗有限公司",
+    "position": "負責人"
+  },
+  "g9_m5": {
+    "name": "藍春生",
+    "company": "春生農產行，鳳梨滿農產行",
+    "position": "長工"
+  },
+  "g9_m6": {
+    "name": "李宜燁",
+    "company": "永大養蜂場",
+    "position": "經理"
+  },
+  "g9_m7": {
+    "name": "張鈞政",
+    "company": "林北釀造",
+    "position": "業務經理"
+  },
+  "g9_m8": {
+    "name": "陳儒賢",
+    "company": "柏優商行，義高菇菌農場",
+    "position": "經理"
+  },
+  "g9_m9": {
+    "name": "蔡柏泉",
+    "company": "品韻商行",
+    "position": "負責人"
+  },
+  "g12_m1": {
+    "name": "陳品亦",
+    "company": "川糧食品有限公司",
+    "position": "負責人"
+  },
+  "g12_m2": {
+    "name": "張茹瀅",
+    "company": "九嬸婆手工冷凍湯包",
+    "position": "廠長"
+  },
+  "g12_m3": {
+    "name": "薛仲書",
+    "company": "富樂美商行",
+    "position": "業務經理"
+  },
+  "g12_m5": {
+    "name": "陳秀卿",
+    "company": "得意中華食品有限公司",
+    "position": "董事長"
+  },
+  "g12_m6": {
+    "name": "曾俊翔",
+    "company": "曾家莊食品廠有限公司",
+    "position": "特助"
+  },
+  "g7_m1": {
+    "name": "鄧義騰",
+    "company": "榮玉食品有限公司",
+    "position": "總經理"
+  },
+  "g7_m2": {
+    "name": "游馥瑋",
+    "company": "明鳳食寓宴會廳",
+    "position": "負責人"
+  },
+  "g7_m3": {
+    "name": "蔡宏毅",
+    "company": "虎秋文昌雞",
+    "position": "負責人"
+  },
+  "g7_m4": {
+    "name": "謝承倫",
+    "company": "野瘦派-健康餐盒",
+    "position": "執行長"
+  },
+  "g7_m5": {
+    "name": "劉儿馜",
+    "company": "馥得力有限公司，李排骨酥餐館",
+    "position": "業務部經理"
+  },
+  "g7_m6": {
+    "name": "孫開宣",
+    "company": "鎮實實業有限公司",
+    "position": "執行長"
+  },
+  "g7_m8": {
+    "name": "簡士芸",
+    "company": "盛夏冰菓室",
+    "position": "負責人"
+  },
+  "g7_m9": {
+    "name": "韓雅怡",
+    "company": "永梅純手工韭菜盒",
+    "position": "老闆"
+  },
+  "g10_m1": {
+    "name": "蔣譯鋒",
+    "company": "俊資有限公司",
+    "position": "經理"
+  },
+  "g10_m2": {
+    "name": "陳政佑",
+    "company": "巨翊生技有限公司",
+    "position": "總經理"
+  },
+  "g10_m3": {
+    "name": "林伯運",
+    "company": "恩典醫療",
+    "position": "業務經理"
+  },
+  "g10_m4": {
+    "name": "陳雅利",
+    "company": "森菓菓有限公司",
+    "position": "創辦人"
+  },
+  "g10_m5": {
+    "name": "廖偉志",
+    "company": "玉山鑫有限公司",
+    "position": "執行長"
+  },
+  "g10_m6": {
+    "name": "蔡孟璋",
+    "company": "億昌油廠",
+    "position": "經理"
+  },
+  "g10_m7": {
+    "name": "吳易芩",
+    "company": "東杰生醫",
+    "position": "業務總監"
+  },
+  "g10_m8": {
+    "name": "李瑋晨",
+    "company": "優乳有限公司",
+    "position": "總經理"
+  },
+  "g10_m9": {
+    "name": "王俊淇",
+    "company": "好品味生技食品股份有限公司",
+    "position": "經理"
+  },
+  "g10_m10": {
+    "name": "王綉鈁",
+    "company": "不二創立有限公司",
+    "position": "執行長"
+  },
+  "g8_m1": {
+    "name": "鄭子宏",
+    "company": "厤宏科技有限公司",
+    "position": "負責人"
+  },
+  "g8_m2": {
+    "name": "吳嘉銘",
+    "company": "SELBST自我音樂工作室",
+    "position": "負責人"
+  },
+  "g8_m7": {
+    "name": "王薇",
+    "company": "果冉整合設計有限公司",
+    "position": "負責人"
+  },
+  "g8_m8": {
+    "name": "曾威龍",
+    "company": "快樂梗有限公司",
+    "position": "行銷業務經理"
+  },
+  "g8_m_ms4r2mg91w5t": {
+    "name": "劉妍庭",
+    "company": "時刻智能國際有限公司",
+    "position": "業務總監"
+  },
+  "g5_m1": {
+    "name": "鄒芳育",
+    "company": "紅內褲影像工作室",
+    "position": "營運長"
+  },
+  "g5_m2": {
+    "name": "周冠佐",
+    "company": "眾點資訊有限公司",
+    "position": "執行長"
+  },
+  "g5_m4": {
+    "name": "易紅福",
+    "company": "沂融企業社",
+    "position": "負責人"
+  },
+  "g5_m5": {
+    "name": "林濬騰",
+    "company": "靖騰整合行銷有限公司",
+    "position": "總經理"
+  },
+  "g5_m6": {
+    "name": "楊愛凝",
+    "company": "惟信行銷有限公司",
+    "position": "總監"
+  },
+  "g5_m_mv4qhp0a1i4x": {
+    "name": "李育萱",
+    "company": "威比司國際有限公司，肯尼士國際有限公司",
+    "position": "負責人"
+  },
+  "g5_m_mv4qhrv618uz": {
+    "name": "施姿妃",
+    "company": "龍德數位科技有限公司",
+    "position": "業務經理"
+  },
+  "g2_m1": {
+    "name": "陳姿吟",
+    "company": "LIZSALON",
+    "position": "CEO"
+  },
+  "g2_m3": {
+    "name": "陳建伯",
+    "company": "伯洸眼鏡",
+    "position": "創辦人"
+  },
+  "g2_m4": {
+    "name": "李品瑩",
+    "company": "樓擂健身俱樂部",
+    "position": "負責人"
+  },
+  "g2_m5": {
+    "name": "謝美任",
+    "company": "任我美股份有限公司",
+    "position": "CEO"
+  },
+  "g2_m_muz4wq3h203t": {
+    "name": "盧松甫",
+    "company": "南山人壽斗六安信通訊處",
+    "position": "處經理"
+  },
+  "g4_m4": {
+    "name": "張彤彤",
+    "company": "美麗海精品咖啡烘豆坊",
+    "position": "負責人"
+  },
+  "g4_m2": {
+    "name": "陳子宸",
+    "company": "穎川禮儀鮮花店",
+    "position": "執行長"
+  },
+  "g4_m3": {
+    "name": "蕭茲菻",
+    "company": "築映相攝影",
+    "position": "負責人"
+  },
+  "g4_m5": {
+    "name": "鄭凱元",
+    "company": "豆點工作室",
+    "position": "主理人"
+  },
+  "g4_m6": {
+    "name": "古婉廷",
+    "company": "你說你說企業管理顧問有限公司",
+    "position": "企業培訓顧問"
+  },
+  "g4_m_muz4yc6jmmb": {
+    "name": "魏宛柔",
+    "company": "立洋國際教育顧問有限公司",
+    "position": "創辦人"
+  },
+  "g11_m1": {
+    "name": "黃富強",
+    "company": "庄頭創意整合有限公司",
+    "position": "設計總監"
+  },
+  "g11_m2": {
+    "name": "劉全修",
+    "company": "全修工程顧問股份有限公司、劉全修大地技師事務所、快速充電站股份有限公司、電鰻科技股份有限公司、鳳凰全球地產股份有限公司（新加坡）、嘉漁海鮮餐廳",
+    "position": "負責人、董事"
+  },
+  "g11_m3": {
+    "name": "周承瑋",
+    "company": "立承地政士事務所",
+    "position": "負責人"
+  },
+  "g11_m6": {
+    "name": "張哲偉",
+    "company": "裕展水電工程行",
+    "position": "執行長"
+  },
+  "g11_m7": {
+    "name": "李宗霖",
+    "company": "壹元電氣行",
+    "position": "副執行長"
+  },
+  "g11_m9": {
+    "name": "杜成駿",
+    "company": "毅品空間設計企業社",
+    "position": "負責人"
+  },
+  "g11_m10": {
+    "name": "王泓傑",
+    "company": "璟耀工程股份有限公司",
+    "position": "工程師"
+  },
+  "g11_m_muwt6zds1cpo": {
+    "name": "李聖漳",
+    "company": "源恆企業社",
+    "position": "執行長"
+  },
+  "g11_m_mv4re19411p5": {
+    "name": "吳國華",
+    "company": "宜陞科技企業社",
+    "position": "總經理"
+  },
+  "g6_m1": {
+    "name": "沈益昌",
+    "company": "伯洸文創有限公司",
+    "position": "執行長"
+  },
+  "g6_m2": {
+    "name": "張育誠",
+    "company": "台灣新光保全股份有限公司",
+    "position": "一級特品主任"
+  },
+  "g6_m3": {
+    "name": "許凱傑",
+    "company": "許凱傑律師事務所",
+    "position": "律師"
+  },
+  "g6_m4": {
+    "name": "王瑞敏",
+    "company": "新博力資訊科技有限公司",
+    "position": "總經理"
+  },
+  "g6_m5": {
+    "name": "謝雅竹",
+    "company": "金豐企業管理顧問股份有限公司",
+    "position": "執案顧問"
+  },
+  "g6_m6": {
+    "name": "呂建緯",
+    "company": "臺灣智庫智策顧問有限公司",
+    "position": ""
+  },
+  "g6_m7": {
+    "name": "陳慈潔",
+    "company": "杰辰稅務記帳士事務所",
+    "position": "所長"
+  },
+  "g6_m8": {
+    "name": "邱俊華",
+    "company": "俐富股份有限公司",
+    "position": ""
+  },
+  "g6_m_muz59z4tck": {
+    "name": "郭佩晴",
+    "company": "南山人壽",
+    "position": "業務主管"
+  },
+  "g6_m_muz50xyb1rjp": {
+    "name": "賴可儒",
+    "company": "可悠美旅行社",
+    "position": "總經理"
+  },
+  "g1_m1": {
+    "name": "林子鈞",
+    "company": "永承實業社，琪聖塑膠企業社",
+    "position": "負責人"
+  },
+  "g1_m2": {
+    "name": "張凱聖",
+    "company": "KR健康管理顧問企業社",
+    "position": "經理"
+  },
+  "g1_m3": {
+    "name": "胡景文",
+    "company": "信鴻人力仲介有限公司",
+    "position": "總經理"
+  },
+  "g1_m4": {
+    "name": "王銘燦",
+    "company": "永傳飼料",
+    "position": "經理"
+  },
+  "g1_m5": {
+    "name": "吳雨軒",
+    "company": "邦士科技股份有限公司",
+    "position": "業務副理"
+  },
+  "g1_m7": {
+    "name": "楊喜巖",
+    "company": "鉅眾工業股份有限公司",
+    "position": "業務經理"
+  },
+  "g1_m_mtx0wciu8rv": {
+    "name": "紀宜伶",
+    "company": "良記造機工廠有限公司",
+    "position": "特助"
+  }
+}
