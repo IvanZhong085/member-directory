@@ -437,9 +437,10 @@
     guard = 0;
     while(overflowPx() < -30 && scale < 1.6 && guard < 40){ setScale(scale + 0.02); guard++; }
     if(overflowPx() > 2 && scale > 0.64) setScale(scale - 0.02);
-    /* 海報固定 297mm(約 1123px)寬,大螢幕上整張等比放大到填滿視窗寬:版面與存圖/列印
-       完全相同,只是字跟著變大。縮放在量完溢出之後才套,不影響上面的排版計算。 */
-    if(!sheet.classList.contains("exporting") && !window.matchMedia("print").matches){
+    /* 內部表海報固定 297mm(約 1123px)寬,大螢幕上整張等比放大到填滿視窗寬:版面與存圖/列印
+       完全相同,只是字跟著變大。縮放在量完溢出之後才套,不影響上面的排版計算。
+       舊六欄對外圖字級被壓到 0.6 倍,放大 1.25 倍也只有 7px,改看「橫式完整單張」才是解,這裡不放大。 */
+    if(mode === "internal" && !sheet.classList.contains("exporting") && !window.matchMedia("print").matches){
       var z = Math.min(1.6, (window.innerWidth - 32) / sheet.offsetWidth);
       if(z > 1) sheet.style.zoom = z.toFixed(3);
     }
