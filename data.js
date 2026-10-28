@@ -2272,6 +2272,26 @@ const GROUPS = [
         "dataIssue": false,
         "updatedAt": "2026-10-12T04:35:31.672Z",
         "companyPosition": "總經理"
+      },
+      {
+        "id": "g11_m_mvsrb4rd165a",
+        "number": "229",
+        "name": "盧勝南",
+        "title": "太陽能規劃設置",
+        "services": [],
+        "targets": [],
+        "have": [],
+        "want": [],
+        "tagline": [],
+        "image": "",
+        "card": "",
+        "products": [],
+        "company": "東皇能源有限公司",
+        "companyPosition": "負責人",
+        "business_items": "",
+        "website": "",
+        "dataIssue": false,
+        "updatedAt": "2026-10-28T23:41:54.392Z"
       }
     ],
     "id": "g11",
