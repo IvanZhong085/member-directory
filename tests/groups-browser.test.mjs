@@ -149,7 +149,8 @@ try {
   const fixture = structuredClone(groups);
   fixture[0].members[0].name = "曾俊楷"; // 合成測試，不是實際姓名更正。
   fixture[0].leader = "曾俊楷";
-  fixture[0].members[0].company = "臺灣跨國食品農產冷鏈加工物流整合永續發展研發技術顧問服務股份有限公司";
+  // 要長到任何字型、任何 fit 縮放下都必定跨行;37 字在 CI 字型下曾剛好塞進一行。
+  fixture[0].members[0].company = "臺灣跨國食品農產冷鏈加工物流整合永續發展研發技術顧問服務股份有限公司暨亞太區域農漁畜產品供應鏈整合管理中心";
   fixture[0].members[0].companyPosition = "";
   fixture[0].members[1].company = "InternationalFoodAndAgricultureSupplyChainCorporationGlobalResearchAndDevelopmentConsultingServices";
   fixture[0].members[0].phone = "PRIVATE-PHONE";
@@ -166,9 +167,7 @@ try {
   await fits("長公司名與更正姓名不可溢出");
   const wrap = await page.locator(".company").first().evaluate(el => ({
     height: el.getBoundingClientRect().height, width: el.getBoundingClientRect().width,
-    lineHeight: parseFloat(getComputedStyle(el).lineHeight), fontSize: getComputedStyle(el).fontSize,
-    scale: getComputedStyle(document.getElementById("grid")).getPropertyValue("--s"),
-    text: el.textContent, lines: el.getClientRects().length, ua: navigator.userAgent
+    lineHeight: parseFloat(getComputedStyle(el).lineHeight), fontSize: getComputedStyle(el).fontSize
   }));
   assert.ok(wrap.height > wrap.lineHeight * 1.5, "長公司名必須實際跨行，不能只驗短字串: " + JSON.stringify(wrap));
   assert.equal(await page.locator(".n").first().innerText(), "曾俊楷");
