@@ -701,7 +701,7 @@ setupPhotoCleanupTrigger()   // 確認沒問題再排定，每月 1 號凌晨執
 私有來源、核對對照與差異報告須放在公開 repo 外；安全合併工具與 dry-run/apply 流程見下方說明文件。
 
 「對外產業小組圖」現在由首頁／後台進入 `groups.html?view=public-single` 橫式完整單張。
-四欄依內容高度分配 12 組、89 人；公司及已填職稱位於姓名下方，未填職稱留白。
+五欄依內容高度分配 12 組；公司及已填職稱位於姓名下方，未填職稱留白。
 縮減標題、留白及裝飾，保留長公司全名；可匯出 6600px 寬 JPG／PNG 或單頁橫式 PDF。
 `node tools/render-single-overview.mjs` 可產生新舊同寬比較與完整驗證。每組版保留為額外選項：`groups.html?view=public-large`。
 姓名下顯示公司與有來源的公司職位，缺資料明示待補；不以專業別或 BNI 職務代替。

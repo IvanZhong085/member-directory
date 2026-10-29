@@ -62,7 +62,7 @@
   .sheet-bg{position:absolute; inset:0; width:100%; height:100%; z-index:0; pointer-events:none;}
   .mast, .grid, .foot{position:relative; z-index:1;}
   /* ── 海報標題 ── */
-  .mast{text-align:center; padding:0 0 4px;}
+  .mast{text-align:center; padding:0 0 2px;}
   .mast-title{
     margin:0; font-weight:900; font-size:25px; line-height:1.3; letter-spacing:.045em;
     color:var(--purple); outline:none;
@@ -80,14 +80,14 @@
        grid 的盒子會跟著內容一起長,fit() 的溢出偵測永遠量到 0,內容就這樣
        靜靜地蓋進底圖的品牌帶。 */
     flex:1; min-height:0; display:grid; grid-template-columns:repeat(6, 1fr);
-    gap:calc(8px * var(--s, 1)) calc(9px * var(--s, 1));
+    gap:calc(6px * var(--s, 1)) calc(8px * var(--s, 1));
     align-content:start; --s:1;
   }
   .g{min-width:0;}
   .g-h{
     background:var(--gc, var(--c-blue));
     border-radius:4px; padding:calc(2.5px * var(--s)) 4px;
-    text-align:center; margin-bottom:calc(2.5px * var(--s));
+    text-align:center; margin-bottom:calc(1.5px * var(--s));
     font-size:calc(10.2px * var(--s)); font-weight:900; letter-spacing:.01em;
     color:var(--ink); white-space:nowrap; overflow:hidden;
     box-shadow:0 1px 0 rgba(0,0,0,.12);
@@ -95,8 +95,9 @@
   .g-list{list-style:none; margin:0; padding:0 1px;}
   .g-list li{
     display:flex; gap:calc(4px * var(--s)); align-items:baseline;
-    font-size:calc(9.8px * var(--s)); line-height:1.42;
-    padding:calc(0.6px * var(--s)) 0;
+    /* 行高與列距收緊(1.42→1.3),省下的高度全部交給 fit() 放大字級。 */
+    font-size:calc(9.8px * var(--s)); line-height:1.3;
+    padding:calc(0.2px * var(--s)) 0;
   }
   .n{flex:none; font-weight:800; letter-spacing:.03em; min-width:calc(42px * var(--s)); white-space:nowrap;}
   .sep{flex:none; color:#C4C7CE; font-weight:400;}
@@ -108,7 +109,7 @@
   li.recruit{padding-left:calc(46px * var(--s));}
   li.recruit .t{color:var(--recruit); font-weight:700;}
   .sheet.public .g-list li{
-    display:block; padding:calc(2px * var(--s)) 0; line-height:1.18;
+    display:block; padding:calc(1px * var(--s)) 0; line-height:1.12;
   }
   .sheet.public .n{display:block; min-width:0;}
   .sheet.public .company, .sheet.public .position{
@@ -150,6 +151,9 @@
     .sheet-bg{display:none;}
     .grid{grid-template-columns:repeat(2, 1fr);}
     .mast-date{position:static; display:block; margin-top:4px;}
+    /* 字級由 fit() 把 --s 放大到 1.5(約 15px);手機寬度兩欄塞不下這個字級,改一欄。 */
+    .sheet:not(.exporting) .mast-title{font-size:22px;}
+    .sheet:not(.exporting) .mast-date{font-size:13px;}
     .foot{position:static; margin-top:10px;}
   }
   /* 存成 JPG 時暫時套用:把版面強制釘回桌面 16:9 六欄,不管當下螢幕多窄。
@@ -157,6 +161,7 @@
      產出的會是直式長圖、甚至高度超過瀏覽器 canvas 上限而失敗 —— 偏偏這功能就是為
      iOS Safari/手機使用者而存在。這些選擇器比 @media screen 規則更具體,故能覆蓋它。
      (桌面本來就是這個版面,套上去沒有任何變化。) */
+  @media screen and (max-width:560px){ .grid{grid-template-columns:1fr;} }
   .sheet.exporting{width:297mm; height:167.06mm; min-height:0; padding:3mm 7mm 22mm;}
   .sheet.exporting .sheet-bg{display:block;}
   .sheet.exporting .grid{grid-template-columns:repeat(6, 1fr);}
@@ -203,32 +208,54 @@
     #large-print .sheet{break-after:page;}
     #large-print .sheet:last-child{break-after:auto;}
   }
-  /* 橫式完整單張：四欄依內容高度平衡，姓名下放公司／職稱，保留每一個字。 */
+  /* 橫式完整單張：五欄依內容高度平衡，姓名下放公司／職稱，保留每一個字。
+     五欄比四欄每欄矮，維持同樣的橫式比例(寬高比約 1.29)下字級可以再大 20%。 */
   .sheet.single, .sheet.single.exporting{
     width:2200px; max-width:none; height:auto; min-height:0; padding:12px;
     overflow:visible; margin:12px auto;
   }
   .sheet.single .sheet-bg{display:none;}
   .sheet.single .mast{padding:0 0 9px; text-align:left;}
-  .sheet.single .mast-title{font-size:27px; line-height:1.15; letter-spacing:0; padding-right:180px;}
-  .sheet.single .mast-date{position:absolute; top:7px; right:0; margin:0; font-size:13px; line-height:1.2; letter-spacing:0;}
-  .sheet.single .grid{display:grid; flex:none; grid-template-columns:repeat(4,minmax(0,1fr)); gap:10px; --s:1;}
+  .sheet.single .mast-title{font-size:32px; line-height:1.15; letter-spacing:0; padding-right:180px;}
+  .sheet.single .mast-date{position:absolute; top:9px; right:0; margin:0; font-size:16px; line-height:1.2; letter-spacing:0;}
+  .sheet.single .grid{display:grid; flex:none; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; --s:1;}
   .sheet.single .g{break-inside:avoid; margin-bottom:8px; align-self:start;}
-  .sheet.single .g-h{font-size:20px; line-height:1.2; padding:4px 5px; margin-bottom:2px; border-radius:2px; white-space:normal; overflow:visible; box-shadow:none;}
+  .sheet.single .g-h{font-size:24px; line-height:1.2; padding:4px 5px; margin-bottom:2px; border-radius:2px; white-space:normal; overflow:visible; box-shadow:none;}
   .sheet.single .g-list{padding:0;}
-  .sheet.single .g-list li{padding:3px 5px; margin:0; break-inside:avoid;}
+  .sheet.single .g-list li{padding:2px 5px; margin:0; break-inside:avoid;}
   .sheet.single .g-list li:nth-child(even){background:#F2F3F5;}
-  .sheet.single .n{font-size:24px; line-height:1.3; font-weight:900; letter-spacing:0; white-space:normal;}
-  .sheet.single .details{display:block; margin-top:5px; font-size:20px; line-height:1.18; overflow-wrap:anywhere;}
-  .sheet.single .company{display:inline; font-size:20px; line-height:inherit; font-weight:500; color:#202127;}
-  .sheet.single .position{display:inline; font-size:20px; line-height:inherit; color:#454A54;}
-  .sheet.single .detail-sep{color:#777C86; font-size:20px;}
+  .sheet.single .n{font-size:29px; line-height:1.2; font-weight:900; letter-spacing:0; white-space:normal;}
+  .sheet.single .details{display:block; margin-top:2px; font-size:24px; line-height:1.15; overflow-wrap:anywhere;}
+  .sheet.single .company{display:inline; font-size:24px; line-height:inherit; font-weight:500; color:#202127;}
+  .sheet.single .position{display:inline; font-size:24px; line-height:inherit; color:#454A54;}
+  .sheet.single .detail-sep{color:#777C86; font-size:24px;}
   .sheet.single .foot{display:none;}
   .sheet.single .large-brand{display:block; font-size:22px; line-height:1; font-weight:900; color:var(--red);}
   .sheet.single .foot-qr{gap:5px;}
   .sheet.single .foot-qr canvas{width:30px; height:30px; border:0;}
   .sheet.single .foot-qr span{font-size:10px; line-height:1.2; letter-spacing:0;}
   @media print{.sheet.single, .sheet.single.exporting{margin:0; box-shadow:none;}}
+  /* 橫式完整單張在螢幕上:2200px 的版面整張縮進視窗,手機會縮到 0.17 倍(字約 3px)。
+     視窗不夠寬時改成依寬度自動排欄的閱讀版,字級固定;存圖與列印加上 .exporting,
+     仍是 2200px 寬的五欄橫式。欄位 div 用 display:contents 攤平,各組以 --i 排回 A→I 原順序。 */
+  @media screen and (max-width:1799px){
+    .sheet.single:not(.exporting){width:calc(100% - 24px); max-width:1500px; padding:16px;}
+    .sheet.single:not(.exporting) .mast-title{font-size:22px; line-height:1.4; padding-right:0;}
+    .sheet.single:not(.exporting) .mast-date{position:static; margin-top:4px; font-size:14px;}
+    .sheet.single:not(.exporting) .grid{grid-template-columns:repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap:14px; align-items:start;}
+    .sheet.single:not(.exporting) .single-column{display:contents;}
+    .sheet.single:not(.exporting) .g{order:var(--i); margin-bottom:0;}
+    .sheet.single:not(.exporting) .g-h{font-size:18px; padding:6px 8px; margin-bottom:4px;}
+    .sheet.single:not(.exporting) .n{font-size:19px;}
+    .sheet.single:not(.exporting) .details,
+    .sheet.single:not(.exporting) .company,
+    .sheet.single:not(.exporting) .position,
+    .sheet.single:not(.exporting) .detail-sep{font-size:16px;}
+    .sheet.single:not(.exporting) .details{margin-top:3px; line-height:1.4;}
+    .sheet.single:not(.exporting) .g-list li{padding:6px 8px;}
+  }
+  /* 螢幕放大用的 zoom 只給畫面看;列印一律回到原尺寸。 */
+  @media print{.sheet{zoom:1 !important;}}
 </style>
 <style id="large-page-size"></style>
 </head>
@@ -376,9 +403,14 @@
   function setScale(v){ scale = v; grid.style.setProperty("--s", scale.toFixed(2)); }
   function balanceSingle(){
     var blocks = Array.prototype.slice.call(grid.querySelectorAll(".g"));
+    blocks.forEach(function(el, i){ el.style.setProperty("--i", i); });
+    // 依存圖時的五欄寬度量高度,螢幕上的閱讀版欄寬不同,量了會分錯欄。
+    var wasExporting = sheet.classList.contains("exporting");
+    sheet.classList.add("exporting");
     var heights = blocks.map(function(el){ return el.getBoundingClientRect().height + 8; });
-    var columns = [0, 1, 2, 3].map(function(){ var col = document.createElement("div"); col.className = "single-column"; return col; });
-    var totals = [0, 0, 0, 0];
+    if(!wasExporting) sheet.classList.remove("exporting");
+    var columns = [0, 1, 2, 3, 4].map(function(){ var col = document.createElement("div"); col.className = "single-column"; return col; });
+    var totals = [0, 0, 0, 0, 0];
     // 先放內容最高的小組減少欄底留白，再按組別原順序整理各欄。
     blocks.map(function(el, i){ return i; }).sort(function(a,b){ return heights[b] - heights[a]; }).forEach(function(i){
       var col = totals.indexOf(Math.min.apply(null, totals));
@@ -394,18 +426,26 @@
     sheet.style.zoom = "";
     if(mode === "public-single"){
       setScale(1);
-      if(!sheet.classList.contains("exporting") && !window.matchMedia("print").matches)
+      if(!sheet.classList.contains("exporting") && !window.matchMedia("print").matches &&
+         window.matchMedia("(min-width:1800px)").matches)
         sheet.style.zoom = String(Math.min(1, Math.max(0.1, (window.innerWidth - 16) / 2200)));
       return;
     }
     if(mode === "public-large"){ setScale(1); return; }
     if(!sheet.classList.contains("exporting") && !window.matchMedia("print").matches &&
-       window.matchMedia("(max-width:900px)").matches){ setScale(1); return; }
+       window.matchMedia("(max-width:900px)").matches){ setScale(1.5); return; }
     guard = 0; setScale(1);
     while(overflowPx() > 2 && scale > 0.6 && guard < 26){ setScale(scale - 0.03); guard++; }
     guard = 0;
-    while(overflowPx() < -30 && scale < 1.6 && guard < 40){ setScale(scale + 0.02); guard++; }
-    if(overflowPx() > 2 && scale > 0.64) setScale(scale - 0.02);
+    while(overflowPx() < -2 && scale < 1.6 && guard < 80){ setScale(scale + 0.01); guard++; }
+    if(overflowPx() > 2 && scale > 0.61) setScale(scale - 0.01);
+    /* 內部表海報固定 297mm(約 1123px)寬,大螢幕上整張等比放大到填滿視窗寬:版面與存圖/列印
+       完全相同,只是字跟著變大。縮放在量完溢出之後才套,不影響上面的排版計算。
+       舊六欄對外圖字級被壓到 0.6 倍,放大 1.25 倍也只有 7px,改看「橫式完整單張」才是解,這裡不放大。 */
+    if(mode === "internal" && !sheet.classList.contains("exporting") && !window.matchMedia("print").matches){
+      var z = Math.min(1.6, (window.innerWidth - 32) / sheet.offsetWidth);
+      if(z > 1) sheet.style.zoom = z.toFixed(3);
+    }
   }
   render();
   modeSelect.addEventListener("change", function(){

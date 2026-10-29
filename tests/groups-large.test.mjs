@@ -23,7 +23,8 @@ for (const item of result.groups) {
 }
 if (!process.env.GROUPS_PREVIEW_ONLY) {
   assert.equal(result.groups.length, groups.length);
-  assert.equal(result.groups.reduce((n, g) => n + g.rows.length, 0), 89);
+  // 人數跟著 data.js 走:自動同步新增夥伴不該讓測試失效。
+  assert.equal(result.groups.reduce((n, g) => n + g.rows.length, 0), groups.reduce((n, g) => n + g.members.length, 0));
   assert.equal(result.pdfPages, groups.length);
   assert.ok(result.regressions.missingPosition);
   assert.ok(result.regressions.correctedName);
