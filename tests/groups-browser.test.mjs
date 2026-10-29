@@ -168,7 +168,7 @@ try {
     height: el.getBoundingClientRect().height, width: el.getBoundingClientRect().width,
     lineHeight: parseFloat(getComputedStyle(el).lineHeight), fontSize: getComputedStyle(el).fontSize,
     scale: getComputedStyle(document.getElementById("grid")).getPropertyValue("--s"),
-    font: document.fonts.check("12px 'Noto Sans TC'")
+    text: el.textContent, lines: el.getClientRects().length, ua: navigator.userAgent
   }));
   assert.ok(wrap.height > wrap.lineHeight * 1.5, "長公司名必須實際跨行，不能只驗短字串: " + JSON.stringify(wrap));
   assert.equal(await page.locator(".n").first().innerText(), "曾俊楷");
