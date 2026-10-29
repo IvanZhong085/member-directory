@@ -164,9 +164,13 @@ try {
   await ready("?view=public");
   await page.locator("#mast-title").fill("版面測試（合成資料，非實際姓名更正）");
   await fits("長公司名與更正姓名不可溢出");
-  assert.ok(await page.locator(".company").first().evaluate(el =>
-    el.getBoundingClientRect().height > parseFloat(getComputedStyle(el).lineHeight) * 1.5
-  ), "長公司名必須實際跨行，不能只驗短字串");
+  const wrap = await page.locator(".company").first().evaluate(el => ({
+    height: el.getBoundingClientRect().height, width: el.getBoundingClientRect().width,
+    lineHeight: parseFloat(getComputedStyle(el).lineHeight), fontSize: getComputedStyle(el).fontSize,
+    scale: getComputedStyle(document.getElementById("grid")).getPropertyValue("--s"),
+    font: document.fonts.check("12px 'Noto Sans TC'")
+  }));
+  assert.ok(wrap.height > wrap.lineHeight * 1.5, "長公司名必須實際跨行，不能只驗短字串: " + JSON.stringify(wrap));
   assert.equal(await page.locator(".n").first().innerText(), "曾俊楷");
   assert.match(await page.locator(".position").first().innerText(), /職位待確認/);
   assert.ok(!(await page.locator(".sheet").innerText()).includes("PRIVATE-"));
