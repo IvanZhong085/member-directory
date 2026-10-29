@@ -106,13 +106,13 @@ export async function renderSingleOverview() {
     assert.equal(rows.filter(r => !r.position).length, 2);
     assert.equal(await page.locator(".leader, .recruit, .sheet .t").count(), 0);
     await noClipping("單張桌面閱讀版不得重疊、裁字或拆組");
-    // 螢幕寬度不足 1800px 時顯示依寬度排欄的閱讀版;橫式 2200px 四欄只在存圖/列印(.exporting)時出現,在那個版面下量。
+    // 螢幕寬度不足 1800px 時顯示依寬度排欄的閱讀版;橫式 2200px 五欄只在存圖/列印(.exporting)時出現,在那個版面下量。
     await page.locator(".sheet").evaluate(el => el.classList.add("exporting"));
     await noClipping("單張存圖版面不得重疊、裁字或拆組");
     const after = await metrics();
     const columns = await page.locator("#grid .g").evaluateAll(nodes => [...new Set(nodes.map(n => Math.round(n.getBoundingClientRect().left)))]);
     await page.locator(".sheet").evaluate(el => el.classList.remove("exporting"));
-    assert.equal(columns.length, 4);
+    assert.equal(columns.length, 5);
     assert.ok(after.width / after.height > 1.25, "完整單張必須是橫式，不得旋轉或拉伸直式圖: " + JSON.stringify(after));
     for (const field of ["n", "company", "position"]) assert.ok(after.at1000px[field] / before.at1000px[field] > 1.8, "橫式相同顯示寬度仍明顯大於舊六欄字體");
     const jpg = await download("#btn-jpg", "public-single-overview.jpg");
