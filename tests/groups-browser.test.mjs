@@ -75,7 +75,7 @@ try {
     const file = await waiting;
     await file.saveAs(join(out, label + ".jpg"));
     assert.equal(await file.failure(), null);
-    assert.match(file.suggestedFilename(), label.startsWith("internal") ? /_產業小組表\.jpg$/ : /_對外產業小組圖\.jpg$/);
+    assert.match(file.suggestedFilename(), label.startsWith("internal") ? /_產業小組表_第[12]張\.jpg$/ : /_對外產業小組圖\.jpg$/);
     const bytes = (await readFile(join(out, label + ".jpg"))).toString("base64");
     const dimensions = await page.evaluate(data => new Promise((resolve, reject) => {
       const image = new Image();
@@ -88,16 +88,51 @@ try {
   }
 
   await ready();
-  assert.equal(await page.locator(".g").count(), groups.length);
-  assert.equal(await page.locator(".n").count(), count);
+  assert.equal(await page.locator(".g").count(), 6);
+  assert.equal(await page.locator("#internal-page-select option").count(), 2);
+  assert.equal(await page.locator(".n").count(), groups.slice(0,6).reduce((n,g)=>n+g.members.length,0));
+  const groupCodes = () => page.locator("#grid .g-h").evaluateAll(nodes=>nodes.map(el=>el.textContent.split("/")[0]));
+  assert.deepEqual(await groupCodes(), groups.slice(0,6).map(g=>g.code));
   assert.match(await page.locator("#mast-title").innerText(), /成交破億/);
   assert.ok(await page.locator(".leader").count());
   assert.ok(await page.locator(".recruit").count());
   assert.equal(await page.locator(".company").count(), 0);
   const internalRows = await page.locator("#grid").innerHTML();
-  await fits("內部原版不可溢出");
-  await download("internal");
+  await fits("內部第一張不可溢出");
+  await download("internal-1");
+  await page.locator(".sheet").screenshot({path:join(out,"internal-1-desktop.png")});
   await page.locator("#mast-title").fill("自訂內部標題");
+  await page.locator("#sheet-date").fill("2026 /11/23");
+  await page.locator("#internal-page-select").selectOption("2");
+  assert.deepEqual(await groupCodes(), groups.slice(6).map(g=>g.code));
+  assert.equal(new URL(page.url()).searchParams.get("page"), "2");
+  assert.equal(await page.locator("#mast-title").innerText(), "自訂內部標題");
+  assert.equal(await page.locator("#sheet-date").innerText(), "2026 /11/23");
+  await fits("內部第二張不可溢出");
+  await download("internal-2");
+  await page.locator(".sheet").screenshot({path:join(out,"internal-2-desktop.png")});
+  await page.emulateMedia({media:"print"});
+  await page.evaluate(()=>window.dispatchEvent(new Event("beforeprint")));
+  assert.equal(await page.locator("#large-print .sheet").count(),2);
+  assert.deepEqual(await page.locator("#large-print .g-h").evaluateAll(nodes=>nodes.map(el=>el.textContent.split("/")[0])),groups.map(g=>g.code));
+  assert.equal(await page.locator("#large-print .n").count(),count);
+  assert.deepEqual(await page.locator("#large-print .sheet").evaluateAll(sheets=>sheets.flatMap(sheet=>{
+    const bottom=sheet.querySelector(".grid").getBoundingClientRect().bottom;
+    return [...sheet.querySelectorAll(".g")].filter(g=>g.getBoundingClientRect().bottom>bottom+3).map(g=>g.textContent);
+  })),[],"兩張列印頁都不能溢出");
+  await page.pdf({path:join(out,"internal-two-pages.pdf"),preferCSSPageSize:true,printBackground:true});
+  const internalPdf=await readFile(join(out,"internal-two-pages.pdf"));
+  assert.equal([...internalPdf.toString("latin1").matchAll(/\/Type\s*\/Page\b/g)].length,2,"內部 PDF 必須恰好兩頁");
+  await page.emulateMedia({media:"screen"});
+  await page.evaluate(()=>window.dispatchEvent(new Event("afterprint")));
+  assert.equal(await page.locator("#large-print .sheet").count(),0);
+  assert.equal(await page.locator("#internal-page-select").inputValue(),"2","列印後保留目前頁次");
+  await page.setViewportSize({width:390,height:844});
+  await fits("內部手機版不可溢出");
+  await download("internal-2-mobile");
+  assert.ok(await page.locator(".sheet").evaluate(el=>el.getBoundingClientRect().width<=390));
+  await page.setViewportSize({width:1400,height:950});
+  await page.locator("#internal-page-select").selectOption("1");
 
   await page.locator("#view-mode").selectOption("public");
   assert.match(await page.title(), /^對外產業小組圖/);
@@ -134,7 +169,7 @@ try {
   await page.emulateMedia({ media: "screen" });
   await page.evaluate(() => window.dispatchEvent(new Event("afterprint")));
   await page.locator("#view-mode").selectOption("internal");
-  assert.equal(await page.locator("#grid").innerHTML(), internalRows, "切回內部要還原全部列");
+  assert.equal(await page.locator("#grid").innerHTML(), internalRows, "切回內部要還原目前頁次的全部列");
   assert.equal(await page.locator("#mast-title").innerText(), "自訂內部標題", "切換版本要保留使用者自訂標題");
 
   await page.setViewportSize({ width: 390, height: 844 });

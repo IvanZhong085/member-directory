@@ -1,4 +1,4 @@
-# 產業小組表(groups.html)渲染成 groups.jpg,給 LINE bot 等外部系統直接取用。
+# 對內產業小組表依目前順序拆成兩張 JPG,每張六組,給 LINE bot 等外部系統直接取用。
 #
 # 觸發時機:
 #   • 「同步網站資料」跑完 —— data.js 是那個 workflow 用 GITHUB_TOKEN 提交的,
@@ -6,7 +6,7 @@
 #   • groups.html / 底圖 / 站台設定 被人直接修改(版面變了,圖也要跟著變)。
 #   • 手動(workflow_dispatch),會強制重畫。
 #
-# 產出 groups.jpg + groups.json 由 GITHUB_TOKEN 提交,不會再觸發其他 workflow。
+# 產出 groups.jpg + groups-2.jpg + groups.json 由 GITHUB_TOKEN 提交,不會再觸發其他 workflow。
 # 名錄版本沒變時工具會自己跳過,不會只因為日期不同就多一筆提交。
 name: 渲染產業小組表
 
@@ -67,12 +67,12 @@ jobs:
 
           for attempt in 1 2 3; do
             node tools/render-groups.mjs
-            git add groups.jpg groups.json
+            git add groups.jpg groups-2.jpg groups.json
             if git diff --cached --quiet; then
               echo "沒有變更,不需提交。"
               exit 0
             fi
-            git commit -m "自動渲染:產業小組表 groups.jpg"
+            git commit -m "自動渲染:產業小組表兩張 JPG"
             if git push origin HEAD:main; then
               echo "已提交(第 $attempt 次嘗試)。"
               exit 0

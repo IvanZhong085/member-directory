@@ -1,8 +1,39 @@
 {
   "dataVersion": "f54afb67",
-  "renderedAt": "2026-10-29T00:51:22.447Z",
+  "layout": "internal-six-per-page-v3",
+  "renderedAt": "2026-11-23T14:12:28.008Z",
   "image": "groups.jpg",
-  "width": 2734,
-  "height": 1538,
-  "groups": 12
+  "width": 2248,
+  "height": 1264,
+  "groups": 12,
+  "images": [
+    {
+      "image": "groups.jpg",
+      "width": 2248,
+      "height": 1264,
+      "groups": 6,
+      "groupCodes": [
+        "A1",
+        "A2",
+        "B1",
+        "B2",
+        "C",
+        "D1"
+      ]
+    },
+    {
+      "image": "groups-2.jpg",
+      "width": 2248,
+      "height": 1264,
+      "groups": 6,
+      "groupCodes": [
+        "D2",
+        "E",
+        "F",
+        "G",
+        "H",
+        "I"
+      ]
+    }
+  ]
 }

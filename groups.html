@@ -84,6 +84,9 @@
     align-content:start; --s:1;
   }
   .g{min-width:0;}
+  .sheet.internal .grid{grid-template-columns:repeat(3, minmax(0, 1fr));}
+  .internal-caption{display:none; margin:2px 0 5px; font-size:12px; font-weight:700; color:var(--muted);}
+  .sheet.internal .internal-caption{display:block;}
   .g-h{
     background:var(--gc, var(--c-blue));
     border-radius:4px; padding:calc(2.5px * var(--s)) 4px;
@@ -108,6 +111,16 @@
   /* 招募席位:紅字,無姓名、對齊專業別欄 */
   li.recruit{padding-left:calc(46px * var(--s));}
   li.recruit .t{color:var(--recruit); font-weight:700;}
+  /* 會員各佔一列，招募席位並排換行，把每張六組的空間留給大字。 */
+  .sheet.internal .g-h{
+    font-size:calc(14px * var(--s)); line-height:1.2; padding:2px 4px;
+  }
+  .sheet.internal .g-list{display:flex; flex-wrap:wrap; column-gap:.85em;}
+  .sheet.internal .g-list li{
+    width:100%; padding:0; font-size:calc(13px * var(--s)); line-height:var(--member-leading, 1.22);
+  }
+  .sheet.internal .g-list .recruit{width:auto; max-width:100%;}
+  .sheet.internal .t{overflow-wrap:anywhere;}
   .sheet.public .g-list li{
     display:block; padding:calc(1px * var(--s)) 0; line-height:1.12;
   }
@@ -149,7 +162,7 @@
        存 JPG 與列印都會先釘回桌面版面,所以產出物永遠帶底圖。 */
     .sheet{width:100%; height:auto; min-height:0; padding:14px;}
     .sheet-bg{display:none;}
-    .grid{grid-template-columns:repeat(2, 1fr);}
+    .grid, .sheet.internal:not(.exporting) .grid{grid-template-columns:repeat(2, 1fr);}
     .mast-date{position:static; display:block; margin-top:4px;}
     /* 字級由 fit() 把 --s 放大到 1.5(約 15px);手機寬度兩欄塞不下這個字級,改一欄。 */
     .sheet:not(.exporting) .mast-title{font-size:22px;}
@@ -161,10 +174,11 @@
      產出的會是直式長圖、甚至高度超過瀏覽器 canvas 上限而失敗 —— 偏偏這功能就是為
      iOS Safari/手機使用者而存在。這些選擇器比 @media screen 規則更具體,故能覆蓋它。
      (桌面本來就是這個版面,套上去沒有任何變化。) */
-  @media screen and (max-width:560px){ .grid{grid-template-columns:1fr;} }
+  @media screen and (max-width:560px){ .grid, .sheet.internal:not(.exporting) .grid{grid-template-columns:1fr;} }
   .sheet.exporting{width:297mm; height:167.06mm; min-height:0; padding:3mm 7mm 22mm;}
   .sheet.exporting .sheet-bg{display:block;}
   .sheet.exporting .grid{grid-template-columns:repeat(6, 1fr);}
+  .sheet.internal.exporting .grid{grid-template-columns:repeat(3, minmax(0, 1fr));}
   .sheet.exporting .mast-date{position:absolute; right:150px; top:8px; margin-top:0; display:block;}
   .sheet.exporting .foot{position:absolute; top:2.5mm; right:7mm; margin-top:0;}
   [hidden]{display:none !important;}
@@ -270,6 +284,10 @@
     <option value="public">對外產業小組圖｜舊六欄總覽</option>
     <option value="public-large">對外產業小組圖｜每組大字版</option>
   </select>
+  <span id="internal-page-picker" hidden>
+    <label class="mode-label" for="internal-page-select">內部圖頁次</label>
+    <select class="tbtn" id="internal-page-select"></select>
+  </span>
   <span id="group-picker" hidden>
     <label class="mode-label" for="group-select">產業小組</label>
     <select class="tbtn" id="group-select"></select>
@@ -292,6 +310,7 @@
   <img class="sheet-bg" src="group-sheet-bg.svg?v=1" alt="" aria-hidden="true">
   <header class="mast">
     <h1 class="mast-title" id="mast-title" contenteditable="true" spellcheck="false"></h1>
+    <div class="internal-caption"></div>
     <div class="mast-date" id="sheet-date" contenteditable="true" spellcheck="false"></div>
   </header>
   <div class="grid" id="grid"></div>
@@ -309,7 +328,7 @@
 <script src="data.js?v=f54afb67"></script>
 <script src="data-fresh.js?v=1"></script>
 <script src="qrcode.js"></script>
-<script src="groups-view.js?v=1"></script>
+<script src="groups-view.js?v=2"></script>
 <script>
 (function(){
   "use strict";
@@ -318,6 +337,9 @@
   var total = GROUPS.reduce(function(n,g){ return n + g.members.length; }, 0);
   var requestedMode = new URL(location.href).searchParams.get("view");
   var mode = ["public", "public-large", "public-single"].indexOf(requestedMode) >= 0 ? requestedMode : "internal";
+  var internalPages = GroupSheet.internalPages(GROUPS);
+  var requestedPage = Number(new URL(location.href).searchParams.get("page"));
+  var internalPage = Number.isInteger(requestedPage) && requestedPage >= 1 && requestedPage <= internalPages.length ? requestedPage : 1;
   var requestedGroup = new URL(location.href).searchParams.get("group");
   var groupCode = GROUPS.some(function(g){ return g.code === requestedGroup; }) ? requestedGroup : GROUPS[0].code;
   var titles = {
@@ -328,6 +350,14 @@
   };
   var modeSelect = document.getElementById("view-mode");
   var groupSelect = document.getElementById("group-select");
+  var internalPageSelect = document.getElementById("internal-page-select");
+  function internalCaption(index){
+    var groups = internalPages[index];
+    return "第 " + (index + 1) + "／" + internalPages.length + " 張｜" + groups[0].code + "–" + groups[groups.length - 1].code + "｜" + groups.length + " 組";
+  }
+  internalPageSelect.innerHTML = internalPages.map(function(groups, i){
+    return '<option value="' + (i + 1) + '">' + esc(internalCaption(i)) + "</option>";
+  }).join("");
   groupSelect.innerHTML = GROUPS.map(function(g){
     return '<option value="' + esc(g.code) + '">' + esc(g.code + "／" + g.name) + "</option>";
   }).join("");
@@ -341,19 +371,26 @@
     var external = mode !== "internal", large = mode === "public-large", single = mode === "public-single";
     modeSelect.value = mode;
     groupSelect.value = groupCode;
+    internalPageSelect.value = String(internalPage);
+    document.getElementById("internal-page-picker").hidden = external;
+    document.getElementById("btn-jpg").textContent = external ? "🖼 存成 JPG" : "🖼 存第 " + internalPage + " 張 JPG";
+    document.getElementById("btn-print").textContent = external ? "🖨 列印/存 PDF" : "🖨 全部 " + internalPages.length + " 張列印/存 PDF";
     document.getElementById("group-picker").hidden = !large;
     document.getElementById("btn-print-all").hidden = !large;
     document.getElementById("btn-png").hidden = !single;
     document.querySelector(".toolbar .tip").textContent = single ?
       "橫式完整單張：姓名下列出公司與已填職稱，可存 JPG／PNG 或單頁橫式 PDF。" : large ?
       "每組一張大字長圖。姓名、公司、職位完整換行；可選組存 JPG，或將全部小組存為多頁 PDF。" :
-      "標題與日期可點一下改字；總覽可存 JPG 或列印。";
+      external ? "標題與日期可點一下改字；總覽可存 JPG 或列印。" :
+      "依目前順序每 6 組一張；選擇頁次分別存 JPG，列印／PDF 會包含全部頁次。標題與日期可點一下改字。";
     document.title = (external ? "對外產業小組圖" : "產業小組表") + "｜" + SITE.ORG_NAME;
+    sheet.classList.toggle("internal", !external);
     sheet.classList.toggle("public", external);
     sheet.classList.toggle("large", large);
     sheet.classList.toggle("single", single);
     document.getElementById("mast-title").innerHTML = titles[mode];
-    grid.innerHTML = GroupSheet.renderGroups(large ? GROUPS.filter(function(g){ return g.code === groupCode; }) : GROUPS,
+    sheet.querySelector(".internal-caption").textContent = internalCaption(internalPage - 1);
+    grid.innerHTML = GroupSheet.renderGroups(!external ? internalPages[internalPage - 1] : large ? GROUPS.filter(function(g){ return g.code === groupCode; }) : GROUPS,
       single ? "public-single" : external ? "public" : "internal");
     if(single) balanceSingle();
     status.dataset.state = "ready";
@@ -392,15 +429,35 @@
   var grid = document.getElementById("grid");
   var sheet = document.querySelector(".sheet");
   var scale = 1, guard = 0;
-  function overflowPx(){
+  function overflowPx(targetGrid){
+    targetGrid = targetGrid || grid;
     var mx = 0;
-    document.querySelectorAll(".g").forEach(function(e){
+    targetGrid.querySelectorAll(".g").forEach(function(e){
       var b = e.getBoundingClientRect().bottom;
       if(b > mx) mx = b;
     });
-    return mx - grid.getBoundingClientRect().bottom;
+    return mx - targetGrid.getBoundingClientRect().bottom;
   }
-  function setScale(v){ scale = v; grid.style.setProperty("--s", scale.toFixed(2)); }
+  function setScale(v, targetGrid){ scale = v; (targetGrid || grid).style.setProperty("--s", scale.toFixed(2)); }
+  function fitGrid(targetGrid){
+    if(targetGrid.closest(".sheet.internal")){
+      // 以原第二張的字級排版；列印的 279mm 版心依比例縮小。
+      var targetScale = targetGrid.closest("#large-print") ? 1.25 * 279 / 297 : 1.25;
+      setScale(targetScale, targetGrid);
+      targetGrid.style.removeProperty("--member-leading");
+      if(overflowPx(targetGrid) > 2){
+        targetGrid.style.setProperty("--member-leading", "1.16");
+        // 日後會員增加時，先收行距，仍放不下才逐步縮字。
+        while(overflowPx(targetGrid) > 2 && scale > 0.6) setScale(scale - 0.01, targetGrid);
+      }
+      return;
+    }
+    guard = 0; setScale(1, targetGrid);
+    while(overflowPx(targetGrid) > 2 && scale > 0.6 && guard < 26){ setScale(scale - 0.03, targetGrid); guard++; }
+    guard = 0;
+    while(overflowPx(targetGrid) < -2 && scale < 1.6 && guard < 80){ setScale(scale + 0.01, targetGrid); guard++; }
+    if(overflowPx(targetGrid) > 2 && scale > 0.61) setScale(scale - 0.01, targetGrid);
+  }
   function balanceSingle(){
     var blocks = Array.prototype.slice.call(grid.querySelectorAll(".g"));
     blocks.forEach(function(el, i){ el.style.setProperty("--i", i); });
@@ -424,6 +481,7 @@
   }
   function fit(){
     sheet.style.zoom = "";
+    grid.style.removeProperty("--member-leading");
     if(mode === "public-single"){
       setScale(1);
       if(!sheet.classList.contains("exporting") && !window.matchMedia("print").matches &&
@@ -434,11 +492,7 @@
     if(mode === "public-large"){ setScale(1); return; }
     if(!sheet.classList.contains("exporting") && !window.matchMedia("print").matches &&
        window.matchMedia("(max-width:900px)").matches){ setScale(1.5); return; }
-    guard = 0; setScale(1);
-    while(overflowPx() > 2 && scale > 0.6 && guard < 26){ setScale(scale - 0.03); guard++; }
-    guard = 0;
-    while(overflowPx() < -2 && scale < 1.6 && guard < 80){ setScale(scale + 0.01); guard++; }
-    if(overflowPx() > 2 && scale > 0.61) setScale(scale - 0.01);
+    fitGrid(grid);
     /* 內部表海報固定 297mm(約 1123px)寬,大螢幕上整張等比放大到填滿視窗寬:版面與存圖/列印
        完全相同,只是字跟著變大。縮放在量完溢出之後才套,不影響上面的排版計算。
        舊六欄對外圖字級被壓到 0.6 倍,放大 1.25 倍也只有 7px,改看「橫式完整單張」才是解,這裡不放大。 */
@@ -456,6 +510,16 @@
     else url.searchParams.delete("view");
     if(mode === "public-large") url.searchParams.set("group", groupCode);
     else url.searchParams.delete("group");
+    if(mode === "internal") url.searchParams.set("page", internalPage);
+    else url.searchParams.delete("page");
+    history.replaceState(null, "", url.href);
+    render();
+  });
+  internalPageSelect.addEventListener("change", function(){
+    titles[mode] = document.getElementById("mast-title").innerHTML;
+    internalPage = Number(internalPageSelect.value);
+    var url = new URL(location.href);
+    url.searchParams.set("page", internalPage);
     history.replaceState(null, "", url.href);
     render();
   });
@@ -476,6 +540,24 @@
   function setPrintSize(height, width){
     document.getElementById("large-page-size").textContent =
       "@page{size:" + (width || 390) + "px " + Math.ceil(height + 2) + "px;margin:0;}";
+  }
+  function prepareInternalPrint(){
+    clearPrintAll();
+    var container = document.getElementById("large-print");
+    internalPages.forEach(function(groups, i){
+      var copy = sheet.cloneNode(true);
+      copy.classList.add("exporting");
+      copy.style.cssText = "zoom:1;width:279mm;height:156.94mm;padding:3mm 6.5mm 20.7mm;margin:0";
+      copy.querySelector(".grid").innerHTML = GroupSheet.renderGroups(groups, "internal");
+      copy.querySelector(".internal-caption").textContent = internalCaption(i);
+      copy.querySelectorAll("[id]").forEach(function(el){ el.removeAttribute("id"); });
+      copy.querySelector("canvas").getContext("2d").drawImage(document.getElementById("foot-qr-canvas"), 0, 0);
+      container.appendChild(copy);
+    });
+    container.style.cssText = "display:block;position:absolute;left:-10000px;top:0";
+    container.querySelectorAll(".grid").forEach(fitGrid);
+    container.style.cssText = "";
+    document.body.classList.add("print-all");
   }
   function printAll(){
     if(mode !== "public-large") return;
@@ -503,6 +585,7 @@
   }
   document.getElementById("btn-print-all").addEventListener("click", printAll);
   window.addEventListener("beforeprint", function(){
+    if(mode === "internal"){ prepareInternalPrint(); return; }
     if(mode === "public-single"){
       sheet.classList.add("exporting"); fit();
       setPrintSize(sheet.getBoundingClientRect().height, 2200);
@@ -657,7 +740,7 @@
       var name = (SITE.ORG_NAME || "產業小組表").replace(/[\\/:*?"<>|]/g, "") +
         (mode === "public-single" ? "_對外產業小組完整單張.jpg" :
           mode === "public-large" ? "_" + groupCode + "_對外產業小組大字圖.jpg" :
-          mode === "public" ? "_對外產業小組圖.jpg" : "_產業小組表.jpg");
+          mode === "public" ? "_對外產業小組圖.jpg" : "_產業小組表_第" + internalPage + "張.jpg");
       if(png) name = name.replace(/\.jpg$/, ".png");
       var done = function(url, revoke){
         var a = document.createElement("a");

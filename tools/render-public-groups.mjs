@@ -144,7 +144,8 @@ export async function renderPublicGroups(options = {}) {
       assert.ok(!rows.some(r => r.name === "易紅褔" || r.name === "楊淑媚"));
       result.regressions.correctedName = true;
       await page.locator("#view-mode").selectOption("internal");
-      assert.equal(await page.locator(".g").count(), groups.length);
+      assert.equal(await page.locator(".g").count(), Math.min(6, groups.length));
+      assert.equal(await page.locator("#internal-page-select option").count(), Math.ceil(groups.length / 6));
       assert.ok(await page.locator(".leader").count());
       assert.ok(await page.locator(".recruit").count());
       assert.equal(await page.locator(".company").count(), 0);

@@ -693,7 +693,7 @@ setupPhotoCleanupTrigger()   // 確認沒問題再排定，每月 1 號凌晨執
 - **鐘文成**（A1・205）原始投影片沒有照片，顯示「照片待補」。
 - **蕭淑芬**（F・000）原始投影片內容與另一位成員重複，已標記 `dataIssue`，待本人確認。
 
-## 產業小組表的圖片版（groups.jpg）
+## 產業小組表的圖片版（groups.jpg、groups-2.jpg）
 
 公司及獨立公司職稱已整合進會員主資料：`company`／`companyPosition`；`title` 保留為專業別。
 管理頁可編輯公司內職稱，暫存、備份、CSV 和重建 `data.js` 都會保留。
@@ -707,7 +707,10 @@ setupPhotoCleanupTrigger()   // 確認沒問題再排定，每月 1 號凌晨執
 姓名下顯示公司與有來源的公司職位，缺資料明示待補；不以專業別或 BNI 職務代替。
 選擇小組後存成 1170px 寬的 JPG 長圖，或按「全部小組存 PDF」輸出每組一頁的長頁 PDF。
 姓名／公司／職位固定 28／20／18px，長公司完整換行並增加圖片高度；沒有縮字或省略名稱。
-工具列仍保留內部原圖及 `groups.html?view=public` 對外總覽，總覽為 16:9 JPG／A4 橫式 PDF。
+內部產業小組表 `groups.html` 依目前組別順序拆成兩張：前 6 組一張、後 6 組一張，每張 3 欄 × 2 列。
+工具列的「內部圖頁次」可切換，分別按「存第 1 張 JPG」／「存第 2 張 JPG」下載；每張保留組長藍字、招募紅字、品牌底圖與 QR。
+`groups.html?page=2` 可直接開第二張；標題與日期的修改會在兩張共用，「全部 2 張列印/存 PDF」會輸出兩頁 A4 橫式。
+工具列另保留 `groups.html?view=public` 對外總覽，對外各版本不變。
 本機批次輸出全部圖片、離線預覽及 PDF：`node tools/render-public-groups.mjs`（需 Playwright；
 `GROUPS_ARTIFACT_DIR` 指定輸出資料夾，預設系統暫存目錄）。這個工具只服務本機頁面、封鎖外部請求，
 不會把對外圖片寫入正式發布流程。來源、補資料方式與目前限制見
@@ -718,9 +721,11 @@ setupPhotoCleanupTrigger()   // 確認沒問題再排定，每月 1 號凌晨執
 
 | 檔案 | 內容 |
 |------|------|
-| `groups.jpg` | 16:9 海報,約 2245×1263,跟網頁 100% 一致(同一份 HTML/CSS/字體/底圖) |
-| `groups.json` | `{ dataVersion, renderedAt, image, width, height, groups }`;`dataVersion` 就是 `data-version.txt` 的值,外部系統比對它就知道名錄有沒有變,不用下載圖 |
+| `groups.jpg` | 內部第 1 張，依序前 6 組；16:9 海報，約 2245×1263 |
+| `groups-2.jpg` | 內部第 2 張，依序後 6 組；尺寸與第 1 張相同 |
+| `groups.json` | `images` 列出全部圖片的檔名、頁次、尺寸和組別；`groups` 是總組數。舊欄位 `image`／`width`／`height` 仍指第 1 張。`dataVersion` 是名錄資料版本，`layout` 是版型版本 |
 
-- 名錄版本沒變時不重畫、不提交(海報上印的是渲染日期,否則每次跑都會多一筆只差日期的提交)。
+- 外部系統要顯示完整名錄，請依 `groups.json` 的 `images` 逐張取圖；只讀原本 `image` 或 `groups.jpg` 會顯示前 6 組。
+- 名錄版本及版型沒變、且所有圖片都存在時不重畫、不提交(海報上印的是渲染日期,否則每次跑都會多一筆只差日期的提交)。
 - `groups.html`、底圖、`site-config.js` 被直接修改,或手動觸發 workflow 時,會強制重畫。
-- 本機測試:`python3 -m http.server 8000 &` 後執行 `node tools/render-groups.mjs`(需先 `npm i playwright` 並 `npx playwright install chromium`)。
+- 本機測試：先執行 `python3 -m http.server 8000`，再執行 `GROUPS_ARTIFACT_DIR=/tmp/member-groups FORCE=1 node tools/render-groups.mjs`（需 Playwright／Chromium；可用 `PLAYWRIGHT_MODULE`、`CHROMIUM_PATH` 指定既有安裝）。省略 `GROUPS_ARTIFACT_DIR` 會更新 repo 根目錄的正式圖片與 metadata。

@@ -20,6 +20,11 @@
     if(ch === "E" || ch === "F") return "var(--c-green)";
     return "var(--c-peach)";
   }
+  function internalPages(groups){
+    var pages = [];
+    for(var i = 0; i < groups.length; i += 6) pages.push(groups.slice(i, i + 6));
+    return pages;
+  }
   function renderGroups(groups, mode){
     var single = mode === "public-single", external = mode === "public" || single, html = "";
     groups.forEach(function(g){
@@ -48,7 +53,7 @@
     });
     return html;
   }
-  var api = { publicProfile: publicProfile, renderGroups: renderGroups };
+  var api = { publicProfile: publicProfile, renderGroups: renderGroups, internalPages: internalPages };
   if(typeof module !== "undefined") module.exports = api;
   else root.GroupSheet = api;
 })(typeof globalThis !== "undefined" ? globalThis : this);
